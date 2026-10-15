@@ -184,7 +184,7 @@ function showSettings() {
   const s = loadSettings();
   view.innerHTML = `
     <h2>设置</h2>
-    <label>API 地址<input id="url" placeholder="https://teslamate-api.example.com" value="${esc(s.apiUrl || "")}"></label>
+    <label>API 地址<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
     <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
     <button id="save" class="primary">保存并测试连接</button>
     <div id="msg"></div>`;

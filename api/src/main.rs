@@ -1,4 +1,4 @@
-//! TeslaMate read-only API. All numeric/timestamp columns are cast in SQL
+//! DriveLens API: reads TeslaMate data. All numeric/timestamp columns are cast in SQL
 //! (float8 / ISO8601 text) so the code is robust to TeslaMate's numeric & timestamp types.
 use axum::{
     extract::{Path, Query, Request, State},
@@ -144,7 +144,7 @@ fn charge_select() -> String {
           cp.duration_min::int4 AS duration_min, cp.outside_temp_avg::float8 AS outside_temp_avg
         FROM charging_processes cp
         LEFT JOIN addresses a ON a.id = cp.address_id
-        LEFT JOIN tmviewer.address_aliases al ON al.address_id = cp.address_id
+        LEFT JOIN drivelens.address_aliases al ON al.address_id = cp.address_id
         LEFT JOIN geofences g ON g.id = cp.geofence_id
         LEFT JOIN positions p ON p.id = cp.position_id"#
     )
@@ -202,8 +202,8 @@ async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> 
            JOIN cars c ON c.id = d.car_id
            LEFT JOIN addresses sa ON sa.id = d.start_address_id
            LEFT JOIN addresses ea ON ea.id = d.end_address_id
-           LEFT JOIN tmviewer.address_aliases sal ON sal.address_id = d.start_address_id
-           LEFT JOIN tmviewer.address_aliases eal ON eal.address_id = d.end_address_id
+           LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
+           LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
            LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
            LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
            LEFT JOIN positions sp ON sp.id = d.start_position_id
@@ -242,7 +242,7 @@ fn alias_select() -> String {
         r#"SELECT al.address_id::int8 AS address_id, al.name,
              COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), ''), a.display_name) AS original_name,
              to_char(al.updated_at AT TIME ZONE 'UTC', '{TS}') AS updated_at
-           FROM tmviewer.address_aliases al LEFT JOIN addresses a ON a.id = al.address_id"#
+           FROM drivelens.address_aliases al LEFT JOIN addresses a ON a.id = al.address_id"#
     )
 }
 
@@ -264,7 +264,7 @@ async fn put_alias(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM addresses WHERE id = $1").bind(id).fetch_optional(&s.db).await?;
     if exists.is_none() { return Ok(bad(StatusCode::NOT_FOUND, "address not found")); }
     sqlx::query(
-        "INSERT INTO tmviewer.address_aliases (address_id, name, updated_at) VALUES ($1, $2, now())
+        "INSERT INTO drivelens.address_aliases (address_id, name, updated_at) VALUES ($1, $2, now())
          ON CONFLICT (address_id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()",
     ).bind(id as i32).bind(name).execute(&s.db).await?;
     let row = sqlx::query_as::<_, AliasRow>(&format!("{} WHERE al.address_id = $1", alias_select()))
@@ -273,7 +273,7 @@ async fn put_alias(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json
 }
 
 async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    let r = sqlx::query("DELETE FROM tmviewer.address_aliases WHERE address_id = $1").bind(id as i32).execute(&s.db).await?;
+    let r = sqlx::query("DELETE FROM drivelens.address_aliases WHERE address_id = $1").bind(id as i32).execute(&s.db).await?;
     Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no alias") } else { StatusCode::NO_CONTENT.into_response() })
 }
 
@@ -281,12 +281,12 @@ async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<
 async fn migrate(db: &PgPool) -> anyhow::Result<()> {
     // If an admin pre-created the table (recommended for a least-privilege DB user), do nothing:
     // CREATE SCHEMA IF NOT EXISTS still requires CREATE privilege on the database.
-    let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('tmviewer.address_aliases')::text")
+    let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.address_aliases')::text")
         .fetch_one(db).await?;
     if exists.is_some() { return Ok(()); }
-    sqlx::query("CREATE SCHEMA IF NOT EXISTS tmviewer").execute(db).await?;
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS drivelens").execute(db).await?;
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS tmviewer.address_aliases (
+        "CREATE TABLE IF NOT EXISTS drivelens.address_aliases (
             address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
             name text NOT NULL CHECK (length(btrim(name)) > 0),
             updated_at timestamptz NOT NULL DEFAULT now())",

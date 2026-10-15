@@ -1,5 +1,5 @@
 export interface Settings { apiUrl: string; token: string }
-const KEY = "tm-settings";
+const KEY = "drivelens-settings";
 export function loadSettings(): Settings {
   try { return { apiUrl: "", token: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }
   catch { return { apiUrl: "", token: "" }; }

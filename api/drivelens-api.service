@@ -1,11 +1,11 @@
 [Unit]
-Description=TeslaMate read-only API
+Description=DriveLens API (TeslaMate data viewer)
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
-EnvironmentFile=/etc/teslamate-api.env
-ExecStart=/usr/local/bin/teslamate-api
+EnvironmentFile=/etc/drivelens-api.env
+ExecStart=/usr/local/bin/drivelens-api
 Restart=on-failure
 DynamicUser=yes
 NoNewPrivileges=yes

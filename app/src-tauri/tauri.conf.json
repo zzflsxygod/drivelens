@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TeslaMate Viewer",
+  "productName": "DriveLens",
   "version": "0.1.0",
-  "identifier": "com.xiaoyao.teslamateviewer",
+  "identifier": "com.zzflsxygod.drivelens",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "TeslaMate Viewer", "width": 420, "height": 820, "resizable": true }],
+    "windows": [{ "title": "DriveLens", "width": 420, "height": 820, "resizable": true }],
     "security": { "csp": null }
   },
   "bundle": {

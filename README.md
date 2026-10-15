@@ -1,18 +1,18 @@
-# TeslaMate Viewer（第三方 App）
+# DriveLens
 
-读取 TeslaMate 数据库，展示**充电记录**、**行程列表**和**行程路线地图**。
+DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的第三方 App：读取 TeslaMate 数据库，展示**充电记录**、**行程列表**和**行程路线地图**。
 
 ```
-手机 / 电脑 App (Tauri 2)  ──HTTPS + Bearer Token──>  Caddy/Nginx (443)  ──>  teslamate-api (127.0.0.1:8080)  ──>  PostgreSQL (TeslaMate)
+手机 / 电脑 App (Tauri 2)  ──HTTPS + Bearer Token──>  Caddy/Nginx (443)  ──>  drivelens-api (127.0.0.1:8080)  ──>  PostgreSQL (TeslaMate)
 ```
 
 ## 目录结构
 
 ```
-teslamate-app/
+drivelens/
 ├── api/                      # Rust Axum 只读 API（部署到 Oracle 云服务器）
 │   ├── src/main.rs
-│   └── teslamate-api.service # systemd 单元示例
+│   └── drivelens-api.service # systemd 单元示例
 ├── app/                      # Tauri 2 App（桌面 + iOS + Android）
 │   ├── index.html, src/      # 前端：Vite + TypeScript + Leaflet(OpenStreetMap)
 │   └── src-tauri/            # Tauri Rust 壳
@@ -46,13 +46,13 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 - 名称按 **地点（`addresses.id`）** 保存，同一地点的所有行程、充电记录都会显示新名称。
 - 显示优先级：**自定义名称 > TeslaMate 地理围栏（Geo-Fence）名称 > TeslaMate 自动识别的地址**。
 - 响应中带 `address_id`（充电）/ `start_address_id`、`end_address_id`（行程），以及 `alias` / `start_alias` / `end_alias`。
-- **不修改 TeslaMate 自己的表**。数据保存在独立 schema：`tmviewer.address_aliases(address_id, name, updated_at)`。API 启动时如果表不存在会自动创建。
+- **不修改 TeslaMate 自己的表**。数据保存在独立 schema：`drivelens.address_aliases(address_id, name, updated_at)`。API 启动时如果表不存在会自动创建。
 
 环境变量：
 
 | 变量 | 说明 |
 |---|---|
-| `DATABASE_URL` | 如 `postgres://teslamate_ro:密码@127.0.0.1:5432/teslamate` |
+| `DATABASE_URL` | 如 `postgres://drivelens_ro:密码@127.0.0.1:5432/teslamate` |
 | `API_TOKEN` | 至少 16 位的随机字符串，生成：`openssl rand -hex 32` |
 | `BIND_ADDR` | 默认 `127.0.0.1:8080`（只监听本机，由反向代理对外） |
 
@@ -66,8 +66,8 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 
 ```bash
 curl https://sh.rustup.rs -sSf | sh
-cd teslamate-app/api && cargo build --release
-sudo cp target/release/teslamate-api /usr/local/bin/
+cd drivelens/api && cargo build --release
+sudo cp target/release/drivelens-api /usr/local/bin/
 ```
 
 ### 2. 创建只读数据库用户（推荐）
@@ -79,23 +79,23 @@ docker compose exec database psql -U teslamate teslamate
 ```
 
 ```sql
-CREATE ROLE teslamate_ro LOGIN PASSWORD '换成强密码';
-GRANT CONNECT ON DATABASE teslamate TO teslamate_ro;
-GRANT USAGE ON SCHEMA public TO teslamate_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO teslamate_ro;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO teslamate_ro;
+CREATE ROLE drivelens_ro LOGIN PASSWORD '换成强密码';
+GRANT CONNECT ON DATABASE teslamate TO drivelens_ro;
+GRANT USAGE ON SCHEMA public TO drivelens_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO drivelens_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO drivelens_ro;
 
--- 自定义地点名称：只在独立的 tmviewer schema 里有写权限，TeslaMate 的表保持只读
-CREATE SCHEMA IF NOT EXISTS tmviewer;
-CREATE TABLE IF NOT EXISTS tmviewer.address_aliases (
+-- 自定义地点名称：只在独立的 drivelens schema 里有写权限，TeslaMate 的表保持只读
+CREATE SCHEMA IF NOT EXISTS drivelens;
+CREATE TABLE IF NOT EXISTS drivelens.address_aliases (
   address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
   name text NOT NULL CHECK (length(btrim(name)) > 0),
   updated_at timestamptz NOT NULL DEFAULT now());
-GRANT USAGE ON SCHEMA tmviewer TO teslamate_ro;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tmviewer.address_aliases TO teslamate_ro;
+GRANT USAGE ON SCHEMA drivelens TO drivelens_ro;
+GRANT SELECT, INSERT, UPDATE, DELETE ON drivelens.address_aliases TO drivelens_ro;
 ```
 
-> 表由管理员预先建好的话，API 启动时检测到表已存在就会跳过建表，所以 `teslamate_ro` 不需要建 schema 的权限（只读用户名字照旧，但它对 `tmviewer` 有写权限）。
+> 表由管理员预先建好的话，API 启动时检测到表已存在就会跳过建表，所以 `drivelens_ro` 不需要建 schema 的权限（只读用户名字照旧，但它对 `drivelens` 有写权限）。
 
 API 需要能连到数据库。在 `docker-compose.yml` 的 `database` 服务里**只映射到本机回环地址**：
 
@@ -109,26 +109,26 @@ API 需要能连到数据库。在 `docker-compose.yml` 的 `database` 服务里
 ### 3. systemd 服务
 
 ```bash
-sudo tee /etc/teslamate-api.env >/dev/null <<EOF
-DATABASE_URL=postgres://teslamate_ro:强密码@127.0.0.1:5432/teslamate
+sudo tee /etc/drivelens-api.env >/dev/null <<EOF
+DATABASE_URL=postgres://drivelens_ro:强密码@127.0.0.1:5432/teslamate
 API_TOKEN=$(openssl rand -hex 32)
 BIND_ADDR=127.0.0.1:8080
 EOF
-sudo chmod 600 /etc/teslamate-api.env
-sudo cp api/teslamate-api.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now teslamate-api
-sudo journalctl -u teslamate-api -f
-sudo cat /etc/teslamate-api.env   # 记下 API_TOKEN，填到 App 里
+sudo chmod 600 /etc/drivelens-api.env
+sudo cp api/drivelens-api.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now drivelens-api
+sudo journalctl -u drivelens-api -f
+sudo cat /etc/drivelens-api.env   # 记下 API_TOKEN，填到 App 里
 ```
 
 ### 4. HTTPS 反向代理（Caddy，自动申请证书）
 
-先把域名（如 `tm-api.example.com`）解析到服务器公网 IP。
+先把域名（如 `drivelens.example.com`）解析到服务器公网 IP。
 
 ```bash
 sudo apt install -y caddy
 sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
-tm-api.example.com {
+drivelens.example.com {
     reverse_proxy 127.0.0.1:8080
 }
 EOF
@@ -150,8 +150,8 @@ sudo netfilter-persistent save
 测试：
 
 ```bash
-curl https://tm-api.example.com/health
-curl -H "Authorization: Bearer 你的TOKEN" "https://tm-api.example.com/api/charges?limit=3"
+curl https://drivelens.example.com/health
+curl -H "Authorization: Bearer 你的TOKEN" "https://drivelens.example.com/api/charges?limit=3"
 ```
 
 ## App 开发与构建
@@ -167,7 +167,7 @@ npm run tauri build      # 打包桌面安装包（在哪个系统上打包就�
 
 Linux 需先安装：`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev build-essential`。
 
-首次打开 App 进入「设置」，填 API 地址（如 `https://tm-api.example.com`）和 Token，点「保存并测试连接」。
+首次打开 App 进入「设置」，填 API 地址（如 `https://drivelens.example.com`）和 Token，点「保存并测试连接」。
 （手机上请务必使用 HTTPS 地址，iOS/Android 默认禁止明文 HTTP。）
 
 ### Android
