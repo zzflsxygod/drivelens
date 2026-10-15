@@ -1,0 +1,17 @@
+[Unit]
+Description=TeslaMate read-only API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/teslamate-api.env
+ExecStart=/usr/local/bin/teslamate-api
+Restart=on-failure
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
