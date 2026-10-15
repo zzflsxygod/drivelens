@@ -32,3 +32,11 @@ input { display: block; width: 100%; margin-top: 4px; padding: 10px; border-radi
 .error { background: #e3193722; color: var(--red); padding: 12px; border-radius: 10px; margin-top: 10px; }
 .ok { background: #2a9d3a22; color: #2a9d3a; padding: 12px; border-radius: 10px; margin-top: 10px; }
 select { padding: 4px 8px; border-radius: 6px; }
+.place { cursor: pointer; border-bottom: 1px dashed var(--muted); }
+.place .pen { font-size: 13px; color: var(--muted); margin-left: 3px; }
+.modal { position: fixed; inset: 0; z-index: 2000; background: #0006; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--card); width: 100%; max-width: 520px; border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.sheet h3 { margin: 0 0 10px; }
+.btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.ghost { border: 1px solid #8885; background: none; color: var(--text); border-radius: 10px; padding: 10px 14px; font-size: 15px; cursor: pointer; }
+.primary.small { width: auto; padding: 10px 20px; }

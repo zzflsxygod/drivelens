@@ -36,6 +36,8 @@ struct ListParams {
     car_id: Option<i64>,
     limit: Option<i64>,
     offset: Option<i64>,
+    #[serde(skip)]
+    id: Option<i64>,
 }
 impl ListParams {
     fn limit(&self) -> i64 { self.limit.unwrap_or(50).clamp(1, 500) }
@@ -62,6 +64,9 @@ struct ChargeSummary {
     end_date: Option<String>,
     address: Option<String>,
     geofence: Option<String>,
+    address_id: Option<i64>,
+    /// user-defined alias (if any); already applied to `address`
+    alias: Option<String>,
     latitude: Option<f64>,
     longitude: Option<f64>,
     charge_energy_added: Option<f64>,
@@ -99,6 +104,10 @@ struct Drive {
     end_date: Option<String>,
     start_address: Option<String>,
     end_address: Option<String>,
+    start_address_id: Option<i64>,
+    end_address_id: Option<i64>,
+    start_alias: Option<String>,
+    end_alias: Option<String>,
     distance_km: Option<f64>,
     duration_min: Option<i32>,
     speed_max: Option<i32>,
@@ -125,8 +134,8 @@ fn charge_select() -> String {
     format!(
         r#"SELECT cp.id::int8 AS id, cp.car_id::int8 AS car_id,
           to_char(cp.start_date, '{TS}') AS start_date, to_char(cp.end_date, '{TS}') AS end_date,
-          COALESCE(g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city)) AS address,
-          g.name AS geofence,
+          COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city)) AS address,
+          g.name AS geofence, cp.address_id::int8 AS address_id, al.name AS alias,
           p.latitude::float8 AS latitude, p.longitude::float8 AS longitude,
           cp.charge_energy_added::float8 AS charge_energy_added,
           cp.charge_energy_used::float8 AS charge_energy_used,
@@ -135,6 +144,7 @@ fn charge_select() -> String {
           cp.duration_min::int4 AS duration_min, cp.outside_temp_avg::float8 AS outside_temp_avg
         FROM charging_processes cp
         LEFT JOIN addresses a ON a.id = cp.address_id
+        LEFT JOIN tmviewer.address_aliases al ON al.address_id = cp.address_id
         LEFT JOIN geofences g ON g.id = cp.geofence_id
         LEFT JOIN positions p ON p.id = cp.position_id"#
     )
@@ -179,8 +189,10 @@ async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> 
     let sql = format!(
         r#"SELECT d.id::int8 AS id, d.car_id::int8 AS car_id,
              to_char(d.start_date, '{TS}') AS start_date, to_char(d.end_date, '{TS}') AS end_date,
-             COALESCE(gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) AS start_address,
-             COALESCE(ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) AS end_address,
+             COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) AS start_address,
+             COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) AS end_address,
+             d.start_address_id::int8 AS start_address_id, d.end_address_id::int8 AS end_address_id,
+             sal.name AS start_alias, eal.name AS end_alias,
              d.distance::float8 AS distance_km, d.duration_min::int4 AS duration_min, d.speed_max::int4 AS speed_max,
              sp.battery_level::int4 AS start_battery_level, ep.battery_level::int4 AS end_battery_level,
              ((d.start_rated_range_km - d.end_rated_range_km) * c.efficiency)::float8 AS energy_kwh,
@@ -190,17 +202,96 @@ async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> 
            JOIN cars c ON c.id = d.car_id
            LEFT JOIN addresses sa ON sa.id = d.start_address_id
            LEFT JOIN addresses ea ON ea.id = d.end_address_id
+           LEFT JOIN tmviewer.address_aliases sal ON sal.address_id = d.start_address_id
+           LEFT JOIN tmviewer.address_aliases eal ON eal.address_id = d.end_address_id
            LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
            LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
            LEFT JOIN positions sp ON sp.id = d.start_position_id
            LEFT JOIN positions ep ON ep.id = d.end_position_id
-           WHERE ($1::int8 IS NULL OR d.car_id = $1) AND d.end_date IS NOT NULL
+           WHERE ($1::int8 IS NULL OR d.car_id = $1) AND ($4::int8 IS NULL OR d.id = $4) AND d.end_date IS NOT NULL
            ORDER BY d.start_date DESC LIMIT $2 OFFSET $3"#
     );
     let rows = sqlx::query_as::<_, Drive>(&sql)
-        .bind(q.car_id).bind(q.limit()).bind(q.offset())
+        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(q.id)
         .fetch_all(&s.db).await?;
     Ok(Json(rows))
+}
+
+async fn get_drive(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    let q = ListParams { car_id: None, limit: Some(1), offset: None, id: Some(id) };
+    let Json(mut rows) = list_drives(State(s), Query(q)).await?;
+    Ok(match rows.pop() {
+        Some(d) => Json(d).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response(),
+    })
+}
+
+#[derive(Serialize, FromRow)]
+struct AliasRow {
+    address_id: i64,
+    name: String,
+    original_name: Option<String>,
+    updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AliasBody { name: String }
+
+fn alias_select() -> String {
+    format!(
+        r#"SELECT al.address_id::int8 AS address_id, al.name,
+             COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), ''), a.display_name) AS original_name,
+             to_char(al.updated_at AT TIME ZONE 'UTC', '{TS}') AS updated_at
+           FROM tmviewer.address_aliases al LEFT JOIN addresses a ON a.id = al.address_id"#
+    )
+}
+
+async fn list_aliases(State(s): State<AppState>) -> ApiResult<Vec<AliasRow>> {
+    let rows = sqlx::query_as::<_, AliasRow>(&format!("{} ORDER BY al.name", alias_select()))
+        .fetch_all(&s.db).await?;
+    Ok(Json(rows))
+}
+
+fn bad(code: StatusCode, msg: &str) -> Response {
+    (code, Json(serde_json::json!({"error": msg}))).into_response()
+}
+
+async fn put_alias(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json<AliasBody>) -> Result<Response, ApiError> {
+    let name = b.name.trim();
+    if name.is_empty() || name.chars().count() > 200 {
+        return Ok(bad(StatusCode::BAD_REQUEST, "name must be 1-200 characters"));
+    }
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM addresses WHERE id = $1").bind(id).fetch_optional(&s.db).await?;
+    if exists.is_none() { return Ok(bad(StatusCode::NOT_FOUND, "address not found")); }
+    sqlx::query(
+        "INSERT INTO tmviewer.address_aliases (address_id, name, updated_at) VALUES ($1, $2, now())
+         ON CONFLICT (address_id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()",
+    ).bind(id as i32).bind(name).execute(&s.db).await?;
+    let row = sqlx::query_as::<_, AliasRow>(&format!("{} WHERE al.address_id = $1", alias_select()))
+        .bind(id as i32).fetch_one(&s.db).await?;
+    Ok(Json(row).into_response())
+}
+
+async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    let r = sqlx::query("DELETE FROM tmviewer.address_aliases WHERE address_id = $1").bind(id as i32).execute(&s.db).await?;
+    Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no alias") } else { StatusCode::NO_CONTENT.into_response() })
+}
+
+/// Our own schema; TeslaMate's tables are never modified.
+async fn migrate(db: &PgPool) -> anyhow::Result<()> {
+    // If an admin pre-created the table (recommended for a least-privilege DB user), do nothing:
+    // CREATE SCHEMA IF NOT EXISTS still requires CREATE privilege on the database.
+    let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('tmviewer.address_aliases')::text")
+        .fetch_one(db).await?;
+    if exists.is_some() { return Ok(()); }
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS tmviewer").execute(db).await?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tmviewer.address_aliases (
+            address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
+            name text NOT NULL CHECK (length(btrim(name)) > 0),
+            updated_at timestamptz NOT NULL DEFAULT now())",
+    ).execute(db).await?;
+    Ok(())
 }
 
 async fn drive_path(State(s): State<AppState>, Path(id): Path<i64>) -> ApiResult<Vec<PathPoint>> {
@@ -238,6 +329,7 @@ async fn main() -> anyhow::Result<()> {
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
+    migrate(&db).await?;
     let state = AppState { db, token: Arc::new(token) };
 
     let api = Router::new()
@@ -245,13 +337,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/charges", get(list_charges))
         .route("/charges/:id", get(get_charge))
         .route("/drives", get(list_drives))
+        .route("/drives/:id", get(get_drive))
         .route("/drives/:id/path", get(drive_path))
+        .route("/addresses/aliases", get(list_aliases))
+        .route("/addresses/:id/alias", axum::routing::put(put_alias).delete(delete_alias))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth));
 
     let app = Router::new()
         .route("/health", get(health))
         .nest("/api", api)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods([axum::http::Method::GET, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS]).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 

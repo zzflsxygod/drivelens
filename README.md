@@ -33,7 +33,20 @@ teslamate-app/
 | `GET /api/charges?car_id=&limit=&offset=` | 充电记录（时间、地点、充入/消耗 kWh、费用、起止电量、时长） |
 | `GET /api/charges/:id` | 单次充电详情 + 充电曲线（`charges` 表） |
 | `GET /api/drives?car_id=&limit=&offset=` | 行程（起止时间/地址、距离、时长、能耗 kWh、效率 Wh/km） |
+| `GET /api/drives/:id` | 单个行程 |
 | `GET /api/drives/:id/path` | 行程 GPS 轨迹（`positions` 表） |
+| `GET /api/addresses/aliases` | 所有自定义地点名称 |
+| `PUT /api/addresses/:id/alias` | 设置地点自定义名称，body：`{"name":"我家车库"}`（1–200 字） |
+| `DELETE /api/addresses/:id/alias` | 恢复默认名称 |
+
+### 自定义地点名称
+
+TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / 充电详情里点击地点名称修改。
+
+- 名称按 **地点（`addresses.id`）** 保存，同一地点的所有行程、充电记录都会显示新名称。
+- 显示优先级：**自定义名称 > TeslaMate 地理围栏（Geo-Fence）名称 > TeslaMate 自动识别的地址**。
+- 响应中带 `address_id`（充电）/ `start_address_id`、`end_address_id`（行程），以及 `alias` / `start_alias` / `end_alias`。
+- **不修改 TeslaMate 自己的表**。数据保存在独立 schema：`tmviewer.address_aliases(address_id, name, updated_at)`。API 启动时如果表不存在会自动创建。
 
 环境变量：
 
@@ -71,7 +84,18 @@ GRANT CONNECT ON DATABASE teslamate TO teslamate_ro;
 GRANT USAGE ON SCHEMA public TO teslamate_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO teslamate_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO teslamate_ro;
+
+-- 自定义地点名称：只在独立的 tmviewer schema 里有写权限，TeslaMate 的表保持只读
+CREATE SCHEMA IF NOT EXISTS tmviewer;
+CREATE TABLE IF NOT EXISTS tmviewer.address_aliases (
+  address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (length(btrim(name)) > 0),
+  updated_at timestamptz NOT NULL DEFAULT now());
+GRANT USAGE ON SCHEMA tmviewer TO teslamate_ro;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tmviewer.address_aliases TO teslamate_ro;
 ```
+
+> 表由管理员预先建好的话，API 启动时检测到表已存在就会跳过建表，所以 `teslamate_ro` 不需要建 schema 的权限（只读用户名字照旧，但它对 `tmviewer` 有写权限）。
 
 API 需要能连到数据库。在 `docker-compose.yml` 的 `database` 服务里**只映射到本机回环地址**：
 
