@@ -10,9 +10,10 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的第三�
 
 ```
 drivelens/
-├── api/                      # Rust Axum 只读 API（部署到 Oracle 云服务器）
+├── api/                      # Rust Axum API（部署到 Oracle 云服务器），含 Dockerfile
 │   ├── src/main.rs
 │   └── drivelens-api.service # systemd 单元示例
+├── deploy/                   # docker-compose 片段 + 数据库初始化 SQL
 ├── app/                      # Tauri 2 App（桌面 + iOS + Android）
 │   ├── index.html, src/      # 前端：Vite + TypeScript + Leaflet(OpenStreetMap)
 │   └── src-tauri/            # Tauri Rust 壳
@@ -58,7 +59,90 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 
 > 能耗按 TeslaMate Grafana 的算法估算：`(起始额定续航 - 结束额定续航) × cars.efficiency`。
 
-## 部署到 Oracle Cloud
+## 部署方式一（推荐）：Docker + TeslaMate 同一个 Compose + Cloudflare Tunnel
+
+镜像 `ghcr.io/zzflsxygod/drivelens-api` 支持 **linux/arm64**（Oracle Ampere）和 linux/amd64。镜像基于 distroless，非 root 用户运行，容器内监听 `0.0.0.0:8080`。
+
+**获取镜像（二选一）：**
+
+- **在服务器上直接构建（最简单）**：`git clone` 本仓库后执行 `docker build -t ghcr.io/zzflsxygod/drivelens-api:latest api/`，ARM 服务器上构建出来的就是 arm64 镜像。
+- **GitHub Actions 自动构建并推送到 GHCR**：工作流文件在 `deploy/github-actions-docker.yml`，把它移动到 `.github/workflows/docker.yml` 并推送即可启用（推送 workflow 文件需要 token 带 `workflow` 权限，例如先执行 `gh auth refresh -s workflow`）。之后每次推送到 main 或打 `v*` tag 都会构建 amd64 + arm64 镜像。
+
+> 用 GHCR 的话：仓库是私有的，镜像默认也是私有，服务器上需要先 `docker login ghcr.io -u zzflsxygod`（密码用一个只有 `read:packages` 权限的 Personal Access Token）。
+
+### 1. 设置密码和 Token
+
+在 TeslaMate 的 `docker-compose.yml` 同目录的 `.env` 里追加（没有 `.env` 就新建）：
+
+```
+DRIVELENS_DB_PASS=换成强密码（不要带单引号）
+DRIVELENS_API_TOKEN=用 openssl rand -hex 32 生成
+```
+
+### 2. 创建数据库用户和 drivelens schema
+
+把 `deploy/drivelens-init.sql` 复制到 TeslaMate 目录，执行（可重复执行）：
+
+```bash
+docker compose exec -T database psql -U teslamate -d teslamate \
+  -v ro_pass="'和 DRIVELENS_DB_PASS 一样的密码'" < drivelens-init.sql
+```
+
+`drivelens_ro` 对 TeslaMate 的表只有 SELECT，只对 `drivelens` schema 可写。
+
+### 3. 添加服务
+
+把 `deploy/docker-compose.drivelens.yml` 里的 `drivelens-api` 服务合并进 TeslaMate 的 `docker-compose.yml`（或者放在同目录，用 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d`）。
+根据下面 Cloudflare Tunnel 的方案决定是否保留 `ports`。**绝不要**发布 `5432`，也不要把 8080 映射到 `0.0.0.0`。
+
+```bash
+docker compose up -d drivelens-api
+docker compose logs -f drivelens-api      # 看到 listening on 0.0.0.0:8080 即可
+```
+
+### 4. Cloudflare Tunnel
+
+用了 Tunnel 之后服务器**不需要开放任何入站端口**（Oracle 安全列表里也不用放行 80/443）。
+
+**方案 A：cloudflared 也是这个 compose 里的容器**（同一个网络）
+
+- 删掉 `drivelens-api` 的 `ports`。
+- 在 Cloudflare Zero Trust 控制台 → Networks → Tunnels → 你的 tunnel → Public Hostname，添加：
+  `drivelens.你的域名.com` → Service：`HTTP`，URL：`drivelens-api:8080`
+- 如果是用 `config.yml` 配置的：
+  ```yaml
+  ingress:
+    - hostname: drivelens.example.com
+      service: http://drivelens-api:8080
+    # ...其他规则
+    - service: http_status:404
+  ```
+- 如果 cloudflared 在另一个 compose 项目里，要让两者加入同一个 Docker 网络。
+
+**方案 B：cloudflared 装在宿主机上**（systemd 服务）
+
+- 保留 `ports: - "127.0.0.1:8080:8080"`（只监听本机）。
+- Public Hostname 的 URL 填 `localhost:8080`（`config.yml` 里是 `service: http://localhost:8080`）。
+
+**Cloudflare Access 注意事项**
+
+如果给这个域名开启了 Cloudflare Access（Zero Trust 登录页），App 发出的 API 请求会被拦截（返回登录页 / 302），App 无法通过浏览器登录流程。可以：
+
+- 给 `drivelens.你的域名.com` 加一条 **Bypass** 策略（或者不对这个子域名启用 Access），由 API 自己的 Bearer Token 鉴权；或者
+- 使用 **Service Token**：请求需要额外带 `CF-Access-Client-Id` / `CF-Access-Client-Secret` 请求头（当前 App 还没有这两个设置项，需要的话可以加）。
+
+无论哪种方式，API 都**仍然要求** `Authorization: Bearer <DRIVELENS_API_TOKEN>`。
+
+验证：
+
+```bash
+curl https://drivelens.你的域名.com/health
+curl -H "Authorization: Bearer 你的TOKEN" "https://drivelens.你的域名.com/api/cars"
+```
+
+然后在 App「设置」里填 `https://drivelens.你的域名.com` 和 Token。
+
+## 部署方式二：直接在宿主机运行（systemd）
 
 ### 1. 编译
 

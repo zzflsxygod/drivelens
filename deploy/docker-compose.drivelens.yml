@@ -1,0 +1,21 @@
+# 把下面的 drivelens-api 服务加到 TeslaMate 的 docker-compose.yml 的 services: 下面
+# （或者放在同目录，用 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d`）。
+# 和 TeslaMate 在同一个 compose 项目里，所以默认网络相同，可以用服务名 `database` 访问数据库。
+services:
+  drivelens-api:
+    # 镜像来源：在服务器上 `docker build -t ghcr.io/zzflsxygod/drivelens-api:latest api/`，或从 GHCR 拉取
+    image: ghcr.io/zzflsxygod/drivelens-api:latest
+    restart: always
+    depends_on:
+      - database
+    environment:
+      - DATABASE_URL=postgres://drivelens_ro:${DRIVELENS_DB_PASS}@database:5432/teslamate
+      - API_TOKEN=${DRIVELENS_API_TOKEN}
+      - RUST_LOG=info
+    # 方案 A：cloudflared 也在这个 compose 里 → 不需要映射端口（删掉 ports）
+    # 方案 B：cloudflared 装在宿主机上 → 只映射到本机回环地址
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
