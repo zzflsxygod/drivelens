@@ -45,3 +45,8 @@ CREATE TABLE charges (id serial PRIMARY KEY, date timestamp NOT NULL, battery_he
   conn_charge_cable varchar(255), fast_charger_brand varchar(255), fast_charger_present boolean,
   fast_charger_type varchar(255), rated_battery_range_km numeric(6,2), usable_battery_level smallint,
   not_enough_power_to_heat boolean, battery_heater_no_power boolean);
+CREATE TYPE states_status AS ENUM ('online', 'offline', 'asleep');
+CREATE TABLE states (id serial PRIMARY KEY, state states_status NOT NULL, start_date timestamp NOT NULL,
+  end_date timestamp, car_id smallint NOT NULL REFERENCES cars(id));
+CREATE TABLE updates (id serial PRIMARY KEY, start_date timestamp NOT NULL, end_date timestamp,
+  version varchar(255), car_id smallint NOT NULL REFERENCES cars(id));

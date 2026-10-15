@@ -13,6 +13,8 @@ use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
+mod summary;
+
 #[derive(Clone)]
 struct AppState {
     db: PgPool,
@@ -334,6 +336,7 @@ async fn main() -> anyhow::Result<()> {
 
     let api = Router::new()
         .route("/cars", get(list_cars))
+        .route("/cars/:id/summary", get(summary::car_summary))
         .route("/charges", get(list_charges))
         .route("/charges/:id", get(get_charge))
         .route("/drives", get(list_drives))

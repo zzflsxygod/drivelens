@@ -1,4 +1,4 @@
-INSERT INTO cars (id,eid,vid,model,efficiency,vin,name,trim_badging,marketing_name,exterior_color,wheel_type) VALUES (1,1001,2001,'3',0.152,'LRW3E7FA0PC000001','Sample Car','74D','Model 3 Long Range','PearlWhite','Pinwheel18');
+INSERT INTO cars (id,eid,vid,model,efficiency,vin,name,trim_badging,marketing_name,exterior_color,wheel_type) VALUES (1,1001,2001,'3',0.1345,'LRW3E7FA0PC000001','Sample Car',NULL,'Model 3 RWD','PearlWhite','Photon18');
 INSERT INTO addresses (id,display_name,latitude,longitude,name,road,city,state,country) VALUES (1,'自宅, 世田谷区',35.6431,139.653,'自宅','世田谷通り','世田谷区','東京都','日本');
 INSERT INTO addresses (id,display_name,latitude,longitude,name,road,city,state,country) VALUES (2,'Tesla Supercharger 東京有明, 江東区',35.634,139.793,'Tesla Supercharger 東京有明','有明','江東区','東京都','日本');
 INSERT INTO addresses (id,display_name,latitude,longitude,name,road,city,state,country) VALUES (3,'渋谷スクランブルスクエア, 渋谷区',35.6585,139.7022,'渋谷スクランブルスクエア','渋谷','渋谷区','東京都','日本');
@@ -598,6 +598,17 @@ INSERT INTO charges (id,date,battery_level,charge_energy_added,charger_actual_cu
 UPDATE charging_processes SET end_date='2026-10-12 13:14:00', charge_energy_added=10.03, charge_energy_used=11.23,
   start_battery_level=76, end_battery_level=90, duration_min=88, outside_temp_avg=18.5, cost=348.08,
   start_ideal_range_km=375.50, end_ideal_range_km=441.00, start_rated_range_km=375.50, end_rated_range_km=441.00 WHERE id=3;
+INSERT INTO states (state,start_date,end_date,car_id) VALUES
+ ('online','2026-10-12 10:00:00','2026-10-12 13:30:00',1),
+ ('asleep','2026-10-12 13:30:00','2026-10-14 22:10:00',1),
+ ('online','2026-10-14 22:10:00','2026-10-14 22:40:00',1),
+ ('asleep','2026-10-14 22:40:00',NULL,1);
+INSERT INTO updates (start_date,end_date,version,car_id) VALUES
+ ('2026-08-20 15:00:00','2026-08-20 15:40:00','2025.32.3 3ad1e4b6',1),
+ ('2026-10-01 14:00:00','2026-10-01 14:35:00','2026.32.5 9f1c2a7e',1);
+INSERT INTO positions (id,date,latitude,longitude,speed,power,odometer,ideal_battery_range_km,battery_level,outside_temp,inside_temp,elevation,car_id,rated_battery_range_km,est_battery_range_km,usable_battery_level) VALUES (495,'2026-10-14 22:35:00',35.643120,139.653050,NULL,0,12570.89,436.10,89,16.5,21.0,40,1,436.10,391.60,89);
+SELECT setval(pg_get_serial_sequence('states','id'), (SELECT max(id) FROM states));
+SELECT setval(pg_get_serial_sequence('updates','id'), (SELECT max(id) FROM updates));
 SELECT setval(pg_get_serial_sequence('cars','id'), (SELECT max(id) FROM cars));
 SELECT setval(pg_get_serial_sequence('addresses','id'), (SELECT max(id) FROM addresses));
 SELECT setval(pg_get_serial_sequence('geofences','id'), (SELECT max(id) FROM geofences));

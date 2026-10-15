@@ -31,6 +31,7 @@ drivelens/
 |---|---|
 | `GET /health` | 健康检查 |
 | `GET /api/cars` | 车辆列表 |
+| `GET /api/cars/:id/summary?tz=Asia/Tokyo` | 首页数据：车辆信息、状态（在线/休眠/离线）、最新电量/续航/里程/温度/位置、软件版本、最近行程和充电、累计和本月统计（按 `tz` 时区划分月份） |
 | `GET /api/charges?car_id=&limit=&offset=` | 充电记录（时间、地点、充入/消耗 kWh、费用、起止电量、时长） |
 | `GET /api/charges/:id` | 单次充电详情 + 充电曲线（`charges` 表） |
 | `GET /api/drives?car_id=&limit=&offset=` | 行程（起止时间/地址、距离、时长、能耗 kWh、效率 Wh/km） |

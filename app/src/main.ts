@@ -199,7 +199,137 @@ function showSettings() {
   };
 }
 
-const tabs: Record<string, () => void> = { drives: showDrives, charges: showCharges, settings: showSettings };
+
+// ---------------- Home (首页) ----------------
+interface Summary {
+  car: { id: number; name: string | null; model: string | null; marketing_name: string | null; trim_badging: string | null;
+         exterior_color: string | null; wheel_type: string | null; vin: string | null; efficiency: number | null };
+  state: { state: string | null; since: string | null } | null;
+  position: { date: string | null; latitude: number | null; longitude: number | null; battery_level: number | null;
+              usable_battery_level: number | null; rated_battery_range_km: number | null; ideal_battery_range_km: number | null;
+              est_battery_range_km: number | null; odometer_km: number | null; outside_temp: number | null;
+              inside_temp: number | null; speed: number | null } | null;
+  location: { name: string | null; address_id: number | null; source: string } | null;
+  software: { version: string | null; installed_at: string | null } | null;
+  last_drive: Drive | null; last_charge: Charge | null;
+  stats: { total_distance_km: number | null; drive_count: number | null; charge_count: number | null;
+           total_energy_added_kwh: number | null; total_cost: number | null };
+  this_month: { month: string | null; distance_km: number | null; drive_count: number | null; drive_energy_kwh: number | null;
+                charge_count: number | null; charge_energy_added_kwh: number | null; charge_cost: number | null };
+}
+
+const STATE_LABEL: Record<string, [string, string]> = {
+  online: ["在线", "st-online"], asleep: ["休眠", "st-asleep"], offline: ["离线", "st-offline"], driving: ["行驶中", "st-online"] };
+const COLOR_LABEL: Record<string, string> = {
+  PearlWhite: "珍珠白", SolidBlack: "纯黑", MidnightSilver: "午夜银", DeepBlue: "深海蓝", RedMulticoat: "中国红",
+  Red: "红", StealthGrey: "冷光银", QuicksilverGrey: "快银", UltraRed: "烈焰红", Black: "黑", White: "白", Silver: "银", Blue: "蓝" };
+
+function ago(iso: string | null) {
+  if (!iso) return "";
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  if (m < 60 * 24) return `${Math.floor(m / 60)} 小时前`;
+  return `${Math.floor(m / 1440)} 天前`;
+}
+
+async function currentCarId(): Promise<number | null> {
+  if (!carSel.options.length) await loadCars();
+  return carSel.value ? Number(carSel.value) : null;
+}
+
+async function showHome() {
+  loading();
+  try {
+    const id = await currentCarId();
+    if (id == null) { view.innerHTML = `<div class="muted">没有找到车辆</div>`; return; }
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const s = await api<Summary>(`/api/cars/${id}/summary?tz=${encodeURIComponent(tz)}`);
+    const p = s.position, c = s.car;
+    const driving = s.state?.state === "online" && (p?.speed ?? 0) > 0;
+    const [stLabel, stCls] = STATE_LABEL[driving ? "driving" : s.state?.state ?? ""] ?? ["未知", "st-offline"];
+    const lvl = p?.battery_level ?? null;
+    const lvlCls = lvl == null ? "" : lvl < 20 ? "low" : lvl < 50 ? "mid" : "";
+    const model = [c.marketing_name || (c.model ? `Model ${c.model}` : null)].filter(Boolean).join(" ");
+    const extras = [c.exterior_color ? (COLOR_LABEL[c.exterior_color] ?? c.exterior_color) : null, c.wheel_type].filter(Boolean).join(" · ");
+    const m = s.this_month, st = s.stats;
+    const d = s.last_drive, ch = s.last_charge;
+    view.innerHTML = `
+      <div class="pull-hint" id="pull">下拉刷新</div>
+      <div class="hero">
+        <div class="row"><div>
+          <div class="car-name">${esc(c.name || `Car ${c.id}`)}</div>
+          <div class="muted">${esc(model)}${extras ? ` · ${esc(extras)}` : ""}</div>
+        </div><button class="icon-btn" id="refresh" title="刷新">⟳</button></div>
+        <div class="badge ${stCls}">${stLabel}${s.state?.since ? ` · ${ago(s.state.since)}起` : ""}</div>
+        <div class="gauge-row">
+          <div class="pct">${lvl ?? "—"}<small>%</small></div>
+          <div class="range"><b>${n(p?.rated_battery_range_km ?? null, 0)}</b> km<div class="muted">预估 ${n(p?.est_battery_range_km ?? null, 0)} km</div></div>
+        </div>
+        <div class="gauge"><div class="${lvlCls}" style="width:${lvl ?? 0}%"></div></div>
+        <div class="kv">
+          <div><small>总里程</small><b>${p?.odometer_km != null ? Math.round(p.odometer_km).toLocaleString() : "—"} km</b></div>
+          <div><small>软件版本</small><b>${esc(s.software?.version?.split(" ")[0] ?? "—")}</b></div>
+          <div><small>车外 / 车内</small><b>${n(p?.outside_temp ?? null)}° / ${n(p?.inside_temp ?? null)}°</b></div>
+        </div>
+      </div>
+      ${p?.latitude != null ? `
+      <div class="section-title">📍 ${esc(s.location?.name ?? "最后位置")} <span class="muted">${p.date ? ago(p.date) : ""}</span></div>
+      <div id="map" class="small"></div>` : ""}
+      <div class="section-title">本月 ${esc(m.month ?? "")}</div>
+      <div class="grid">
+        <div><small>行驶</small><b>${n(m.distance_km, 0)} km</b></div>
+        <div><small>耗电</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
+        <div><small>充电</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
+        <div><small>充电费用</small><b>${n(m.charge_cost, 0)}</b></div>
+        <div><small>行程数</small><b>${m.drive_count ?? 0}</b></div>
+        <div><small>充电次数</small><b>${m.charge_count ?? 0}</b></div>
+      </div>
+      ${d ? `<div class="section-title">最近行程</div>
+      <div class="card" id="last-drive">
+        <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
+        <div class="row muted">${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</div>
+        <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
+      </div>` : ""}
+      ${ch ? `<div class="section-title">最近充电</div>
+      <div class="card" id="last-charge">
+        <div class="row"><b>${esc(ch.address)}</b>${ch.cost != null ? `<span class="cost">${ch.cost.toFixed(0)}</span>` : ""}</div>
+        <div class="row muted">${fmtDate(ch.start_date)} · ${fmtDur(ch.duration_min)}</div>
+        <div class="stats"><span>⚡ +${n(ch.charge_energy_added, 2)} kWh</span><span>🔋 ${ch.start_battery_level ?? "—"}% → ${ch.end_battery_level ?? "—"}%</span></div>
+      </div>` : ""}
+      <div class="section-title">累计</div>
+      <div class="grid">
+        <div><small>总行驶</small><b>${n(st.total_distance_km, 0)} km</b></div>
+        <div><small>行程 / 充电</small><b>${st.drive_count ?? 0} / ${st.charge_count ?? 0}</b></div>
+        <div><small>总充电</small><b>${n(st.total_energy_added_kwh, 0)} kWh</b></div>
+      </div>`;
+    (document.getElementById("refresh") as HTMLElement).onclick = showHome;
+    if (d) (document.getElementById("last-drive") as HTMLElement).onclick = () => showDrive(d.id);
+    if (ch) (document.getElementById("last-charge") as HTMLElement).onclick = () => showCharge(ch.id);
+    if (p?.latitude != null && p.longitude != null)
+      map = new DriveMap(document.getElementById("map")!, { point: [p.longitude, p.latitude] });
+  } catch (e) { showError(e); }
+}
+
+// Pull-to-refresh on the home tab (touch devices)
+let pullStartY: number | null = null;
+window.addEventListener("touchstart", e => {
+  if (window.scrollY === 0 && document.querySelector("nav button.active")?.getAttribute("data-tab") === "home")
+    pullStartY = e.touches[0].clientY;
+}, { passive: true });
+window.addEventListener("touchmove", e => {
+  if (pullStartY == null) return;
+  const dy = e.touches[0].clientY - pullStartY, hint = document.getElementById("pull");
+  if (hint) { hint.style.height = `${Math.min(dy, 70)}px`; hint.textContent = dy > 60 ? "松开刷新" : "下拉刷新"; }
+}, { passive: true });
+window.addEventListener("touchend", e => {
+  if (pullStartY == null) return;
+  const dy = e.changedTouches[0].clientY - pullStartY; pullStartY = null;
+  const hint = document.getElementById("pull"); if (hint) hint.style.height = "0";
+  if (dy > 60) showHome();
+});
+
+const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: showCharges, settings: showSettings };
 document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); tabs[b.dataset.tab!]();
@@ -215,4 +345,5 @@ if (!loadSettings().apiUrl) (document.querySelector('nav button[data-tab="settin
 else if (start === "charges") (document.querySelector('nav button[data-tab="charges"]') as HTMLElement).click();
 else if (start?.startsWith("drive:")) showDrive(Number(start.slice(6)));
 else if (start?.startsWith("charge:")) showCharge(Number(start.slice(7)));
-else showDrives();
+else if (start === "drives") (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).click();
+else showHome();

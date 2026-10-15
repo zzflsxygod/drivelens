@@ -45,3 +45,19 @@ select { padding: 4px 8px; border-radius: 6px; }
 .map-note { position: absolute; left: 8px; bottom: 28px; z-index: 5; background: #000a; color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 6px; }
 select { font-size: 15px; padding: 8px; display: block; width: 100%; margin-top: 4px; background: var(--card); color: var(--text); border: 1px solid #8885; border-radius: 8px; }
 header select { width: auto; display: inline-block; margin: 0; padding: 4px 8px; }
+
+.hero { background: var(--card); border-radius: 16px; padding: 16px; box-shadow: 0 1px 3px #0002; margin-bottom: 12px; }
+.car-name { font-size: 24px; font-weight: 700; }
+.icon-btn { border: 0; background: none; color: var(--muted); font-size: 24px; cursor: pointer; padding: 0 4px; }
+.badge { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 999px; margin: 8px 0 4px; font-weight: 600; }
+.st-online { background: #2a9d3a22; color: #2a9d3a; } .st-asleep { background: #5b6ee122; color: #6b7cf0; } .st-offline { background: #8883; color: var(--muted); }
+.gauge-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 8px; }
+.pct { font-size: 48px; font-weight: 700; line-height: 1; } .pct small { font-size: 20px; color: var(--muted); }
+.range { text-align: right; font-size: 15px; } .range b { font-size: 26px; }
+.gauge { position: relative; height: 14px; background: #8883; border-radius: 7px; margin: 10px 0 14px; overflow: hidden; }
+.gauge > div { height: 100%; background: linear-gradient(90deg, #2a9d3a, #45c35a); border-radius: 7px; }
+.gauge > div.mid { background: linear-gradient(90deg, #d99a00, #f2c230); } .gauge > div.low { background: var(--red); }
+.kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.kv small { display: block; color: var(--muted); font-size: 12px; } .kv b { font-size: 14px; }
+.section-title { font-size: 14px; font-weight: 600; margin: 14px 0 6px; display: flex; justify-content: space-between; gap: 8px; }
+.pull-hint { height: 0; overflow: hidden; text-align: center; color: var(--muted); font-size: 13px; transition: height .2s; display: flex; align-items: center; justify-content: center; }

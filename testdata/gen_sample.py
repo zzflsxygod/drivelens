@@ -4,7 +4,7 @@ random.seed(1)
 out = []
 q = lambda s: "NULL" if s is None else "'" + str(s).replace("'", "''") + "'"
 out.append("INSERT INTO cars (id,eid,vid,model,efficiency,vin,name,trim_badging,marketing_name,exterior_color,wheel_type) VALUES "
-           "(1,1001,2001,'3',0.152,'LRW3E7FA0PC000001','Sample Car','74D','Model 3 Long Range','PearlWhite','Pinwheel18');")
+           "(1,1001,2001,'3',0.1345,'LRW3E7FA0PC000001','Sample Car',NULL,'Model 3 RWD','PearlWhite','Photon18');")
 addrs = [  # name, road, city, lat, lng
  ("自宅", "世田谷通り", "世田谷区", 35.6431, 139.6530),
  ("Tesla Supercharger 東京有明", "有明", "江東区", 35.6340, 139.7930),
@@ -85,6 +85,18 @@ t = drive(t + dt.timedelta(hours=5), 5, 2); flush()
 t = charge(t + dt.timedelta(minutes=2), 2, 80, True, price=55)
 t = drive(t + dt.timedelta(minutes=5), 2, 1, (None,1)); flush()
 t = charge(t + dt.timedelta(minutes=30), 1, 90, False, geo=1, price=31)
+out.append("""INSERT INTO states (state,start_date,end_date,car_id) VALUES
+ ('online','2026-10-12 10:00:00','2026-10-12 13:30:00',1),
+ ('asleep','2026-10-12 13:30:00','2026-10-14 22:10:00',1),
+ ('online','2026-10-14 22:10:00','2026-10-14 22:40:00',1),
+ ('asleep','2026-10-14 22:40:00',NULL,1);""")
+out.append("""INSERT INTO updates (start_date,end_date,version,car_id) VALUES
+ ('2026-08-20 15:00:00','2026-08-20 15:40:00','2025.32.3 3ad1e4b6',1),
+ ('2026-10-01 14:00:00','2026-10-01 14:35:00','2026.32.5 9f1c2a7e',1);""")
+pid += 1
+out.append(f"INSERT INTO positions (id,date,latitude,longitude,speed,power,odometer,ideal_battery_range_km,battery_level,outside_temp,inside_temp,elevation,car_id,rated_battery_range_km,est_battery_range_km,usable_battery_level) VALUES ({pid},'2026-10-14 22:35:00',35.643120,139.653050,NULL,0,{odo:.2f},{89*4.9:.2f},89,16.5,21.0,40,1,{89*4.9:.2f},{89*4.4:.2f},89);")
+for s in ["states","updates"]:
+    out.append(f"SELECT setval(pg_get_serial_sequence('{s}','id'), (SELECT max(id) FROM {s}));")
 for s in ["cars","addresses","geofences","drives","positions","charging_processes","charges"]:
     out.append(f"SELECT setval(pg_get_serial_sequence('{s}','id'), (SELECT max(id) FROM {s}));")
 open("sample_data.sql","w").write("\n".join(out)+"\n")
