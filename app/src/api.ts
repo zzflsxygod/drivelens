@@ -1,4 +1,6 @@
-export interface Settings { apiUrl: string; token: string }
+export type Theme = "auto" | "light" | "dark";
+export type LabelLang = "ja" | "zh" | "en" | "local";
+export interface Settings { apiUrl: string; token: string; theme?: Theme; labelLang?: LabelLang }
 const KEY = "drivelens-settings";
 export function loadSettings(): Settings {
   try { return { apiUrl: "", token: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }

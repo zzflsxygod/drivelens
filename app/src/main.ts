@@ -1,11 +1,14 @@
-import "leaflet/dist/leaflet.css";
 import "./style.css";
-import L from "leaflet";
-import { api, setAlias, resetAlias, loadSettings, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { DriveMap, effectiveTheme } from "./map";
+import { api, setAlias, resetAlias, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
-let map: L.Map | null = null;
+let map: DriveMap | null = null;
+
+function applyTheme() { document.documentElement.dataset.theme = effectiveTheme(); map?.setTheme(); }
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { document.documentElement.dataset.theme = effectiveTheme(); });
+document.documentElement.dataset.theme = effectiveTheme();
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const fmtDate = (iso: string) => new Date(iso).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -59,9 +62,8 @@ function bindPlaces(refresh: () => void) {
     renameDialog(Number(el.dataset.addr), el.dataset.name || "", el.dataset.alias === "1", refresh));
 }
 
-function fixMapSize() { const m = map; setTimeout(() => m?.invalidateSize(), 100); }
 
-function destroyMap() { map?.remove(); map = null; }
+function destroyMap() { map?.destroy(); map = null; }
 function showError(e: unknown) { view.innerHTML = `<div class="error">${esc((e as Error).message)}</div>`; }
 function loading() { destroyMap(); view.innerHTML = `<div class="muted">加载中…</div>`; }
 
@@ -112,17 +114,7 @@ async function showDrive(id: number) {
       </div>`;
     (view.querySelector(".back") as HTMLElement).onclick = showDrives;
     bindPlaces(() => showDrive(id));
-    map = L.map("map");
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
-    if (pts.length) {
-      const ll = pts.map(p => [p.lat, p.lng] as L.LatLngTuple);
-      const line = L.polyline(ll, { color: "#e31937", weight: 4 }).addTo(map);
-      L.circleMarker(ll[0], { radius: 7, color: "#2a9d3a", fillOpacity: 1 }).addTo(map).bindTooltip("起点");
-      L.circleMarker(ll[ll.length - 1], { radius: 7, color: "#e31937", fillOpacity: 1 }).addTo(map).bindTooltip("终点");
-      map.fitBounds(line.getBounds(), { padding: [20, 20] });
-    } else map.setView([35.68, 139.76], 10);
-    fixMapSize();
+    map = new DriveMap(document.getElementById("map")!, { route: pts.map(p => [p.lng, p.lat] as [number, number]) });
   } catch (e) { showError(e); }
 }
 
@@ -171,10 +163,7 @@ async function showCharge(id: number) {
     (view.querySelector(".back") as HTMLElement).onclick = showCharges;
     bindPlaces(() => showCharge(id));
     if (c.latitude != null && c.longitude != null) {
-      map = L.map("map").setView([c.latitude, c.longitude], 15);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
-      L.circleMarker([c.latitude, c.longitude], { radius: 8, color: "#e31937", fillOpacity: 1 }).addTo(map);
-      fixMapSize();
+      map = new DriveMap(document.getElementById("map")!, { point: [c.longitude, c.latitude] });
     }
   } catch (e) { showError(e); }
 }
@@ -187,9 +176,22 @@ function showSettings() {
     <label>API 地址<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
     <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
     <button id="save" class="primary">保存并测试连接</button>
-    <div id="msg"></div>`;
+    <div id="msg"></div>
+    <h2>显示</h2>
+    <label>地图主题<select id="theme">
+      <option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色（夜间）</option>
+    </select></label>
+    <label>地图文字语言<select id="lang">
+      <option value="ja">日本語</option><option value="zh">中文</option><option value="en">English</option><option value="local">本地（当地语言）</option>
+    </select></label>
+    <p class="muted">地图：OpenFreeMap（OpenStreetMap 数据）</p>`;
+  const themeSel = document.getElementById("theme") as HTMLSelectElement;
+  const langSel = document.getElementById("lang") as HTMLSelectElement;
+  themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "ja";
+  themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
+  langSel.onchange = () => saveSettings({ ...loadSettings(), labelLang: langSel.value as LabelLang });
   (document.getElementById("save") as HTMLElement).onclick = async () => {
-    saveSettings({ apiUrl: (document.getElementById("url") as HTMLInputElement).value.trim(),
+    saveSettings({ ...loadSettings(), apiUrl: (document.getElementById("url") as HTMLInputElement).value.trim(),
                    token: (document.getElementById("token") as HTMLInputElement).value.trim() });
     const msg = document.getElementById("msg")!;
     try { const cars = await api<Car[]>("/api/cars"); msg.innerHTML = `<div class="ok">✅ 连接成功，找到 ${cars.length} 辆车</div>`; loadCars(); }
@@ -206,7 +208,7 @@ carSel.onchange = () => (document.querySelector("nav button.active") as HTMLElem
 
 // Allow ?api=...&token=... for quick setup / testing
 const qp = new URLSearchParams(location.search);
-if (qp.get("api")) saveSettings({ apiUrl: qp.get("api")!, token: qp.get("token") || "" });
+if (qp.get("api")) saveSettings({ ...loadSettings(), apiUrl: qp.get("api")!, token: qp.get("token") || "" });
 const start = qp.get("view");
 loadCars();
 if (!loadSettings().apiUrl) (document.querySelector('nav button[data-tab="settings"]') as HTMLElement).click();

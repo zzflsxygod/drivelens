@@ -1,5 +1,5 @@
 :root { --red:#e31937; --bg:#f4f5f7; --card:#fff; --text:#1d1d1f; --muted:#86868b; font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; color: var(--text); background: var(--bg); }
-@media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1e1e20; --text:#f2f2f2; --muted:#999; } }
+:root[data-theme="dark"] { --bg:#111; --card:#1e1e20; --text:#f2f2f2; --muted:#999; color-scheme: dark; }
 * { box-sizing: border-box; }
 body { margin: 0; padding-top: env(safe-area-inset-top); }
 header { position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--card); box-shadow: 0 1px 3px #0002; }
@@ -40,3 +40,8 @@ select { padding: 4px 8px; border-radius: 6px; }
 .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .ghost { border: 1px solid #8885; background: none; color: var(--text); border-radius: 10px; padding: 10px 14px; font-size: 15px; cursor: pointer; }
 .primary.small { width: auto; padding: 10px 20px; }
+#map { position: relative; overflow: hidden; }
+.pin { width: 16px; height: 16px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 4px #0006; }
+.map-note { position: absolute; left: 8px; bottom: 28px; z-index: 5; background: #000a; color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 6px; }
+select { font-size: 15px; padding: 8px; display: block; width: 100%; margin-top: 4px; background: var(--card); color: var(--text); border: 1px solid #8885; border-radius: 8px; }
+header select { width: auto; display: inline-block; margin: 0; padding: 4px 8px; }
