@@ -87,3 +87,11 @@ header select { width: auto; display: inline-block; margin: 0; padding: 4px 8px;
 .lg-kw { background: var(--red); } .lg-soc { background: #2a9d3a; }
 .small-note { font-size: 12px; margin-top: 4px; }
 .chart-empty { background: var(--card); border-radius: 10px; padding: 28px 8px; text-align: center; color: var(--muted); font-size: 14px; }
+.cost-cell { cursor: pointer; }
+.cost-cell .pen { font-size: 12px; opacity: .5; }
+.cost-cell .unit { display: block; font-size: 12px; margin-top: 2px; }
+.cost.manual::after { content: " ✎"; font-size: 11px; opacity: .6; }
+.cost-row { display: flex; gap: 8px; margin: 12px 0 6px; }
+.cost-row input { flex: 1; font-size: 20px; }
+.cost-row select { width: 96px; }
+.sheet #note { width: 100%; margin-top: 8px; }

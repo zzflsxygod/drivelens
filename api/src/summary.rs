@@ -49,7 +49,13 @@ pub struct Stats {
     charge_count: Option<i64>,
     total_energy_added_kwh: Option<f64>,
     total_cost: Option<f64>,
+    /// effective costs (manual > TeslaMate) summed per currency
+    #[sqlx(skip)]
+    costs: Vec<CurrencyAmount>,
 }
+
+#[derive(Serialize, FromRow, Default, Clone)]
+pub struct CurrencyAmount { currency: String, amount: f64, count: i64 }
 
 #[derive(Serialize, FromRow, Default)]
 pub struct MonthStats {
@@ -60,6 +66,8 @@ pub struct MonthStats {
     charge_count: Option<i64>,
     charge_energy_added_kwh: Option<f64>,
     charge_cost: Option<f64>,
+    #[sqlx(skip)]
+    charge_costs: Vec<CurrencyAmount>,
 }
 
 #[derive(Serialize)]
@@ -103,7 +111,7 @@ pub struct Summary {
 }
 
 #[derive(Deserialize)]
-pub struct SummaryParams { tz: Option<String> }
+pub struct SummaryParams { tz: Option<String>, currency: Option<String> }
 
 fn not_found(msg: &str) -> Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": msg}))).into_response()
@@ -162,8 +170,9 @@ async fn load_activity(s: &AppState, id: i64) -> Result<LastActivity, ApiError> 
 
 /// Aggregates only over drives / charging_processes (small tables), never positions.
 /// Returns Ok(None) for an invalid timezone.
-async fn load_stats(db: &PgPool, id: i64, tz: &str) -> Result<Option<StatsResp>, ApiError> {
-    let stats = sqlx::query_as::<_, Stats>(
+async fn load_stats(s: &AppState, id: i64, tz: &str, cur: &str) -> Result<Option<StatsResp>, ApiError> {
+    let db = &s.db;
+    let mut stats = sqlx::query_as::<_, Stats>(
         "SELECT (SELECT SUM(distance)::float8 FROM drives WHERE car_id = $1) AS total_distance_km,
                 (SELECT COUNT(*) FROM drives WHERE car_id = $1 AND end_date IS NOT NULL) AS drive_count,
                 (SELECT COUNT(*) FROM charging_processes WHERE car_id = $1 AND end_date IS NOT NULL) AS charge_count,
@@ -182,12 +191,35 @@ async fn load_stats(db: &PgPool, id: i64, tz: &str) -> Result<Option<StatsResp>,
            (SELECT SUM(cp.charge_energy_added)::float8 FROM charging_processes cp, b WHERE cp.car_id = $1 AND cp.start_date >= b.m0) AS charge_energy_added_kwh,
            (SELECT SUM(cp.cost)::float8 FROM charging_processes cp, b WHERE cp.car_id = $1 AND cp.start_date >= b.m0) AS charge_cost",
     ).bind(id).bind(tz).fetch_one(db).await;
-    let this_month = match month {
+    let mut this_month = match month {
         Ok(m) => m,
         // invalid_parameter_value: "time zone ... not recognized"
         Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22023") => return Ok(None),
         Err(e) => return Err(e.into()),
     };
+    // effective cost per charge, then grouped by currency; month split by the same tz boundary
+    let (cc_cols, cc_join) = if super::costs_ok(s).await? {
+        ("COALESCE(cc.amount, cp.cost)", "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
+    } else { ("cp.cost", "") };
+    let rows: Vec<(String, bool, f64, i64)> = sqlx::query_as(&format!(
+        "WITH b AS (SELECT (date_trunc('month', now() AT TIME ZONE $2) AT TIME ZONE $2) AT TIME ZONE 'UTC' AS m0),
+         e AS (SELECT {cc_cols}::float8 AS amount,
+                 COALESCE({cur_expr}, $3) AS currency, cp.start_date >= b.m0 AS this_month
+               FROM charging_processes cp CROSS JOIN b
+               LEFT JOIN addresses a ON a.id = cp.address_id
+               LEFT JOIN positions p ON p.id = cp.position_id
+               {cc_join}
+               WHERE cp.car_id = $1)
+         SELECT currency, this_month, round(SUM(amount)::numeric, 2)::float8, COUNT(*) FROM e WHERE amount IS NOT NULL
+         GROUP BY 1, 2 ORDER BY 1",
+        cur_expr = if cc_join.is_empty() { super::LOC_CURRENCY.to_string() } else { format!("cc.currency::text, {}", super::LOC_CURRENCY) },
+    )).bind(id).bind(tz).bind(cur).fetch_all(db).await?;
+    for (currency, m, amount, count) in rows {
+        let ca = CurrencyAmount { currency, amount, count };
+        if let Some(t) = stats.costs.iter_mut().find(|t| t.currency == ca.currency) { t.amount += ca.amount; t.count += ca.count; }
+        else { stats.costs.push(CurrencyAmount { ..ca.clone() }); }
+        if m { this_month.charge_costs.push(ca); }
+    }
     Ok(Some(StatsResp { stats, this_month, timezone: tz.to_string() }))
 }
 
@@ -211,14 +243,22 @@ pub async fn car_last_activity(State(s): State<AppState>, Path(id): Path<i64>) -
 pub async fn car_stats(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<SummaryParams>) -> Result<Response, ApiError> {
     if !car_exists(&s.db, id).await? { return Ok(not_found("car not found")); }
     let tz = p.tz.unwrap_or_else(|| "UTC".into());
-    Ok(match load_stats(&s.db, id, &tz).await? { Some(r) => Json(r).into_response(), None => bad_tz() })
+    let cur = currency_param(p.currency);
+    Ok(match load_stats(&s, id, &tz, &cur).await? { Some(r) => Json(r).into_response(), None => bad_tz() })
 }
 
 /// Everything in one response (kept for compatibility with app v0.3.0); sections are loaded in parallel.
 pub async fn car_summary(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<SummaryParams>) -> Result<Response, ApiError> {
     let tz = p.tz.unwrap_or_else(|| "UTC".into());
-    let (status, activity, stats) = tokio::try_join!(load_status(&s.db, id), load_activity(&s, id), load_stats(&s.db, id, &tz))?;
+    let cur = currency_param(p.currency);
+    let (status, activity, stats) = tokio::try_join!(load_status(&s.db, id), load_activity(&s, id), load_stats(&s, id, &tz, &cur))?;
     let Some(status) = status else { return Ok(not_found("car not found")) };
     let Some(stats) = stats else { return Ok(bad_tz()) };
     Ok(Json(Summary { status, activity, stats }).into_response())
+}
+
+/// Default currency for costs whose currency is unknown (TeslaMate cost at an unrecognised location).
+fn currency_param(c: Option<String>) -> String {
+    c.map(|c| c.trim().to_ascii_uppercase()).filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()))
+        .unwrap_or_else(|| "JPY".into())
 }

@@ -94,6 +94,9 @@ docker compose exec -T database psql -U teslamate -d teslamate \
 
 `drivelens_ro` 对 TeslaMate 的表只有 SELECT，只对 `drivelens` schema 可写。
 
+**从 v0.3.x 升级到 v0.4.0（手动充电费用）**：用新版 `drivelens-init.sql` 替换旧文件，按上面的命令再执行一次（会新建 `drivelens.charge_costs` 表并授权），然后更新 API 镜像。
+没执行的话 API 照常工作，只是录入费用会提示「服务器还没有启用手动费用」。执行后无需重启 API。
+
 ### 3. 添加服务
 
 把 `deploy/docker-compose.drivelens.yml` 里的 `drivelens-api` 服务合并进 TeslaMate 的 `docker-compose.yml`（或者放在同目录，用 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d`）。

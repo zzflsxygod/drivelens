@@ -1,6 +1,6 @@
 import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
-import { api, setAlias, resetAlias, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
@@ -55,6 +55,60 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
   input.onkeydown = e => { if (e.key === "Enter") (dlg.querySelector("#ok") as HTMLElement).click(); };
   const reset = dlg.querySelector("#reset") as HTMLElement | null;
   if (reset) reset.onclick = () => run(() => resetAlias(addressId));
+}
+
+function costBadge(c: Charge) {
+  return c.cost != null ? `<span class="cost${c.cost_source === "manual" ? " manual" : ""}">${fmtMoney(c.cost, c.currency)}</span>` : "";
+}
+
+function costDialog(c: Charge, onDone: () => void) {
+  const manual = c.cost_source === "manual";
+  const cur0 = (manual ? c.currency : null) || c.default_currency || defaultCurrency();
+  const opts = [...new Set([cur0, ...CURRENCIES])];
+  const kwh = c.charge_energy_added;
+  const dlg = document.createElement("div");
+  dlg.className = "modal";
+  dlg.innerHTML = `
+    <div class="sheet">
+      <h3>充电费用</h3>
+      <div class="muted">${esc(c.address)} · ${fmtDate(c.start_date)} · ${kwh != null ? `${kwh.toFixed(2)} kWh` : ""}</div>
+      <div class="cost-row">
+        <input id="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="金额" value="${manual && c.cost != null ? c.cost : ""}">
+        <select id="cur">${opts.map(o => `<option${o === cur0 ? " selected" : ""}>${o}</option>`).join("")}</select>
+      </div>
+      <div id="unit" class="muted"></div>
+      <input id="note" maxlength="500" placeholder="备注（可选）" value="${esc(manual ? c.cost_note ?? "" : "").replace(/^—$/, "")}">
+      <p class="muted">${c.teslamate_cost != null ? `TeslaMate 记录的费用：${fmtMoney(c.teslamate_cost, c.default_currency)}。` : "TeslaMate 没有记录这次充电的费用。"}手动录入的费用优先显示，不会修改 TeslaMate 原始数据。</p>
+      <div id="dlgmsg"></div>
+      <div class="btns">
+        ${manual ? `<button id="reset" class="ghost">删除手动费用</button>` : ""}
+        <button id="cancel" class="ghost">取消</button>
+        <button id="ok" class="primary small">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dlg);
+  const amount = dlg.querySelector("#amount") as HTMLInputElement;
+  const cur = dlg.querySelector("#cur") as HTMLSelectElement;
+  const unit = () => {
+    const v = parseFloat(amount.value);
+    dlg.querySelector("#unit")!.textContent = v >= 0 && kwh ? `单价 ${fmtMoney(v / kwh, cur.value, true)}/kWh` : "";
+  };
+  amount.oninput = unit; cur.onchange = unit; unit();
+  amount.focus();
+  const close = () => dlg.remove();
+  const msg = (t: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(t)}</div>`; };
+  const run = async (fn: () => Promise<unknown>) => { try { await fn(); close(); onDone(); } catch (e) { msg((e as Error).message); } };
+  dlg.onclick = e => { if (e.target === dlg) close(); };
+  (dlg.querySelector("#cancel") as HTMLElement).onclick = close;
+  (dlg.querySelector("#ok") as HTMLElement).onclick = () => {
+    const v = parseFloat(amount.value);
+    if (!(v >= 0) || v >= 1e9) return msg("请输入有效金额");
+    const note = (dlg.querySelector("#note") as HTMLInputElement).value.trim();
+    run(() => setCost(c.id, v, cur.value, note || null));
+  };
+  amount.onkeydown = e => { if (e.key === "Enter") (dlg.querySelector("#ok") as HTMLElement).click(); };
+  const reset = dlg.querySelector("#reset") as HTMLElement | null;
+  if (reset) reset.onclick = () => run(() => resetCost(c.id));
 }
 
 function bindPlaces(refresh: () => void) {
@@ -124,11 +178,13 @@ async function showCharges() {
     const charges = await api<Charge[]>(`/api/charges?limit=100${carQ()}`);
     if (!charges.length) { view.innerHTML = `<div class="muted">暂无充电记录</div>`; return; }
     const total = charges.reduce((a, c) => a + (c.charge_energy_added ?? 0), 0);
-    const cost = charges.reduce((a, c) => a + (c.cost ?? 0), 0);
-    view.innerHTML = `<div class="summary">共 ${charges.length} 次 · ${total.toFixed(1)} kWh · 费用 ${cost.toFixed(0)}</div>` +
+    const byCur = new Map<string, number>();
+    for (const c of charges) if (c.cost != null) { const k = c.currency || defaultCurrency(); byCur.set(k, (byCur.get(k) ?? 0) + c.cost); }
+    const costTxt = byCur.size ? [...byCur].map(([k, v]) => fmtMoney(v, k)).join(" + ") : "—";
+    view.innerHTML = `<div class="summary">共 ${charges.length} 次 · ${total.toFixed(1)} kWh · 费用 ${costTxt}</div>` +
       charges.map(c => `
       <div class="card" data-id="${c.id}">
-        <div class="row"><b>${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${c.cost.toFixed(0)}</span>` : ""}</div>
+        <div class="row"><b>${esc(c.address)}</b>${costBadge(c)}</div>
         <div class="row muted">${fmtDate(c.start_date)} · ${fmtDur(c.duration_min)}</div>
         <div class="bar"><div style="left:${c.start_battery_level ?? 0}%;width:${(c.end_battery_level ?? 0) - (c.start_battery_level ?? 0)}%"></div></div>
         <div class="stats">
@@ -188,7 +244,10 @@ async function showCharge(id: number) {
       <div class="grid">
         <div><small>充入电量</small><b>${n(c.charge_energy_added, 2)} kWh</b></div>
         <div><small>消耗电量</small><b>${n(c.charge_energy_used, 2)} kWh</b></div>
-        <div><small>费用</small><b>${n(c.cost, 0)}</b></div>
+        <div class="cost-cell" id="costcell" title="点击录入 / 修改费用"><small>费用${c.cost_source === "manual" ? " · 手动" : c.cost_source === "teslamate" ? " · TeslaMate" : ""}</small>
+          <b>${fmtMoney(c.cost, c.currency)} <span class="pen">✎</span></b>
+          ${c.cost != null && c.charge_energy_added ? `<span class="muted unit">单价 ${fmtMoney(c.cost / c.charge_energy_added, c.currency, true)}/kWh</span>` : ""}
+          ${c.cost_note ? `<span class="muted unit">${esc(c.cost_note)}</span>` : ""}</div>
         <div><small>时长</small><b>${fmtDur(c.duration_min)}</b></div>
         <div><small>电量</small><b>${c.start_battery_level}% → ${c.end_battery_level}%</b></div>
         <div><small>气温</small><b>${n(c.outside_temp_avg)} °C</b></div>
@@ -198,6 +257,7 @@ async function showCharge(id: number) {
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
     (view.querySelector(".back") as HTMLElement).onclick = showCharges;
     bindPlaces(() => showCharge(id));
+    (document.getElementById("costcell") as HTMLElement).onclick = () => costDialog(c, () => showCharge(id));
     if (c.latitude != null && c.longitude != null) {
       map = new DriveMap(document.getElementById("map")!, { point: [c.longitude, c.latitude] });
     }
@@ -220,11 +280,16 @@ function showSettings() {
     <label>地图文字语言<select id="lang">
       <option value="ja">日本語</option><option value="zh">中文</option><option value="en">English</option><option value="local">本地（当地语言）</option>
     </select></label>
+    <label>默认货币<select id="currency">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select></label>
+    <p class="muted">录入费用时默认按充电地点所在国家选择货币（如日本 → JPY）；无法判断地点时使用这里的默认货币。</p>
     <p class="muted">地图：OpenFreeMap（OpenStreetMap 数据）</p>`;
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
   themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "ja";
   themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
+  const curSel = document.getElementById("currency") as HTMLSelectElement;
+  curSel.value = s.currency ?? "JPY";
+  curSel.onchange = () => saveSettings({ ...loadSettings(), currency: curSel.value });
   langSel.onchange = () => saveSettings({ ...loadSettings(), labelLang: langSel.value as LabelLang });
   (document.getElementById("save") as HTMLElement).onclick = async () => {
     saveSettings({ ...loadSettings(), apiUrl: (document.getElementById("url") as HTMLInputElement).value.trim(),
@@ -249,10 +314,15 @@ interface Summary {
   software: { version: string | null; installed_at: string | null } | null;
   last_drive: Drive | null; last_charge: Charge | null;
   stats: { total_distance_km: number | null; drive_count: number | null; charge_count: number | null;
-           total_energy_added_kwh: number | null; total_cost: number | null };
+           total_energy_added_kwh: number | null; total_cost: number | null; costs?: CurAmt[] };
   this_month: { month: string | null; distance_km: number | null; drive_count: number | null; drive_energy_kwh: number | null;
-                charge_count: number | null; charge_energy_added_kwh: number | null; charge_cost: number | null };
+                charge_count: number | null; charge_energy_added_kwh: number | null; charge_cost: number | null; charge_costs?: CurAmt[] };
 }
+
+interface CurAmt { currency: string; amount: number; count: number }
+/** Per-currency sums (each shown separately); falls back to the legacy single total. */
+const costSum = (list: CurAmt[] | undefined, legacy: number | null) =>
+  list ? (list.length ? list.map(x => fmtMoney(x.amount, x.currency)).join("<br>") : "—") : fmtMoney(legacy);
 
 const STATE_LABEL: Record<string, [string, string]> = {
   online: ["在线", "st-online"], asleep: ["休眠", "st-asleep"], offline: ["离线", "st-offline"], driving: ["行驶中", "st-online"] };
@@ -335,7 +405,7 @@ function monthHTML(d: StatsData) {
       <div><small>行驶</small><b>${n(m.distance_km, 0)} km</b></div>
       <div><small>耗电</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
       <div><small>充电</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
-      <div><small>充电费用</small><b>${n(m.charge_cost, 0)}</b></div>
+      <div><small>充电费用</small><b>${costSum(m.charge_costs, m.charge_cost)}</b></div>
       <div><small>行程数</small><b>${m.drive_count ?? 0}</b></div>
       <div><small>充电次数</small><b>${m.charge_count ?? 0}</b></div>
     </div>`;
@@ -347,6 +417,7 @@ function totalsHTML(d: StatsData) {
       <div><small>总行驶</small><b>${n(st.total_distance_km, 0)} km</b></div>
       <div><small>行程 / 充电</small><b>${st.drive_count ?? 0} / ${st.charge_count ?? 0}</b></div>
       <div><small>总充电</small><b>${n(st.total_energy_added_kwh, 0)} kWh</b></div>
+      <div><small>总充电费用</small><b>${costSum(st.costs, st.total_cost)}</b></div>
     </div>`;
 }
 function lastDriveHTML(a: Activity) {
@@ -364,7 +435,7 @@ function lastChargeHTML(a: Activity) {
   if (!ch) return `<div class="section-title">最近充电</div><div class="muted">暂无充电记录</div>`;
   return `<div class="section-title">最近充电</div>
     <div class="card" data-charge="${ch.id}">
-      <div class="row"><b>${esc(ch.address)}</b>${ch.cost != null ? `<span class="cost">${ch.cost.toFixed(0)}</span>` : ""}</div>
+      <div class="row"><b>${esc(ch.address)}</b>${costBadge(ch)}</div>
       <div class="row muted">${fmtDate(ch.start_date)} · ${fmtDur(ch.duration_min)}</div>
       <div class="stats"><span>⚡ +${n(ch.charge_energy_added, 2)} kWh</span><span>🔋 ${ch.start_battery_level ?? "—"}% → ${ch.end_battery_level ?? "—"}%</span></div>
     </div>`;
@@ -466,7 +537,7 @@ async function showHome() {
     if (!alive()) return; data.activity = r; fresh.activity = true; writeHomeCache(id, { activity: r });
     paintActivity(); updateStale();
   }).catch(e => { if (alive()) { fresh.activity = true; updateStale(); errorBox("drive", `最近行程/充电加载失败：${(e as Error).message}`, loadActivity); } });
-  const loadStats = () => api<StatsData>(`/api/cars/${id}/stats?tz=${encodeURIComponent(tz)}`).then(r => {
+  const loadStats = () => api<StatsData>(`/api/cars/${id}/stats?tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(r => {
     if (!alive()) return; data.stats = r; fresh.stats = true; writeHomeCache(id, { stats: r });
     paintStats(); updateStale();
   }).catch(e => { if (alive()) { fresh.stats = true; updateStale(); errorBox("month", `统计加载失败：${(e as Error).message}`, loadStats); } });

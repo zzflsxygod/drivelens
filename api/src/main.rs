@@ -19,7 +19,40 @@ mod summary;
 struct AppState {
     db: PgPool,
     token: Arc<String>,
+    /// drivelens.charge_costs exists (checked lazily; once true it stays true)
+    costs_ok: Arc<std::sync::atomic::AtomicBool>,
 }
+
+/// Is the optional manual-cost table available? Re-checked until it appears, so re-running
+/// drivelens-init.sql takes effect without restarting the API.
+pub(crate) async fn costs_ok(s: &AppState) -> Result<bool, ApiError> {
+    use std::sync::atomic::Ordering;
+    if s.costs_ok.load(Ordering::Relaxed) { return Ok(true); }
+    let t: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.charge_costs')::text").fetch_one(&s.db).await?;
+    let ok = t.is_some() && sqlx::query_scalar::<_, bool>(
+        "SELECT has_table_privilege('drivelens.charge_costs', 'SELECT,INSERT,UPDATE,DELETE')").fetch_one(&s.db).await?;
+    if ok { s.costs_ok.store(true, Ordering::Relaxed); }
+    Ok(ok)
+}
+
+/// Currency guessed from the charge location: TeslaMate's addresses.country (localized name
+/// or English), then a Japan bounding box on the position. NULL = unknown (client default).
+pub(crate) const LOC_CURRENCY: &str = r#"(CASE
+    WHEN a.country ILIKE ANY (ARRAY['japan','日本%','jp']) THEN 'JPY'
+    WHEN a.country ILIKE ANY (ARRAY['china','中国','中华人民共和国','cn']) THEN 'CNY'
+    WHEN a.country ILIKE ANY (ARRAY['taiwan','台湾','臺灣','台灣']) THEN 'TWD'
+    WHEN a.country ILIKE ANY (ARRAY['hong kong','香港%']) THEN 'HKD'
+    WHEN a.country ILIKE ANY (ARRAY['south korea','korea%','大韩民国','韓国','대한민국']) THEN 'KRW'
+    WHEN a.country ILIKE ANY (ARRAY['united states%','usa','美国','アメリカ合衆国']) THEN 'USD'
+    WHEN a.country ILIKE ANY (ARRAY['united kingdom','英国','イギリス']) THEN 'GBP'
+    WHEN a.country ILIKE ANY (ARRAY['canada','加拿大','カナダ']) THEN 'CAD'
+    WHEN a.country ILIKE ANY (ARRAY['australia','澳大利亚','オーストラリア']) THEN 'AUD'
+    WHEN a.country ILIKE ANY (ARRAY['singapore','新加坡','シンガポール']) THEN 'SGD'
+    WHEN a.country ILIKE ANY (ARRAY['switzerland','schweiz%','suisse','瑞士','スイス']) THEN 'CHF'
+    WHEN a.country ILIKE ANY (ARRAY['germany','deutschland','france','italia','italy','españa','spain','nederland','netherlands','belgi%','österreich','austria','portugal','suomi%','finland','ireland','éire%','ελλάδα','greece','德国','法国','意大利','西班牙','荷兰','ドイツ','フランス','イタリア','スペイン']) THEN 'EUR'
+    WHEN a.country IS NULL AND p.latitude BETWEEN 24 AND 45.6 AND p.longitude BETWEEN 129 AND 146 THEN 'JPY'
+    ELSE NULL END)"#;
+
 
 struct ApiError(anyhow::Error);
 impl<E: Into<anyhow::Error>> From<E> for ApiError {
@@ -73,7 +106,16 @@ struct ChargeSummary {
     longitude: Option<f64>,
     charge_energy_added: Option<f64>,
     charge_energy_used: Option<f64>,
+    /// effective cost: manual entry > TeslaMate cost
     cost: Option<f64>,
+    /// ISO 4217; NULL for a TeslaMate cost at an unknown location (client applies its default)
+    currency: Option<String>,
+    /// 'manual' | 'teslamate' | NULL
+    cost_source: Option<String>,
+    cost_note: Option<String>,
+    teslamate_cost: Option<f64>,
+    /// currency guessed from the charge location (for the entry dialog)
+    default_currency: Option<String>,
     start_battery_level: Option<i32>,
     end_battery_level: Option<i32>,
     duration_min: Option<i32>,
@@ -174,7 +216,19 @@ struct PathPoint {
     battery_level: Option<i32>,
 }
 
-fn charge_select() -> String {
+pub(crate) fn charge_select(costs: bool) -> String {
+    let (cost_cols, cost_join) = if costs {
+        ("COALESCE(cc.amount, cp.cost)::float8 AS cost,
+          CASE WHEN cc.amount IS NOT NULL THEN cc.currency::text WHEN cp.cost IS NOT NULL THEN LOCCUR END AS currency,
+          CASE WHEN cc.amount IS NOT NULL THEN 'manual' WHEN cp.cost IS NOT NULL THEN 'teslamate' END AS cost_source,
+          cc.note AS cost_note,", "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
+    } else {
+        ("cp.cost::float8 AS cost,
+          CASE WHEN cp.cost IS NOT NULL THEN LOCCUR END AS currency,
+          CASE WHEN cp.cost IS NOT NULL THEN 'teslamate' END AS cost_source,
+          NULL::text AS cost_note,", "")
+    };
+    let cost_cols = cost_cols.replace("LOCCUR", LOC_CURRENCY);
     format!(
         r#"SELECT cp.id::int8 AS id, cp.car_id::int8 AS car_id,
           to_char(cp.start_date, '{TS}') AS start_date, to_char(cp.end_date, '{TS}') AS end_date,
@@ -183,14 +237,15 @@ fn charge_select() -> String {
           p.latitude::float8 AS latitude, p.longitude::float8 AS longitude,
           cp.charge_energy_added::float8 AS charge_energy_added,
           cp.charge_energy_used::float8 AS charge_energy_used,
-          cp.cost::float8 AS cost,
+          {cost_cols} cp.cost::float8 AS teslamate_cost, {LOC_CURRENCY} AS default_currency,
           cp.start_battery_level::int4 AS start_battery_level, cp.end_battery_level::int4 AS end_battery_level,
           cp.duration_min::int4 AS duration_min, cp.outside_temp_avg::float8 AS outside_temp_avg
         FROM charging_processes cp
         LEFT JOIN addresses a ON a.id = cp.address_id
         LEFT JOIN drivelens.address_aliases al ON al.address_id = cp.address_id
         LEFT JOIN geofences g ON g.id = cp.geofence_id
-        LEFT JOIN positions p ON p.id = cp.position_id"#
+        LEFT JOIN positions p ON p.id = cp.position_id
+        {cost_join}"#
     )
 }
 
@@ -206,7 +261,7 @@ async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
 async fn list_charges(State(s): State<AppState>, Query(q): Query<ListParams>) -> ApiResult<Vec<ChargeSummary>> {
     let sql = format!(
         "{} WHERE ($1::int8 IS NULL OR cp.car_id = $1) AND cp.end_date IS NOT NULL ORDER BY cp.start_date DESC LIMIT $2 OFFSET $3",
-        charge_select()
+        charge_select(costs_ok(&s).await?)
     );
     let rows = sqlx::query_as::<_, ChargeSummary>(&sql)
         .bind(q.car_id).bind(q.limit()).bind(q.offset())
@@ -215,7 +270,7 @@ async fn list_charges(State(s): State<AppState>, Query(q): Query<ListParams>) ->
 }
 
 async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    let sql = format!("{} WHERE cp.id = $1", charge_select());
+    let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(&s).await?));
     let Some(summary) = sqlx::query_as::<_, ChargeSummary>(&sql).bind(id).fetch_optional(&s.db).await? else {
         return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
     };
@@ -324,20 +379,78 @@ async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<
     Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no alias") } else { StatusCode::NO_CONTENT.into_response() })
 }
 
+#[derive(Deserialize)]
+struct CostBody { amount: f64, currency: String, note: Option<String> }
+
+const COSTS_MISSING: &str = "manual cost table drivelens.charge_costs is missing or not writable; re-run deploy/drivelens-init.sql (see README)";
+
+async fn charge_response(s: &AppState, id: i64) -> Result<Response, ApiError> {
+    let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(s).await?));
+    Ok(match sqlx::query_as::<_, ChargeSummary>(&sql).bind(id).fetch_optional(&s.db).await? {
+        Some(c) => Json(c).into_response(),
+        None => bad(StatusCode::NOT_FOUND, "charge not found"),
+    })
+}
+
+async fn put_cost(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json<CostBody>) -> Result<Response, ApiError> {
+    if !costs_ok(&s).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, COSTS_MISSING)); }
+    if !b.amount.is_finite() || b.amount < 0.0 || b.amount >= 1e9 {
+        return Ok(bad(StatusCode::BAD_REQUEST, "amount must be 0..1e9"));
+    }
+    let cur = b.currency.trim().to_ascii_uppercase();
+    if cur.len() != 3 || !cur.bytes().all(|c| c.is_ascii_uppercase()) {
+        return Ok(bad(StatusCode::BAD_REQUEST, "currency must be a 3-letter ISO 4217 code"));
+    }
+    let note = b.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    if note.map_or(false, |n| n.chars().count() > 500) { return Ok(bad(StatusCode::BAD_REQUEST, "note too long")); }
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM charging_processes WHERE id = $1").bind(id).fetch_optional(&s.db).await?;
+    if exists.is_none() { return Ok(bad(StatusCode::NOT_FOUND, "charge not found")); }
+    sqlx::query(
+        "INSERT INTO drivelens.charge_costs (charging_process_id, amount, currency, note, updated_at)
+         VALUES ($1, $2::float8::numeric(12,2), $3, $4, now())
+         ON CONFLICT (charging_process_id) DO UPDATE
+         SET amount = EXCLUDED.amount, currency = EXCLUDED.currency, note = EXCLUDED.note, updated_at = now()",
+    ).bind(id as i32).bind(b.amount).bind(&cur).bind(note).execute(&s.db).await?;
+    charge_response(&s, id).await
+}
+
+async fn delete_cost(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if !costs_ok(&s).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, COSTS_MISSING)); }
+    sqlx::query("DELETE FROM drivelens.charge_costs WHERE charging_process_id = $1").bind(id as i32).execute(&s.db).await?;
+    // idempotent: returns the charge with the TeslaMate cost (if any) now in effect
+    charge_response(&s, id).await
+}
+
 /// Our own schema; TeslaMate's tables are never modified.
 async fn migrate(db: &PgPool) -> anyhow::Result<()> {
     // If an admin pre-created the table (recommended for a least-privilege DB user), do nothing:
     // CREATE SCHEMA IF NOT EXISTS still requires CREATE privilege on the database.
     let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.address_aliases')::text")
         .fetch_one(db).await?;
-    if exists.is_some() { return Ok(()); }
-    sqlx::query("CREATE SCHEMA IF NOT EXISTS drivelens").execute(db).await?;
+    if exists.is_none() {
+        sqlx::query("CREATE SCHEMA IF NOT EXISTS drivelens").execute(db).await?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS drivelens.address_aliases (
             address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
             name text NOT NULL CHECK (length(btrim(name)) > 0),
             updated_at timestamptz NOT NULL DEFAULT now())",
     ).execute(db).await?;
+    }
+    // Manual costs (v0.4.0). A least-privilege user cannot create it: then the feature stays
+    // disabled (PUT returns 503) until drivelens-init.sql is re-run. Never fatal.
+    let has: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.charge_costs')::text").fetch_one(db).await?;
+    if has.is_none() {
+        if let Err(e) = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS drivelens.charge_costs (
+                charging_process_id integer PRIMARY KEY REFERENCES public.charging_processes(id) ON DELETE CASCADE,
+                amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+                currency char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+                note text,
+                updated_at timestamptz NOT NULL DEFAULT now())",
+        ).execute(db).await {
+            tracing::warn!("manual charge costs disabled: cannot create drivelens.charge_costs ({e}); re-run drivelens-init.sql");
+        }
+    }
     Ok(())
 }
 
@@ -377,7 +490,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
     migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token) };
+    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()) };
 
     let api = Router::new()
         .route("/cars", get(list_cars))
@@ -387,6 +500,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/cars/:id/stats", get(summary::car_stats))
         .route("/charges", get(list_charges))
         .route("/charges/:id", get(get_charge))
+        .route("/charges/:id/cost", axum::routing::put(put_cost).delete(delete_cost))
         .route("/drives", get(list_drives))
         .route("/drives/:id", get(get_drive))
         .route("/drives/:id/path", get(drive_path))
