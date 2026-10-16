@@ -270,7 +270,7 @@ export async function showJourney(ctx: Ctx, id: number) {
   v.innerHTML = `<div class="jtop"><button class="back">← 返回</button>${p2 ? `<div class="jtop-r">
       <button id="j-share" class="icon-btn" title="分享卡片" aria-label="分享卡片">📤</button>
       <button id="j-more" class="icon-btn" title="更多" aria-label="更多">⋯</button>
-      <div id="j-menu" class="pop-menu" hidden><button data-act="setcover">🖼 当前地图设为封面</button>${j.has_cover ? `<button data-act="rmcover">↺ 恢复默认封面</button>` : ""}</div></div>` : ""}</div>
+      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">📷 上传照片作为封面</button><button data-act="setcover">🖼 当前地图设为封面</button>${j.has_cover ? `<button data-act="rmcover">↺ 恢复默认封面</button>` : ""}</div></div>` : ""}</div>
     ${heroOn ? `<div class="jhero sk" id="j-hero"><div class="jhero-in">
         <h2>${esc(j.name)} ${pen}</h2><div class="jhero-meta">${meta}</div>
         <div class="jhero-stats"><span>${n(s.distance_km, 0)} km</span><span>${n(s.energy_used_kwh, 1)} kWh</span><span>${n(s.efficiency_wh_km, 0)} Wh/km</span>${s.costs.length ? `<span>${costTxt(s.costs)}</span>` : ""}</div></div></div>`
@@ -404,6 +404,16 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
     const img = await J2.mapSnapshot(getMap());
     if (!img) return msg("地图还没加载好，稍后再试");
     try { await J2.saveCover(j.id, img); self(); } catch (e) { msg((e as Error).message); }
+  };
+  (menu.querySelector('[data-act="photo"]') as HTMLElement).onclick = () => {
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = async () => {
+      const f = inp.files?.[0]; if (!f) return;
+      msg("正在处理照片…");
+      try { const img = await J2.photoToCover(f); msg("正在上传…"); await J2.saveCover(j.id, img); self(); }
+      catch (e) { msg((e as Error).message); }
+    };
+    inp.click();
   };
   const rm = menu.querySelector<HTMLElement>('[data-act="rmcover"]');
   if (rm) rm.onclick = async () => { try { await J2.resetCover(j.id); self(); } catch (e) { msg((e as Error).message); } };

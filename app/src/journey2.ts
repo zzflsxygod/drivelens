@@ -29,6 +29,22 @@ export async function mapSnapshot(m: DriveMap | null, maxW = 1080, q = 0.82): Pr
     return c.toDataURL("image/jpeg", q);
   } catch { return null; }
 }
+/** Pick an image file → JPEG data URL (EXIF orientation applied, long edge ≤ maxEdge, ≤ ~maxBytes). */
+export async function photoToCover(file: File, maxEdge = 1600, maxBytes = 500_000): Promise<string> {
+  let bmp: ImageBitmap;
+  try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+  catch { throw new Error("无法读取这张图片（支持 JPEG / PNG / WebP 等常见格式）"); }
+  const sc = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+  let w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+  const enc = (q: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d")!; g.fillStyle = "#fff"; g.fillRect(0, 0, w, h); g.drawImage(bmp, 0, 0, w, h); return c.toDataURL("image/jpeg", q); };
+  const bytes = (u: string) => Math.floor((u.length - u.indexOf(",") - 1) * 3 / 4);
+  let q = 0.82, out = enc(q);
+  while (bytes(out) > maxBytes && q > 0.5) { q -= 0.08; out = enc(q); }
+  while (bytes(out) > maxBytes && w > 400) { w = Math.round(w * 0.8); h = Math.round(h * 0.8); out = enc(q); }
+  bmp.close();
+  return out;
+}
 export const saveCover = (id: number, image: string) => api(`/api/journeys/${id}/cover`, "PUT", { image });
 export const resetCover = (id: number) => api(`/api/journeys/${id}/cover`, "DELETE");
 
