@@ -230,3 +230,72 @@ body:has(.actionbar) .totop { bottom: calc(136px + env(safe-area-inset-bottom));
 .band-e small { grid-column: 2; text-align: right; }
 .share-sheet { max-height: 92vh; overflow: auto; }
 .share-img { width: 100%; border-radius: 10px; box-shadow: 0 1px 6px #0003; margin-bottom: 8px; }
+
+/* ================= v0.8.0 theme: soft gradients + glass cards ================= */
+:root { --accent:#7b5cff; --accent2:#ff5c8a; --grad:linear-gradient(135deg,#7b5cff,#ff5c8a); --green:#16a36b;
+  --bg:#f6f7fb; --card:#ffffffd9; --cardsolid:#fff; --text:#1b1d2a; --muted:#7a7f93; --line:#1b1d2a14; --shadow:0 6px 20px #7b5cff14, 0 1px 2px #0000000a;
+  background: radial-gradient(120% 50% at 0% 0%, #ffd6e7 0%, transparent 55%), radial-gradient(90% 45% at 100% 10%, #c9d8ff 0%, transparent 60%), #f6f7fb fixed; }
+:root[data-theme="dark"] { --bg:#0d0f1a; --card:#ffffff0f; --cardsolid:#1a1c2b; --text:#eef0ff; --muted:#9499b3; --line:#ffffff14; --shadow:0 8px 24px #0006;
+  background: radial-gradient(120% 50% at 0% 0%, #4a2375 0%, transparent 55%), radial-gradient(90% 45% at 100% 15%, #123a73 0%, transparent 60%), #0d0f1a fixed; }
+body { background: transparent; }
+header { background: #ffffffb3; box-shadow: none; border-bottom: 1px solid var(--line); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+:root[data-theme="dark"] header { background: #0d0f1acc; }
+header h1 { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; font-size: 20px; }
+header select { border-radius: 999px; padding: 6px 12px; border: 1px solid var(--line); background: var(--cardsolid); }
+/* floating bottom bar; content gets matching bottom padding */
+main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+nav { left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); padding-bottom: 0; border-radius: 24px; background: #ffffffd0; box-shadow: 0 8px 28px #1b1d2a22;
+  border: 1px solid #ffffffaa; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); max-width: 796px; margin: 0 auto; }
+:root[data-theme="dark"] nav { background: #1a1c2bd9; border-color: #ffffff1a; box-shadow: 0 8px 28px #000a; }
+nav button { padding: 12px 0; font-size: 14px; border-radius: 20px; }
+nav button.active { color: var(--accent); }
+.totop { bottom: calc(84px + env(safe-area-inset-bottom)); background: var(--grad); color: #fff; border: 0; }
+body:has(.actionbar) .totop { bottom: calc(150px + env(safe-area-inset-bottom)); }
+.actionbar { bottom: calc(76px + env(safe-area-inset-bottom)) !important; left: 12px !important; right: 12px !important; border-radius: 20px; background: var(--cardsolid) !important; box-shadow: 0 8px 28px #1b1d2a26; }
+/* cards: translucent fill without per-card blur (cheap in WebView2) */
+.card, .grid div, .pane, .ov > div, .chart-box, .chart-empty, .elev-box, .wx-table, .band-row, .jnote, .version-box, .hero:not(.jhero) {
+  background: var(--card); border: 1px solid #ffffffb0; border-radius: 20px; box-shadow: var(--shadow); }
+:root[data-theme="dark"] :is(.card, .grid div, .pane, .ov > div, .chart-box, .chart-empty, .elev-box, .wx-table, .band-row, .jnote, .version-box, .hero) { border-color: #ffffff17; }
+.card { padding: 14px 16px; }
+.grid div { border-radius: 16px; }
+.hero:not(.jhero) { border-radius: 26px; padding: 18px; }
+.pct { font-weight: 800; background: linear-gradient(90deg, #22c58b, var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+.pct small { -webkit-text-fill-color: var(--muted); }
+.gauge { background: var(--line); height: 12px; } .gauge > div { background: linear-gradient(90deg, #22c58b, var(--accent)); }
+.car-name { font-weight: 800; }
+.section-title { font-size: 16px; font-weight: 800; margin: 18px 4px 8px; }
+.back, .link { color: var(--accent); }
+.primary { background: var(--grad); border-radius: 14px; box-shadow: 0 6px 16px #7b5cff40; font-weight: 600; }
+.ghost { border-radius: 14px; border-color: var(--line); background: var(--cardsolid); }
+input, select, textarea { border-radius: 12px !important; border-color: var(--line) !important; background: var(--cardsolid) !important; color: var(--text); }
+.stats span { white-space: nowrap; }
+.cost { color: var(--accent2); }
+.chart div { background: linear-gradient(180deg, var(--accent), var(--accent2)); border-radius: 6px 6px 2px 2px; }
+/* segmented controls */
+.seg-tabs, .seg { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 4px; }
+.seg-tabs button, .seg span { border-radius: 12px; }
+.seg-tabs button.on, .seg .on { background: var(--cardsolid); color: var(--text); box-shadow: 0 2px 8px #0000001a; border-bottom: 0; }
+:root[data-theme="dark"] :is(.seg-tabs button.on, .seg .on) { background: #ffffff22; }
+/* month headers / badges */
+.month-h { background: #f6f7fbeb !important; border-radius: 12px; }
+:root[data-theme="dark"] .month-h { background: #0d0f1aeb !important; }
+.month-h b { font-weight: 800; }
+.jbadge { background: #7b5cff1f; color: var(--accent); border-radius: 999px; }
+.card.selected { outline: 2px solid var(--accent); } .card.selected .chk { background: var(--grad); border-color: transparent; color: #fff; }
+.badge { border-radius: 999px; }
+/* dialogs / menus */
+.modal { background: #0d0f1a66; }
+.sheet { background: var(--cardsolid); border-radius: 26px 26px 0 0; box-shadow: 0 -10px 40px #0003; }
+.pop-menu { background: var(--cardsolid); border-radius: 16px; border: 1px solid var(--line); }
+.icon-btn { background: var(--cardsolid); border-color: var(--line); }
+/* banners */
+.srv-banner { background: linear-gradient(90deg, #fff4e0, #ffe6ef); color: #8a4b00; border: 0; border-radius: 0 0 16px 16px; }
+:root[data-theme="dark"] .srv-banner { background: linear-gradient(90deg, #3a2a10, #3a1630); color: #ffd28a; }
+.error { border-radius: 14px; } .ok { border-radius: 14px; }
+/* maps, charts */
+#map { border-radius: 22px; box-shadow: var(--shadow); }
+.jhero { border-radius: 24px; box-shadow: var(--shadow); }
+.tl.drive::before { border-color: var(--accent); }
+.wx-bar i { background: var(--grad); }
+.band-share { height: 12px; border-radius: 6px; }
+.version-box { padding: 8px 8px 8px 14px; }
