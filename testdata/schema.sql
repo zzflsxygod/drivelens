@@ -30,7 +30,6 @@ CREATE TABLE positions (id serial PRIMARY KEY, date timestamp NOT NULL, latitude
   battery_heater_no_power boolean, est_battery_range_km numeric(6,2), rated_battery_range_km numeric(6,2),
   usable_battery_level smallint, tpms_pressure_fl numeric(4,1), tpms_pressure_fr numeric(4,1),
   tpms_pressure_rl numeric(4,1), tpms_pressure_rr numeric(4,1));
-CREATE INDEX ON positions (drive_id, date);
 CREATE TABLE charging_processes (id serial PRIMARY KEY, start_date timestamp NOT NULL, end_date timestamp,
   charge_energy_added numeric(8,2), start_ideal_range_km numeric(6,2), end_ideal_range_km numeric(6,2),
   start_battery_level smallint, end_battery_level smallint, duration_min smallint, outside_temp_avg numeric(4,1),
@@ -50,3 +49,16 @@ CREATE TABLE states (id serial PRIMARY KEY, state states_status NOT NULL, start_
   end_date timestamp, car_id smallint NOT NULL REFERENCES cars(id));
 CREATE TABLE updates (id serial PRIMARY KEY, start_date timestamp NOT NULL, end_date timestamp,
   version varchar(255), car_id smallint NOT NULL REFERENCES cars(id));
+-- Indexes as created by TeslaMate's migrations (as of 2026), so EXPLAIN locally matches production
+CREATE INDEX positions_car_id_index ON positions (car_id);
+CREATE INDEX positions_car_id_date__ideal_battery_range_km_IS_NOT_NULL_index ON positions (car_id, date, (ideal_battery_range_km IS NOT NULL)) WHERE ideal_battery_range_km IS NOT NULL;
+CREATE INDEX positions_date_index ON positions USING brin (date timestamp_minmax_multi_ops) WITH (autosummarize = true, pages_per_range = 64);
+CREATE INDEX positions_drive_id_date_index ON positions USING brin (drive_id, date timestamp_minmax_multi_ops) WITH (autosummarize = true, pages_per_range = 64);
+CREATE INDEX trips_car_id_index ON drives (car_id);
+CREATE INDEX drives_start_position_id_index ON drives (start_position_id);
+CREATE INDEX drives_end_position_id_index ON drives (end_position_id);
+CREATE INDEX charging_processes_car_id_index ON charging_processes (car_id);
+CREATE INDEX charges_charging_process_id_index ON charges (charging_process_id);
+CREATE INDEX states_car_id_index ON states (car_id);
+CREATE UNIQUE INDEX states_car_id__end_date_IS_NULL_index ON states (car_id, (end_date IS NULL)) WHERE end_date IS NULL;
+CREATE INDEX updates_car_id_index ON updates (car_id);

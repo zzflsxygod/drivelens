@@ -182,7 +182,7 @@ async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Re
              charge_energy_added::float8 AS charge_energy_added, charger_power::int4 AS charger_power,
              charger_voltage::int4 AS charger_voltage, charger_actual_current::int4 AS charger_actual_current,
              fast_charger_present
-           FROM charges WHERE charging_process_id = $1 ORDER BY date"#
+           FROM charges WHERE charging_process_id = $1 ORDER BY charges.date"#
     )).bind(id).fetch_all(&s.db).await?;
     Ok(Json(ChargeDetail { summary, points }).into_response())
 }
@@ -300,7 +300,7 @@ async fn drive_path(State(s): State<AppState>, Path(id): Path<i64>) -> ApiResult
     let rows = sqlx::query_as::<_, PathPoint>(&format!(
         r#"SELECT to_char(date, '{TS}') AS date, latitude::float8 AS lat, longitude::float8 AS lng,
              speed::int4 AS speed, elevation::int4 AS elevation, battery_level::int4 AS battery_level
-           FROM positions WHERE drive_id = $1 ORDER BY date"#
+           FROM positions WHERE drive_id = $1 ORDER BY positions.date"#
     )).bind(id).fetch_all(&s.db).await?;
     Ok(Json(rows))
 }
@@ -337,6 +337,9 @@ async fn main() -> anyhow::Result<()> {
     let api = Router::new()
         .route("/cars", get(list_cars))
         .route("/cars/:id/summary", get(summary::car_summary))
+        .route("/cars/:id/status", get(summary::car_status))
+        .route("/cars/:id/last-activity", get(summary::car_last_activity))
+        .route("/cars/:id/stats", get(summary::car_stats))
         .route("/charges", get(list_charges))
         .route("/charges/:id", get(get_charge))
         .route("/drives", get(list_drives))

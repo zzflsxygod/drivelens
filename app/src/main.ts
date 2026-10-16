@@ -233,82 +233,208 @@ function ago(iso: string | null) {
   return `${Math.floor(m / 1440)} 天前`;
 }
 
+type Status = Pick<Summary, "car" | "state" | "position" | "software">;
+type Activity = Pick<Summary, "location" | "last_drive" | "last_charge">;
+type StatsData = Pick<Summary, "stats" | "this_month">;
+interface HomeCache { status?: Status; activity?: Activity; stats?: StatsData; savedAt?: number }
+
+const LAST_CAR_KEY = "drivelens-last-car";
+const homeCacheKey = (id: number) => `drivelens-home-${id}`;
+function readHomeCache(id: number): HomeCache {
+  try { return JSON.parse(localStorage.getItem(homeCacheKey(id)) || "{}"); } catch { return {}; }
+}
+function writeHomeCache(id: number, patch: HomeCache) {
+  try { localStorage.setItem(homeCacheKey(id), JSON.stringify({ ...readHomeCache(id), ...patch, savedAt: Date.now() })); } catch { /* quota */ }
+}
+
+/** Car to show without waiting for the network: selector value, else last used, else 1st from list. */
 async function currentCarId(): Promise<number | null> {
-  if (!carSel.options.length) await loadCars();
+  if (carSel.value) return Number(carSel.value);
+  const last = Number(localStorage.getItem(LAST_CAR_KEY));
+  if (last) { loadCars().then(() => { if ([...carSel.options].some(o => o.value === String(last))) carSel.value = String(last); }); return last; }
+  await loadCars();
   return carSel.value ? Number(carSel.value) : null;
 }
 
+const sk = (w = "60%", h = "14px") => `<span class="sk" style="width:${w};height:${h}"></span>`;
+const skCard = () => `<div class="card sk-card">${sk("70%", "16px")}<br>${sk("45%")}<br>${sk("85%")}</div>`;
+const skGrid = (n: number) => `<div class="grid">${Array.from({ length: n }, () => `<div>${sk("50%", "10px")}<br>${sk("70%", "16px")}</div>`).join("")}</div>`;
+
+function heroHTML(s: Status) {
+  const p = s.position, c = s.car;
+  const driving = s.state?.state === "online" && (p?.speed ?? 0) > 0;
+  const [stLabel, stCls] = STATE_LABEL[driving ? "driving" : s.state?.state ?? ""] ?? ["未知", "st-offline"];
+  const lvl = p?.battery_level ?? null;
+  const lvlCls = lvl == null ? "" : lvl < 20 ? "low" : lvl < 50 ? "mid" : "";
+  const model = c.marketing_name || (c.model ? `Model ${c.model}` : "");
+  const extras = [c.exterior_color ? (COLOR_LABEL[c.exterior_color] ?? c.exterior_color) : null, c.wheel_type].filter(Boolean).join(" · ");
+  return `
+    <div class="row"><div>
+      <div class="car-name">${esc(c.name || `Car ${c.id}`)}</div>
+      <div class="muted">${esc(model)}${extras ? ` · ${esc(extras)}` : ""}</div>
+    </div><button class="icon-btn" data-refresh title="刷新">⟳</button></div>
+    <div class="badge ${stCls}">${stLabel}${s.state?.since ? ` · ${ago(s.state.since)}起` : ""}</div>
+    <div class="gauge-row">
+      <div class="pct">${lvl ?? "—"}<small>%</small></div>
+      <div class="range"><b>${n(p?.rated_battery_range_km ?? null, 0)}</b> km<div class="muted">预估 ${n(p?.est_battery_range_km ?? null, 0)} km</div></div>
+    </div>
+    <div class="gauge"><div class="${lvlCls}" style="width:${lvl ?? 0}%"></div></div>
+    <div class="kv">
+      <div><small>总里程</small><b>${p?.odometer_km != null ? Math.round(p.odometer_km).toLocaleString() : "—"} km</b></div>
+      <div><small>软件版本</small><b>${esc(s.software?.version?.split(" ")[0] ?? "—")}</b></div>
+      <div><small>车外 / 车内</small><b>${n(p?.outside_temp ?? null)}° / ${n(p?.inside_temp ?? null)}°</b></div>
+    </div>`;
+}
+const heroSkeleton = () => `
+    <div class="row"><div style="flex:1">${sk("40%", "24px")}<br>${sk("55%")}</div><button class="icon-btn" data-refresh title="刷新">⟳</button></div>
+    <div style="margin:10px 0">${sk("90px", "20px")}</div>
+    <div class="gauge-row">${sk("110px", "46px")}${sk("90px", "30px")}</div>
+    <div class="gauge"></div>
+    <div class="kv">${[1, 2, 3].map(() => `<div>${sk("60%", "10px")}<br>${sk("80%")}</div>`).join("")}</div>`;
+
+function monthHTML(d: StatsData) {
+  const m = d.this_month;
+  return `<div class="section-title">本月 ${esc(m.month ?? "")}</div>
+    <div class="grid">
+      <div><small>行驶</small><b>${n(m.distance_km, 0)} km</b></div>
+      <div><small>耗电</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
+      <div><small>充电</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
+      <div><small>充电费用</small><b>${n(m.charge_cost, 0)}</b></div>
+      <div><small>行程数</small><b>${m.drive_count ?? 0}</b></div>
+      <div><small>充电次数</small><b>${m.charge_count ?? 0}</b></div>
+    </div>`;
+}
+function totalsHTML(d: StatsData) {
+  const st = d.stats;
+  return `<div class="section-title">累计</div>
+    <div class="grid">
+      <div><small>总行驶</small><b>${n(st.total_distance_km, 0)} km</b></div>
+      <div><small>行程 / 充电</small><b>${st.drive_count ?? 0} / ${st.charge_count ?? 0}</b></div>
+      <div><small>总充电</small><b>${n(st.total_energy_added_kwh, 0)} kWh</b></div>
+    </div>`;
+}
+function lastDriveHTML(a: Activity) {
+  const d = a.last_drive;
+  if (!d) return `<div class="section-title">最近行程</div><div class="muted">暂无行程</div>`;
+  return `<div class="section-title">最近行程</div>
+    <div class="card" data-drive="${d.id}">
+      <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
+      <div class="row muted">${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</div>
+      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
+    </div>`;
+}
+function lastChargeHTML(a: Activity) {
+  const ch = a.last_charge;
+  if (!ch) return `<div class="section-title">最近充电</div><div class="muted">暂无充电记录</div>`;
+  return `<div class="section-title">最近充电</div>
+    <div class="card" data-charge="${ch.id}">
+      <div class="row"><b>${esc(ch.address)}</b>${ch.cost != null ? `<span class="cost">${ch.cost.toFixed(0)}</span>` : ""}</div>
+      <div class="row muted">${fmtDate(ch.start_date)} · ${fmtDur(ch.duration_min)}</div>
+      <div class="stats"><span>⚡ +${n(ch.charge_energy_added, 2)} kWh</span><span>🔋 ${ch.start_battery_level ?? "—"}% → ${ch.end_battery_level ?? "—"}%</span></div>
+    </div>`;
+}
+
+let homeGen = 0;
+
 async function showHome() {
-  loading();
-  try {
-    const id = await currentCarId();
-    if (id == null) { view.innerHTML = `<div class="muted">没有找到车辆</div>`; return; }
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    const s = await api<Summary>(`/api/cars/${id}/summary?tz=${encodeURIComponent(tz)}`);
-    const p = s.position, c = s.car;
-    const driving = s.state?.state === "online" && (p?.speed ?? 0) > 0;
-    const [stLabel, stCls] = STATE_LABEL[driving ? "driving" : s.state?.state ?? ""] ?? ["未知", "st-offline"];
-    const lvl = p?.battery_level ?? null;
-    const lvlCls = lvl == null ? "" : lvl < 20 ? "low" : lvl < 50 ? "mid" : "";
-    const model = [c.marketing_name || (c.model ? `Model ${c.model}` : null)].filter(Boolean).join(" ");
-    const extras = [c.exterior_color ? (COLOR_LABEL[c.exterior_color] ?? c.exterior_color) : null, c.wheel_type].filter(Boolean).join(" · ");
-    const m = s.this_month, st = s.stats;
-    const d = s.last_drive, ch = s.last_charge;
-    view.innerHTML = `
+  destroyMap();
+  const gen = ++homeGen;
+  const alive = () => gen === homeGen && document.getElementById("home") != null;
+  view.innerHTML = `
+    <div id="home">
       <div class="pull-hint" id="pull">下拉刷新</div>
-      <div class="hero">
-        <div class="row"><div>
-          <div class="car-name">${esc(c.name || `Car ${c.id}`)}</div>
-          <div class="muted">${esc(model)}${extras ? ` · ${esc(extras)}` : ""}</div>
-        </div><button class="icon-btn" id="refresh" title="刷新">⟳</button></div>
-        <div class="badge ${stCls}">${stLabel}${s.state?.since ? ` · ${ago(s.state.since)}起` : ""}</div>
-        <div class="gauge-row">
-          <div class="pct">${lvl ?? "—"}<small>%</small></div>
-          <div class="range"><b>${n(p?.rated_battery_range_km ?? null, 0)}</b> km<div class="muted">预估 ${n(p?.est_battery_range_km ?? null, 0)} km</div></div>
-        </div>
-        <div class="gauge"><div class="${lvlCls}" style="width:${lvl ?? 0}%"></div></div>
-        <div class="kv">
-          <div><small>总里程</small><b>${p?.odometer_km != null ? Math.round(p.odometer_km).toLocaleString() : "—"} km</b></div>
-          <div><small>软件版本</small><b>${esc(s.software?.version?.split(" ")[0] ?? "—")}</b></div>
-          <div><small>车外 / 车内</small><b>${n(p?.outside_temp ?? null)}° / ${n(p?.inside_temp ?? null)}°</b></div>
-        </div>
-      </div>
-      ${p?.latitude != null ? `
-      <div class="section-title">📍 ${esc(s.location?.name ?? "最后位置")} <span class="muted">${p.date ? ago(p.date) : ""}</span></div>
-      <div id="map" class="small"></div>` : ""}
-      <div class="section-title">本月 ${esc(m.month ?? "")}</div>
-      <div class="grid">
-        <div><small>行驶</small><b>${n(m.distance_km, 0)} km</b></div>
-        <div><small>耗电</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
-        <div><small>充电</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
-        <div><small>充电费用</small><b>${n(m.charge_cost, 0)}</b></div>
-        <div><small>行程数</small><b>${m.drive_count ?? 0}</b></div>
-        <div><small>充电次数</small><b>${m.charge_count ?? 0}</b></div>
-      </div>
-      ${d ? `<div class="section-title">最近行程</div>
-      <div class="card" id="last-drive">
-        <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
-        <div class="row muted">${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</div>
-        <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
-      </div>` : ""}
-      ${ch ? `<div class="section-title">最近充电</div>
-      <div class="card" id="last-charge">
-        <div class="row"><b>${esc(ch.address)}</b>${ch.cost != null ? `<span class="cost">${ch.cost.toFixed(0)}</span>` : ""}</div>
-        <div class="row muted">${fmtDate(ch.start_date)} · ${fmtDur(ch.duration_min)}</div>
-        <div class="stats"><span>⚡ +${n(ch.charge_energy_added, 2)} kWh</span><span>🔋 ${ch.start_battery_level ?? "—"}% → ${ch.end_battery_level ?? "—"}%</span></div>
-      </div>` : ""}
-      <div class="section-title">累计</div>
-      <div class="grid">
-        <div><small>总行驶</small><b>${n(st.total_distance_km, 0)} km</b></div>
-        <div><small>行程 / 充电</small><b>${st.drive_count ?? 0} / ${st.charge_count ?? 0}</b></div>
-        <div><small>总充电</small><b>${n(st.total_energy_added_kwh, 0)} kWh</b></div>
-      </div>`;
-    (document.getElementById("refresh") as HTMLElement).onclick = showHome;
-    if (d) (document.getElementById("last-drive") as HTMLElement).onclick = () => showDrive(d.id);
-    if (ch) (document.getElementById("last-charge") as HTMLElement).onclick = () => showCharge(ch.id);
-    if (p?.latitude != null && p.longitude != null)
-      map = new DriveMap(document.getElementById("map")!, { point: [p.longitude, p.latitude] });
-  } catch (e) { showError(e); }
+      <div id="stale" class="stale" hidden></div>
+      <div class="hero" id="sec-hero">${heroSkeleton()}</div>
+      <div id="sec-map"><div class="section-title">${sk("40%")}</div><div class="map-ph sk"></div></div>
+      <div id="sec-month"><div class="section-title">${sk("30%")}</div>${skGrid(6)}</div>
+      <div id="sec-drive"><div class="section-title">${sk("25%")}</div>${skCard()}</div>
+      <div id="sec-charge"><div class="section-title">${sk("25%")}</div>${skCard()}</div>
+      <div id="sec-totals"><div class="section-title">${sk("20%")}</div>${skGrid(3)}</div>
+    </div>`;
+  view.querySelector("[data-refresh]")?.addEventListener("click", showHome);
+
+  const id = await currentCarId().catch(() => null);
+  if (!alive()) return;
+  if (id == null) { view.innerHTML = `<div class="error">没有找到车辆（请检查设置）</div>`; return; }
+  localStorage.setItem(LAST_CAR_KEY, String(id));
+
+  const data: HomeCache = { ...readHomeCache(id) };
+  const fresh = { status: false, activity: false, stats: false };
+  const sec = (k: string) => document.getElementById(`sec-${k}`)!;
+
+  const updateStale = () => {
+    const el = document.getElementById("stale"); if (!el) return;
+    const pending = Object.values(fresh).some(v => !v);
+    el.hidden = !(pending && data.savedAt);
+    el.textContent = `显示 ${ago(new Date(data.savedAt ?? 0).toISOString())} 的缓存数据 · 更新中…`;
+  };
+
+  const errorBox = (k: string, msg: string, retry: () => void) => {
+    const el = sec(k), html = `<div class="error card-error">⚠️ ${esc(msg)} <button class="retry">重试</button></div>`;
+    const old = el.querySelector(".card-error"); if (old) old.remove();
+    el.insertAdjacentHTML(fresh[k as keyof typeof fresh] || !hasCache(k) ? "beforeend" : "afterbegin", html);
+    if (!hasCache(k)) el.querySelectorAll(".sk, .sk-card, .grid, .map-ph, .section-title").forEach(e => e.remove());
+    (el.querySelector(".retry") as HTMLElement).onclick = retry;
+  };
+  const hasCache = (k: string) => k === "hero" || k === "map" ? !!data.status : k === "drive" || k === "charge" ? !!data.activity : !!data.stats;
+
+  const paintHero = () => {
+    if (!data.status) return;
+    sec("hero").innerHTML = heroHTML(data.status);
+    sec("hero").querySelector("[data-refresh]")!.addEventListener("click", showHome);
+  };
+  let mapObserver: IntersectionObserver | null = null;
+  const paintMap = () => {
+    const p = data.status?.position;
+    if (!data.status) return;
+    if (p?.latitude == null || p.longitude == null) { sec("map").innerHTML = ""; return; }
+    const title = `<div class="section-title">📍 ${esc(data.activity?.location?.name ?? "最后位置")} <span class="muted">${p.date ? ago(p.date) : ""}</span></div>`;
+    const existing = document.getElementById("map");
+    if (existing) { sec("map").querySelector(".section-title")!.outerHTML = title; return; }
+    sec("map").innerHTML = `${title}<div id="map" class="small"><div class="map-ph sk"></div></div>`;
+    // Lazy: only create the WebGL map once the card is (nearly) on screen
+    mapObserver?.disconnect();
+    mapObserver = new IntersectionObserver(entries => {
+      if (!entries.some(e => e.isIntersecting) || !alive()) return;
+      mapObserver?.disconnect();
+      const el = document.getElementById("map"); if (!el) return;
+      el.innerHTML = "";
+      map = new DriveMap(el, { point: [p.longitude!, p.latitude!] });
+    }, { rootMargin: "200px" });
+    mapObserver.observe(document.getElementById("map")!);
+  };
+  const paintActivity = () => {
+    if (!data.activity) return;
+    sec("drive").innerHTML = lastDriveHTML(data.activity);
+    sec("charge").innerHTML = lastChargeHTML(data.activity);
+    sec("drive").querySelector<HTMLElement>("[data-drive]")?.addEventListener("click", e => showDrive(Number((e.currentTarget as HTMLElement).dataset.drive)));
+    sec("charge").querySelector<HTMLElement>("[data-charge]")?.addEventListener("click", e => showCharge(Number((e.currentTarget as HTMLElement).dataset.charge)));
+    if (data.status) paintMap();
+  };
+  const paintStats = () => {
+    if (!data.stats) return;
+    sec("month").innerHTML = monthHTML(data.stats);
+    sec("totals").innerHTML = totalsHTML(data.stats);
+  };
+
+  // 1) Instant: cached data
+  paintHero(); paintMap(); paintActivity(); paintStats(); updateStale();
+
+  // 2) Background: three independent requests
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const loadStatus = () => api<Status>(`/api/cars/${id}/status`).then(r => {
+    if (!alive()) return; data.status = r; fresh.status = true; writeHomeCache(id, { status: r });
+    paintHero(); paintMap(); updateStale();
+  }).catch(e => { if (alive()) { fresh.status = true; updateStale(); errorBox("hero", `车辆状态加载失败：${(e as Error).message}`, loadStatus); } });
+  const loadActivity = () => api<Activity>(`/api/cars/${id}/last-activity`).then(r => {
+    if (!alive()) return; data.activity = r; fresh.activity = true; writeHomeCache(id, { activity: r });
+    paintActivity(); updateStale();
+  }).catch(e => { if (alive()) { fresh.activity = true; updateStale(); errorBox("drive", `最近行程/充电加载失败：${(e as Error).message}`, loadActivity); } });
+  const loadStats = () => api<StatsData>(`/api/cars/${id}/stats?tz=${encodeURIComponent(tz)}`).then(r => {
+    if (!alive()) return; data.stats = r; fresh.stats = true; writeHomeCache(id, { stats: r });
+    paintStats(); updateStale();
+  }).catch(e => { if (alive()) { fresh.stats = true; updateStale(); errorBox("month", `统计加载失败：${(e as Error).message}`, loadStats); } });
+  loadStatus(); loadActivity(); loadStats();
 }
 
 // Pull-to-refresh on the home tab (touch devices)
@@ -334,7 +460,7 @@ document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclic
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); tabs[b.dataset.tab!]();
 });
-carSel.onchange = () => (document.querySelector("nav button.active") as HTMLElement).click();
+carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (document.querySelector("nav button.active") as HTMLElement).click(); };
 
 // Allow ?api=...&token=... for quick setup / testing
 const qp = new URLSearchParams(location.search);

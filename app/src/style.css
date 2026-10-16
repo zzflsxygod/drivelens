@@ -61,3 +61,16 @@ header select { width: auto; display: inline-block; margin: 0; padding: 4px 8px;
 .kv small { display: block; color: var(--muted); font-size: 12px; } .kv b { font-size: 14px; }
 .section-title { font-size: 14px; font-weight: 600; margin: 14px 0 6px; display: flex; justify-content: space-between; gap: 8px; }
 .pull-hint { height: 0; overflow: hidden; text-align: center; color: var(--muted); font-size: 13px; transition: height .2s; display: flex; align-items: center; justify-content: center; }
+
+/* Skeleton placeholders */
+.sk { display: inline-block; border-radius: 6px; vertical-align: middle;
+  background: linear-gradient(90deg, #8882 25%, #8884 37%, #8882 63%); background-size: 400% 100%; animation: sk 1.4s ease infinite; }
+:root[data-theme="dark"] .sk { background: linear-gradient(90deg, #ffffff10 25%, #ffffff22 37%, #ffffff10 63%); background-size: 400% 100%; }
+@keyframes sk { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+.sk-card { cursor: default; line-height: 2; }
+.map-ph { display: block; height: 200px; border-radius: 12px; margin: 0 0 12px; }
+#map .map-ph { height: 100%; margin: 0; }
+.stale { font-size: 12px; color: var(--muted); text-align: center; margin: 0 0 8px; }
+.card-error { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
+.retry { border: 1px solid currentColor; background: none; color: inherit; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }

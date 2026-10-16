@@ -32,6 +32,9 @@ drivelens/
 | `GET /health` | 健康检查 |
 | `GET /api/cars` | 车辆列表 |
 | `GET /api/cars/:id/summary?tz=Asia/Tokyo` | 首页数据：车辆信息、状态（在线/休眠/离线）、最新电量/续航/里程/温度/位置、软件版本、最近行程和充电、累计和本月统计（按 `tz` 时区划分月份） |
+| `GET /api/cars/:id/status` | 首页：车辆信息 + 状态 + 最新位置/电量/续航/里程 + 软件版本（只走索引，毫秒级） |
+| `GET /api/cars/:id/last-activity` | 首页：最近行程、最近充电、当前位置名称 |
+| `GET /api/cars/:id/stats?tz=Asia/Tokyo` | 首页：本月和累计统计（只聚合 drives / charging_processes，不扫描 positions） |
 | `GET /api/charges?car_id=&limit=&offset=` | 充电记录（时间、地点、充入/消耗 kWh、费用、起止电量、时长） |
 | `GET /api/charges/:id` | 单次充电详情 + 充电曲线（`charges` 表） |
 | `GET /api/drives?car_id=&limit=&offset=` | 行程（起止时间/地址、距离、时长、能耗 kWh、效率 Wh/km） |
@@ -290,5 +293,7 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 # 前端：cd app && npm run dev，然后浏览器打开
 # http://localhost:1420/?api=http://127.0.0.1:8080&token=dev-token-1234567890
 ```
+
+性能测试：在示例数据之后再执行 `testdata/bigdata.sql`，会生成约 300 万条 positions、6000 次行程、1500 次充电（约 30 秒）。
 
 `testdata/schema.sql` 是按 TeslaMate 的 Ecto 表结构整理的子集（只含本应用用到的表），**仅用于测试**，不要在真实 TeslaMate 数据库上执行。
