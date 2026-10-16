@@ -228,6 +228,8 @@ struct JSummary {
 #[derive(Serialize)]
 struct Detail {
     id: i64, car_id: i64, name: String, note: Option<String>,
+    /// v0.7.0: a custom cover is stored (GET /journeys/:id/cover)
+    has_cover: bool,
     summary: JSummary, drives: Vec<Drive>, charges: Vec<ChargeSummary>, stops: Vec<Stop>,
     /// nearby drives (±24 h) that can be added; journey_id set when they belong to another journey
     candidates: Vec<Drive>,
@@ -292,7 +294,8 @@ async fn detail(s: &AppState, id: i64) -> Result<Response, ApiError> {
             duration_min: ((b - a) / 60).max(0), address: w[0].end_address.clone(), lat: w[0].end_lat, lng: w[0].end_lng,
             charge_ids: ch.iter().map(|c| c.id).collect(), charged_kwh: r1(ch.iter().map(|c| c.charge_energy_added.unwrap_or(0.0)).sum()) }
     }).collect();
-    Ok(Json(Detail { id, car_id, name, note, summary: sm, drives, charges, stops, candidates }).into_response())
+    let has_cover = super::phase2::has_cover(s, id).await?;
+    Ok(Json(Detail { id, car_id, name, note, has_cover, summary: sm, drives, charges, stops, candidates }).into_response())
 }
 
 #[derive(Deserialize)]

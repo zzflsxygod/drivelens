@@ -16,6 +16,7 @@ use tower_http::cors::{Any, CorsLayer};
 mod summary;
 mod report;
 mod journey;
+mod phase2;
 
 #[derive(Clone)]
 struct AppState {
@@ -25,6 +26,8 @@ struct AppState {
     costs_ok: Arc<std::sync::atomic::AtomicBool>,
     journeys_ok: Arc<std::sync::atomic::AtomicBool>,
     dismiss_ok: Arc<std::sync::atomic::AtomicBool>,
+    cover_ok: Arc<std::sync::atomic::AtomicBool>,
+    weather_ok: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -274,8 +277,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2)
-pub(crate) const API_LEVEL: u32 = 10;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0)
+pub(crate) const API_LEVEL: u32 = 11;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -331,7 +334,8 @@ async fn health_full(State(s): State<AppState>) -> Response {
     (code, Json(serde_json::json!({"status": if db {"ok"} else {"db_error"}, "version": env!("CARGO_PKG_VERSION"),
         "api_level": API_LEVEL, "database": db, "manual_costs": costs_ok(&s).await.unwrap_or(false),
         "journeys": journey::tables_ok(&s).await.unwrap_or(false),
-        "suggestion_dismissal": journey::dismiss_ok(&s).await.unwrap_or(false)}))).into_response()
+        "suggestion_dismissal": journey::dismiss_ok(&s).await.unwrap_or(false),
+        "journey_cover": phase2::cover_ok(&s).await.unwrap_or(false), "weather": phase2::weather_ok(&s).await.unwrap_or(false)}))).into_response()
 }
 
 async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
@@ -554,6 +558,7 @@ async fn migrate(db: &PgPool) -> anyhow::Result<()> {
         }
     }
     journey::try_create_tables(db).await;
+    phase2::try_migrate(db).await;
     Ok(())
 }
 
@@ -593,7 +598,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
     migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()) };
+    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()) };
 
     let api = Router::new()
         .route("/health", get(health_full))
@@ -615,6 +620,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/journeys/:id", get(journey::get).patch(journey::update).delete(journey::delete))
         .route("/journeys/:id/drives", axum::routing::put(journey::set_drives))
         .route("/journeys/:id/path", get(journey::path))
+        .route("/journeys/:id/cover", get(phase2::get_cover).put(phase2::put_cover).delete(phase2::delete_cover))
+        .route("/journeys/:id/weather", get(phase2::weather))
+        .route("/journeys/:id/speed-bands", get(phase2::speed_bands))
         .route("/drives/:id", get(get_drive))
         .route("/drives/:id/path", get(drive_path))
         .route("/addresses/aliases", get(list_aliases))

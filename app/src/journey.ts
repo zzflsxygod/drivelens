@@ -2,6 +2,8 @@
 import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } from "./api";
 import { DriveMap, SPEED_STOPS } from "./map";
 import { infiniteList, monthLabel } from "./infinite";
+import * as J2 from "./journey2";
+import { effectiveTheme } from "./map";
 
 export interface Ctx {
   view: HTMLElement;
@@ -15,13 +17,16 @@ export interface Ctx {
   /** server can store dismissed suggestions (api_level ≥ 9) */
   dismissAvailable(): boolean;
   pagingAvailable(): boolean;
+  /** cover / share card / weather / speed bands (api_level ≥ 11) */
+  journey2Available(): boolean;
+  journey2Message(): string;
 }
 interface Money { currency: string; amount: number }
 export interface JourneyRow { id: number; car_id: number; name: string; note: string | null; start_date: string | null; end_date: string | null;
   start_address: string | null; end_address: string | null; drive_count: number; distance_km: number | null; duration_min: number | null; energy_kwh: number | null }
 interface Stop { after_drive_id: number; before_drive_id: number; start_date: string; end_date: string; duration_min: number;
   address: string | null; lat: number | null; lng: number | null; charge_ids: number[]; charged_kwh: number }
-interface Journey { id: number; car_id: number; name: string; note: string | null; drives: Drive[]; charges: Charge[]; stops: Stop[]; candidates: Drive[];
+interface Journey { id: number; car_id: number; name: string; note: string | null; has_cover?: boolean; drives: Drive[]; charges: Charge[]; stops: Stop[]; candidates: Drive[];
   summary: { start_date: string | null; end_date: string | null; start_address: string | null; end_address: string | null; distance_km: number;
     driving_min: number; stop_min: number; elapsed_min: number; energy_used_kwh: number; charged_kwh: number; charge_count: number;
     costs: Money[]; efficiency_wh_km: number | null; speed_max: number | null } }
@@ -234,6 +239,7 @@ export async function showJourney(ctx: Ctx, id: number) {
   catch (e) { v.innerHTML = `<button class="back">← 返回</button>${err(e)}`; (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx); bindRetry(v, () => showJourney(ctx, id)); return; }
   const s = j.summary, self = () => showJourney(ctx, id);
   const speedOn = loadSettings().speedColor ?? true;
+  const p2 = ctx.journey2Available();
   // timeline: drives, stops (with charges inside) in time order
   const chargeById = new Map(j.charges.map(c => [c.id, c]));
   const used = new Set<number>();
@@ -242,7 +248,7 @@ export async function showJourney(ctx: Ctx, id: number) {
     tl.push(`<div class="tl drive"><div class="card" data-drive="${d.id}">
       <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
       <div class="row muted">${fmtTime(d.start_date)} – ${fmtTime(d.end_date)} · ${fmtDur(d.duration_min)}</div>
-      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div></div></div>`);
+      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span><span data-wx="${d.id}"></span></div></div></div>`);
     const st = j.stops[i];
     if (st) {
       const chs = st.charge_ids.map(c => chargeById.get(c)).filter(Boolean) as Charge[];
@@ -261,7 +267,10 @@ export async function showJourney(ctx: Ctx, id: number) {
   v.innerHTML = `<button class="back">← 返回</button>
     <h2 class="jtitle">🧭 ${esc(j.name)} <span class="pen" id="jedit" title="编辑">✎</span></h2>
     <div class="muted">${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${j.drives.length} 段行程${s.charge_count ? ` · 充电 ${s.charge_count} 次` : ""}</div>
-    ${j.note ? `<div class="muted" style="margin-top:4px">📝 ${esc(j.note)}</div>` : ""}
+    <div id="j-cover" class="jcover" hidden></div>
+    ${j.note ? `<div class="jnote">${esc(j.note)}</div>` : ""}
+    ${p2 ? `<div class="jactions"><button id="j-share" class="primary small">📤 分享卡片</button><button id="j-setcover" class="ghost small">🖼 当前地图设为封面</button>${j.has_cover ? `<button id="j-rmcover" class="ghost small">恢复默认封面</button>` : ""}</div><div id="j-msg" class="muted"></div>`
+      : `<div class="muted small-note">ℹ️ 封面、分享卡片、天气和速度分档能耗：${esc(ctx.journey2Message())}</div>`}
     <div class="map-tools"><div class="seg" id="j-color"><span data-v="speed" class="${speedOn ? "on" : ""}">速度着色</span><span data-v="plain" class="${speedOn ? "" : "on"}">单色</span></div>
       <div class="speed-legend" ${speedOn ? "" : "hidden"}><span>慢</span><i style="background:${grad}"></i><span>快 (km/h 0–120)</span></div></div>
     <div id="map"><div class="map-ph sk"></div></div>
@@ -277,6 +286,8 @@ export async function showJourney(ctx: Ctx, id: number) {
       <div><small>充电费用</small><b>${costTxt(s.costs)}</b></div>
       <div><small>最高速度</small><b>${s.speed_max ?? "—"} km/h</b></div>
     </div>
+    ${p2 ? `<div class="section-title">按车速分档的能耗</div><div id="j-bands"><span class="sk" style="width:100%;height:120px;display:block"></span></div>
+    <div class="section-title">天气与能耗</div><div id="j-wx"><span class="sk" style="width:100%;height:100px;display:block"></span></div>` : ""}
     <div class="section-title">时间线</div>
     <div class="timeline">${tl.join("")}</div>
     <div class="btn-row"><button id="jdrives" class="ghost">添加 / 移除行程</button><button id="jdel" class="ghost" style="color:var(--red)">删除旅程</button></div>`;
@@ -289,9 +300,11 @@ export async function showJourney(ctx: Ctx, id: number) {
   (v.querySelector("#jedit") as HTMLElement).onclick = edit;
   (v.querySelector("#jdel") as HTMLElement).onclick = edit;
   (v.querySelector("#jdrives") as HTMLElement).onclick = () => editDrives(ctx, j);
+  let route: [number, number][] = [];
+  let map: DriveMap | null = null;
+  if (p2) phase2(ctx, v, j, () => map, () => route, self);
 
   // map + elevation (path loaded separately; may be large)
-  let map: DriveMap | null = null;
   v.querySelectorAll<HTMLElement>("#j-color span").forEach(sp => sp.onclick = () => {
     const on = sp.dataset.v === "speed";
     v.querySelectorAll("#j-color span").forEach(x => x.classList.toggle("on", x === sp));
@@ -308,6 +321,7 @@ export async function showJourney(ctx: Ctx, id: number) {
       .map(a => ({ coords: a.map(p => [p.lng, p.lat] as [number, number]), speeds: a.map(p => p.speed) }));
     const stops = j.stops.filter(st => st.lat != null && st.lng != null).map(st => ({ p: [st.lng!, st.lat!] as [number, number],
       kind: (st.charge_ids.length ? "charge" : "stop") as "charge" | "stop", title: `${st.address ?? ""} · 停留 ${fmtDur(st.duration_min)}` }));
+    route = lines.flatMap(l => l.coords);
     const mapEl = v.querySelector<HTMLElement>("#map")!; mapEl.innerHTML = "";
     if (lines.length) { map = new DriveMap(mapEl, { lines, stops, speedColor: speedOn }); ctx.setMap(map); }
     else mapEl.innerHTML = `<div class="muted" style="padding:20px;text-align:center">没有轨迹数据</div>`;
@@ -364,4 +378,46 @@ export async function restoreDismissed(ctx: Ctx): Promise<string> {
   if (!ctx.dismissAvailable()) return local ? "已恢复（本机）" : "没有已忽略的建议";
   try { const r = await api<{ restored: number }>("/api/journeys/suggestions/dismissed", "DELETE"); return `已恢复 ${r.restored + local} 条记录`; }
   catch { return local ? "已恢复本机记录（服务器未启用同步）" : "服务器未启用忽略同步，本机没有已忽略的建议"; }
+}
+
+// ---------------- 旅程第二期 (v0.7.0) ----------------
+function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | null, getRoute: () => [number, number][], self: () => void) {
+  const alive = () => document.body.contains(v.querySelector("#j-bands"));
+  const msg = (t: string) => { const m = v.querySelector("#j-msg"); if (m) m.textContent = t; };
+  let cover: string | null = null;
+  const coverReady = j.has_cover ? J2.loadCover(j.id).then(img => {
+    cover = img; const el = v.querySelector<HTMLElement>("#j-cover");
+    if (img && el) { el.innerHTML = `<img src="${img}" alt="封面">`; el.hidden = false; }
+  }) : Promise.resolve();
+  (v.querySelector("#j-setcover") as HTMLElement).onclick = async () => {
+    msg("正在截取地图…");
+    const img = await J2.mapSnapshot(getMap());
+    if (!img) return msg("地图还没加载好，稍后再试");
+    try { await J2.saveCover(j.id, img); self(); } catch (e) { msg((e as Error).message); }
+  };
+  const rm = v.querySelector<HTMLElement>("#j-rmcover");
+  if (rm) rm.onclick = async () => { try { await J2.resetCover(j.id); self(); } catch (e) { msg((e as Error).message); } };
+  (v.querySelector("#j-share") as HTMLElement).onclick = async () => {
+    msg("正在生成…");
+    await coverReady;
+    const s = j.summary;
+    const img = cover ?? await J2.mapSnapshot(getMap(), 1080, 0.9);
+    const d0 = s.start_date ? new Date(s.start_date) : null, d1 = s.end_date ? new Date(s.end_date) : null;
+    const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const days = d0 && d1 ? Math.round((day(d1) - day(d0)) / 864e5) + 1 : 1;
+    const f = (d: Date | null) => d ? d.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" }) : "—";
+    const canvas = await J2.renderCard({ title: j.name, dateText: days > 1 ? `${f(d0)} – ${f(d1)}` : f(d0), days, distance_km: s.distance_km,
+      energy_kwh: s.energy_used_kwh, wh_km: s.efficiency_wh_km, costs: s.costs, drives: j.drives.length, charges: s.charge_count,
+      from: s.start_address ?? "?", to: s.end_address ?? "?", image: img, route: getRoute() }, effectiveTheme() === "dark");
+    msg("");
+    J2.shareDialog(canvas, `DriveLens-${j.name.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 40)}.png`);
+  };
+  J2.loadBands(j.id).then(r => { if (alive()) v.querySelector("#j-bands")!.innerHTML = J2.bandsHTML(r); })
+    .catch(e => { const el = v.querySelector<HTMLElement>("#j-bands"); if (el) { el.innerHTML = err(e); bindRetry(el, self); } });
+  J2.loadWeather(j.id).then(r => {
+    if (!alive()) return;
+    const by = new Map(r.drives.map(w => [w.drive_id, w]));
+    v.querySelectorAll<HTMLElement>("[data-wx]").forEach(el => el.innerHTML = J2.weatherChip(by.get(Number(el.dataset.wx))));
+    v.querySelector("#j-wx")!.innerHTML = J2.weatherTable(j.drives, r.drives) + (r.partial ? `<div class="muted small-note">部分天气数据暂时获取失败，下次打开会重试</div>` : "");
+  }).catch(e => { const el = v.querySelector<HTMLElement>("#j-wx"); if (el) { el.innerHTML = err(e); bindRetry(el, self); } });
 }

@@ -43,6 +43,8 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     try { detail = (await res.json()).error ?? ""; } catch { /* not json */ }
     if (res.status === 503 && /charge_costs/.test(detail))
       throw new Error("服务器还没有启用手动费用：请在服务器上重新执行 drivelens-init.sql（见 README）");
+    if (res.status === 503 && /v0\.7\.0/.test(detail))
+      throw new Error("服务器还没有启用封面 / 天气：请在服务器上执行 drivelens-v0.7.0.sql（见 README）");
     if (res.status === 503 && /journey/.test(detail))
       throw new Error("服务器还没有启用旅程：请在服务器上执行 drivelens-v0.6.0.sql（见 README）");
     const err = new Error(`请求失败：HTTP ${res.status}${detail ? `（${detail}）` : ""}`) as Error & { status?: number };

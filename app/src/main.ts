@@ -591,6 +591,8 @@ const journeyCtx: JourneyCtx = {
   journeysMessage: () => featureText("journeys"),
   dismissAvailable: () => !lacks("dismiss"),
   pagingAvailable: () => !lacks("paging"),
+  journey2Available: () => !lacks("journey2"),
+  journey2Message: () => featureText("journey2"),
 };
 
 // ---------------- Server version banner ----------------

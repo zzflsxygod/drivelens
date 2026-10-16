@@ -342,6 +342,12 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 
 升级：`docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.1.sql`（只建这张表并授权，可重复执行）。API level 9。
 
+### 旅程第二期（v0.7.0）
+
+旅程详情页新增：封面（把当前地图设为封面，存在 `drivelens.journeys.cover_image`）、多行备注、分享卡片（客户端生成 1080×1350 PNG，可保存 / 复制 / 分享）、每段行程出发时的气温和降水（Open-Meteo，免费无需 key，缓存在 `drivelens.weather_hourly`），以及按车速分档（市区 <40、郊外 40–80、高速 >80 km/h）的能耗。
+
+升级：`docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.7.0.sql`（只改 drivelens schema，可重复执行）。API level 11。API 容器需要能访问 `archive-api.open-meteo.com` 和 `api.open-meteo.com`。没执行 SQL 时，封面和天气会提示执行该文件，速度分档照常可用。
+
 ## v0.6.2 — 无限滚动
 
 - 行程 / 充电列表改为无限滚动：API `GET /api/drives|charges?paged=true&before=<ISO~id>&limit=50` 返回 `{items, next_cursor}`（keyset 分页；旧的 `limit/offset` 仍可用）。

@@ -194,3 +194,28 @@ table.split { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: c
 .totop[hidden] { display: none; }
 :root[data-theme="dark"] .totop { box-shadow: 0 2px 10px #000a; border: 1px solid #fff2; }
 body:has(.actionbar) .totop { bottom: calc(136px + env(safe-area-inset-bottom)); }
+/* v0.7.0 journey phase 2 */
+.jcover { position: relative; margin: 8px 0 4px; border-radius: 12px; overflow: hidden; background: var(--card); }
+.jcover img { display: block; width: 100%; max-height: 240px; object-fit: cover; }
+.jnote { white-space: pre-wrap; margin-top: 6px; background: var(--card); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.5; }
+.jactions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+.jactions button { flex: 1; min-width: 96px; }
+.wx { color: #1a73e8; }
+.wx-table { background: var(--card); border-radius: 10px; padding: 6px 12px; }
+.wx-row { display: grid; grid-template-columns: 92px 92px 1fr 40px; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #8882; }
+.wx-row:last-child { border-bottom: 0; }
+.wx-row b { text-align: right; }
+.wx-t { color: var(--muted); }
+.wx-bar, .band-bar { height: 8px; background: #8882; border-radius: 4px; overflow: hidden; display: block; }
+.wx-bar i { display: block; height: 100%; background: var(--red); border-radius: 4px; }
+.band-share { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 4px 0 8px; }
+.band-share i { display: block; height: 100%; }
+.band-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; align-items: center; background: var(--card); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; font-size: 14px; }
+.band-row small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+.band-l i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+.band-e { display: grid; grid-template-columns: 1fr auto; column-gap: 6px; align-items: center; }
+.band-e .band-bar { grid-column: 1 / 3; margin-bottom: 4px; }
+.band-e .band-bar i { display: block; height: 100%; border-radius: 4px; }
+.band-e small { grid-column: 2; text-align: right; }
+.share-sheet { max-height: 92vh; overflow: auto; }
+.share-img { width: 100%; border-radius: 10px; box-shadow: 0 1px 6px #0003; margin-bottom: 8px; }
