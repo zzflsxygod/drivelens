@@ -125,13 +125,26 @@ export class DriveMap {
     }
     const lines = this.overlay.lines;
     if (lines && lines.length && !map.getSource("jroute")) {
-      // one feature per segment, coloured by the speed at its start
-      const features: { type: "Feature"; properties: { speed: number }; geometry: { type: "LineString"; coordinates: [number, number][] } }[] = [];
-      for (const l of lines) for (let i = 1; i < l.coords.length; i++)
-        features.push({ type: "Feature", properties: { speed: l.speeds[i - 1] ?? l.speeds[i] ?? 0 }, geometry: { type: "LineString", coordinates: [l.coords[i - 1], l.coords[i]] } });
-      map.addSource("jroute", { type: "geojson", data: { type: "FeatureCollection", features } });
+      // Speed colour: runs of consecutive points in the same 5 km/h step become one feature (shared end points,
+      // so runs join without gaps). tolerance 0: the default simplification dropped the many tiny 2-point
+      // segments at low zoom, which made the route look dashed when zoomed out.
+      type F = { type: "Feature"; properties: { speed: number }; geometry: { type: "LineString"; coordinates: [number, number][] } };
+      const features: F[] = [];
+      const q = (v: number | null | undefined) => Math.round((v ?? 0) / 5) * 5;
+      for (const l of lines) {
+        let cur: F | null = null;
+        for (let i = 1; i < l.coords.length; i++) {
+          const sp = q(l.speeds[i - 1] ?? l.speeds[i]);
+          if (cur && cur.properties.speed === sp) cur.geometry.coordinates.push(l.coords[i]);
+          else { cur = { type: "Feature", properties: { speed: sp }, geometry: { type: "LineString", coordinates: [l.coords[i - 1], l.coords[i]] } }; features.push(cur); }
+        }
+      }
+      // continuous casing per drive underneath (no seams between coloured runs)
+      const whole = { type: "FeatureCollection" as const, features: lines.filter(l => l.coords.length > 1).map(l => ({ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: l.coords } })) };
+      map.addSource("jroute-whole", { type: "geojson", data: whole, tolerance: 0 });
+      map.addSource("jroute", { type: "geojson", data: { type: "FeatureCollection", features }, tolerance: 0 });
       const layout = { "line-cap": "round", "line-join": "round" } as const;
-      map.addLayer({ id: "jroute-casing", type: "line", source: "jroute", layout,
+      map.addLayer({ id: "jroute-casing", type: "line", source: "jroute-whole", layout,
         paint: { "line-color": dark ? "#0b1d3a" : "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
       map.addLayer({ id: "jroute-line", type: "line", source: "jroute", layout,
         paint: { "line-color": this.overlay.speedColor ? speedExpr() : this.plainColor(), "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
