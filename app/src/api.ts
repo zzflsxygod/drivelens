@@ -15,7 +15,8 @@ export interface Charge {
   cost: number | null; start_battery_level: number | null; end_battery_level: number | null; duration_min: number | null;
   outside_temp_avg: number | null;
 }
-export interface ChargePoint { date: string; battery_level: number | null; charger_power: number | null; charge_energy_added: number | null }
+export interface ChargePoint { date: string; battery_level: number | null; charger_power: number | null; charge_energy_added: number | null;
+  power_kw?: number | null; power_source?: string | null }
 export interface Drive {
   id: number; car_id: number; start_date: string; end_date: string; start_address: string | null; end_address: string | null;
   start_address_id: number | null; end_address_id: number | null; start_alias: string | null; end_alias: string | null;

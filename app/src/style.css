@@ -74,3 +74,16 @@ header select { width: auto; display: inline-block; margin: 0; padding: 4px 8px;
 .card-error { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
 .retry { border: 1px solid currentColor; background: none; color: inherit; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+.chart-box { background: var(--card); border-radius: 10px; padding: 8px; }
+.chart-box svg { display: block; overflow: visible; }
+.chart-box .cg { stroke: #8884; stroke-width: 1; }
+.chart-box .ct { font-size: 10px; fill: var(--muted); }
+.chart-box .ct.soc { fill: #2a9d3a; }
+.chart-box .ca { fill: #e3193755; stroke: var(--red); stroke-width: 1.5; }
+.chart-box .cl { fill: none; stroke: #2a9d3a; stroke-width: 2; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.lg-kw { background: var(--red); } .lg-soc { background: #2a9d3a; }
+.small-note { font-size: 12px; margin-top: 4px; }
+.chart-empty { background: var(--card); border-radius: 10px; padding: 28px 8px; text-align: center; color: var(--muted); font-size: 14px; }

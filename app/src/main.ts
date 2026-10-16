@@ -140,11 +140,47 @@ async function showCharges() {
   } catch (e) { showError(e); }
 }
 
+/** SVG chart: power (kW, filled area, left axis) + battery % (line, right axis). */
+function chargeChart(points: ChargePoint[]): string {
+  const pts = points
+    .map(p => ({ t: Date.parse(p.date), kw: p.power_kw ?? (p.charger_power != null && p.charger_power > 0 ? p.charger_power : null), soc: p.battery_level, src: p.power_source }))
+    .filter(p => !Number.isNaN(p.t));
+  const hasPower = pts.some(p => (p.kw ?? 0) > 0), hasSoc = pts.some(p => p.soc != null);
+  if (pts.length < 2 || (!hasPower && !hasSoc)) return `<div class="chart-empty">没有充电曲线数据</div>`;
+  const W = 360, H = 150, L = 34, R = 30, T = 10, B = 22, iw = W - L - R, ih = H - T - B;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1, span = Math.max(1, t1 - t0);
+  const maxKw = Math.max(5, ...pts.map(p => p.kw ?? 0));
+  const niceMax = maxKw > 100 ? Math.ceil(maxKw / 50) * 50 : maxKw > 20 ? Math.ceil(maxKw / 10) * 10 : Math.ceil(maxKw / 2) * 2;
+  const x = (t: number) => L + (t - t0) / span * iw;
+  const yKw = (v: number) => T + ih - v / niceMax * ih;
+  const ySoc = (v: number) => T + ih - v / 100 * ih;
+  const kwPts = pts.filter(p => p.kw != null);
+  const area = hasPower ? `M${x(kwPts[0].t).toFixed(1)},${yKw(0)} ` + kwPts.map(p => `L${x(p.t).toFixed(1)},${yKw(p.kw!).toFixed(1)}`).join(" ") + ` L${x(kwPts[kwPts.length - 1].t).toFixed(1)},${yKw(0)} Z` : "";
+  const socPts = pts.filter(p => p.soc != null);
+  const socLine = hasSoc ? socPts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${ySoc(p.soc!).toFixed(1)}`).join(" ") : "";
+  const time = (t: number) => new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const grid = [0, 0.5, 1].map(f => `<line x1="${L}" x2="${W - R}" y1="${T + ih * (1 - f)}" y2="${T + ih * (1 - f)}" class="cg"/>
+      <text x="${L - 4}" y="${T + ih * (1 - f) + 4}" text-anchor="end" class="ct">${Math.round(niceMax * f)}</text>
+      <text x="${W - R + 4}" y="${T + ih * (1 - f) + 4}" class="ct soc">${Math.round(100 * f)}%</text>`).join("");
+  const derived = pts.some(p => p.src === "energy_delta" || p.src === "voltage_current");
+  const peak = hasPower ? Math.max(...kwPts.map(p => p.kw!)) : null;
+  return `<div class="chart-box">
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="充电功率和电量曲线">
+      ${grid}
+      ${hasPower ? `<path d="${area}" class="ca"/>` : ""}
+      ${hasSoc ? `<path d="${socLine}" class="cl"/>` : ""}
+      <text x="${L}" y="${H - 6}" class="ct">${time(t0)}</text>
+      <text x="${W - R}" y="${H - 6}" text-anchor="end" class="ct">${time(t1)}</text>
+    </svg>
+    <div class="legend"><span><i class="lg-kw"></i>功率 kW${peak != null ? `（峰值 ${peak.toFixed(0)}）` : ""}</span><span><i class="lg-soc"></i>电量 %</span></div>
+    ${!hasPower ? `<div class="muted small-note">没有功率数据，仅显示电量变化</div>` : derived ? `<div class="muted small-note">车辆未上报充电功率，功率由电压×电流或充入电量变化推算</div>` : ""}
+  </div>`;
+}
+
 async function showCharge(id: number) {
   loading();
   try {
     const c = await api<Charge & { points: ChargePoint[] }>(`/api/charges/${id}`);
-    const maxP = Math.max(1, ...c.points.map(p => p.charger_power ?? 0));
     view.innerHTML = `
       <button class="back">← 返回</button>
       <h2>${place(c.address, c.address_id, c.alias)}</h2>
@@ -157,8 +193,8 @@ async function showCharge(id: number) {
         <div><small>电量</small><b>${c.start_battery_level}% → ${c.end_battery_level}%</b></div>
         <div><small>气温</small><b>${n(c.outside_temp_avg)} °C</b></div>
       </div>
-      <h3>充电功率 (kW)</h3>
-      <div class="chart">${c.points.map(p => `<div title="${fmtDate(p.date)} ${p.charger_power} kW / ${p.battery_level}%" style="height:${(p.charger_power ?? 0) / maxP * 100}%"></div>`).join("")}</div>
+      <h3>充电曲线</h3>
+      ${chargeChart(c.points)}
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
     (view.querySelector(".back") as HTMLElement).onclick = showCharges;
     bindPlaces(() => showCharge(id));

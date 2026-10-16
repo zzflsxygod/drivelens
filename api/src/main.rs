@@ -88,7 +88,49 @@ struct ChargePoint {
     charger_power: Option<i32>,
     charger_voltage: Option<i32>,
     charger_actual_current: Option<i32>,
+    charger_phases: Option<i32>,
     fast_charger_present: Option<bool>,
+    /// Best-effort charging power in kW (see `fill_power`)
+    #[sqlx(default)]
+    power_kw: Option<f64>,
+    /// "reported" | "voltage_current" | "energy_delta"
+    #[sqlx(default)]
+    power_source: Option<String>,
+    #[serde(skip)]
+    #[sqlx(default)]
+    epoch: Option<f64>,
+}
+
+/// TeslaMate stores `charger_power` as reported by the car (0 when the API returned null).
+/// On some cars / API paths it stays 0 for the whole session (seen especially on DC fast charging,
+/// where charger_voltage/current describe the idle onboard AC charger, e.g. ~2 V / 0 A).
+/// Fallbacks: AC voltage × current × phases, then the slope of charge_energy_added over time.
+fn fill_power(points: &mut [ChargePoint]) {
+    // If the car reported power at all during this session, trust it (a 0 then really means "not charging").
+    let reported = points.iter().any(|p| p.charger_power.unwrap_or(0) > 0);
+    for i in 0..points.len() {
+        let p = &points[i];
+        let (power, src) = if reported {
+            (p.charger_power.map(|v| v.max(0) as f64), "reported")
+        } else if p.charger_power.unwrap_or(0) > 0 {
+            (Some(p.charger_power.unwrap() as f64), "reported")
+        } else if !p.fast_charger_present.unwrap_or(false)
+            && p.charger_voltage.unwrap_or(0) > 50 && p.charger_actual_current.unwrap_or(0) > 0 {
+            let phases = p.charger_phases.filter(|&ph| ph >= 1 && ph <= 3).unwrap_or(1) as f64;
+            (Some(p.charger_voltage.unwrap() as f64 * p.charger_actual_current.unwrap() as f64 * phases / 1000.0), "voltage_current")
+        } else {
+            // energy slope over a window of neighbours (energy is reported with 0.01 kWh resolution)
+            let lo = i.saturating_sub(2);
+            let hi = (i + 2).min(points.len() - 1);
+            match (points[lo].epoch, points[hi].epoch, points[lo].charge_energy_added, points[hi].charge_energy_added) {
+                (Some(t0), Some(t1), Some(e0), Some(e1)) if t1 - t0 >= 20.0 && e1 >= e0 =>
+                    (Some((e1 - e0) / ((t1 - t0) / 3600.0)), "energy_delta"),
+                _ => (None, "energy_delta"),
+            }
+        };
+        points[i].power_kw = power.map(|v| (v * 10.0).round() / 10.0);
+        points[i].power_source = power.map(|_| src.to_string());
+    }
 }
 
 #[derive(Serialize)]
@@ -181,9 +223,12 @@ async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Re
         r#"SELECT to_char(date, '{TS}') AS date, battery_level::int4 AS battery_level,
              charge_energy_added::float8 AS charge_energy_added, charger_power::int4 AS charger_power,
              charger_voltage::int4 AS charger_voltage, charger_actual_current::int4 AS charger_actual_current,
-             fast_charger_present
+             charger_phases::int4 AS charger_phases, fast_charger_present,
+             extract(epoch from charges.date)::float8 AS epoch
            FROM charges WHERE charging_process_id = $1 ORDER BY charges.date"#
     )).bind(id).fetch_all(&s.db).await?;
+    let mut points = points;
+    fill_power(&mut points);
     Ok(Json(ChargeDetail { summary, points }).into_response())
 }
 
