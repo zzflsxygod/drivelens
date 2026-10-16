@@ -29,7 +29,14 @@ wait_run() { # workflow name, ref (branch or tag)
     [ -n "$id" ] && break; sleep 10
   done
   [ -n "$id" ] || { echo "no '$1' run for $SHA on $2"; exit 1; }
-  gh run watch "$id" --exit-status --interval 30 >/dev/null && echo "   $1 ($2) ok: run $id"
+  # poll (gh run watch can hang when not attached to a terminal)
+  local st=""
+  for _ in $(seq 120); do
+    st=$(gh run view "$id" --json status,conclusion -q '.status + " " + .conclusion')
+    case "$st" in "completed success") echo "   $1 ($2) ok: run $id"; return 0 ;; completed*) echo "   $1 ($2) failed: $st (run $id)"; exit 1 ;; esac
+    sleep 30
+  done
+  echo "   $1 ($2) timed out (run $id)"; exit 1
 }
 wait_run docker.yml main
 
