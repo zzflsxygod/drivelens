@@ -411,7 +411,8 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
     msg("正在生成…");
     await coverReady;
     const s = j.summary;
-    const img = cover ?? await J2.mapSnapshot(getMap(), 1080, 0.9);
+    // fresh snapshot of the live map (current route rendering); a saved cover only as fallback
+    const img = await J2.mapSnapshot(getMap(), 1080, 0.9) ?? cover;
     const d0 = s.start_date ? new Date(s.start_date) : null, d1 = s.end_date ? new Date(s.end_date) : null;
     const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const days = d0 && d1 ? Math.round((day(d1) - day(d0)) / 864e5) + 1 : 1;

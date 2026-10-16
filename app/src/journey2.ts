@@ -16,8 +16,11 @@ export async function loadCover(id: number): Promise<string | null> {
 export async function mapSnapshot(m: DriveMap | null, maxW = 1080, q = 0.82): Promise<string | null> {
   if (!m) return null;
   const map = m.map;
-  if (!map.loaded() || !map.areTilesLoaded()) await new Promise<void>(r => { const t = setTimeout(r, 6000); map.once("idle", () => { clearTimeout(t); r(); }); });
-  await new Promise<void>(r => { map.once("render", () => r()); map.triggerRepaint(); setTimeout(r, 500); });
+  // wait until the style, the route sources and all tiles are fully rendered, then one more frame
+  const ready = () => map.isStyleLoaded() && map.areTilesLoaded() && (!map.getSource("jroute") || map.isSourceLoaded("jroute"));
+  for (let i = 0; i < 3 && !ready(); i++)
+    await new Promise<void>(r => { const t = setTimeout(r, 4000); map.once("idle", () => { clearTimeout(t); r(); }); });
+  await new Promise<void>(r => { const t = setTimeout(r, 1500); map.once("idle", () => { clearTimeout(t); r(); }); map.triggerRepaint(); });
   try {
     const src = map.getCanvas();
     const scale = Math.min(1, maxW / src.width);
