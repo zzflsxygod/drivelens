@@ -264,13 +264,20 @@ export async function showJourney(ctx: Ctx, id: number) {
   extra.forEach(c => tl.push(`<div class="tl charge"><div class="card" data-charge="${c.id}"><div class="row"><b>⚡ ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
     <div class="row muted">${fmtTime(c.start_date)} · +${n(c.charge_energy_added, 1)} kWh</div></div></div>`));
   const grad = `linear-gradient(90deg, ${SPEED_STOPS.map(([k, c]) => `${c} ${k / 1.2}%`).join(", ")})`;
-  v.innerHTML = `<button class="back">← 返回</button>
-    <h2 class="jtitle">🧭 ${esc(j.name)} <span class="pen" id="jedit" title="编辑">✎</span></h2>
-    <div class="muted">${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${j.drives.length} 段行程${s.charge_count ? ` · 充电 ${s.charge_count} 次` : ""}</div>
-    <div id="j-cover" class="jcover" hidden></div>
+  const meta = `${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${j.drives.length} 段行程${s.charge_count ? ` · 充电 ${s.charge_count} 次` : ""}`;
+  const pen = `<span class="pen" id="jedit" title="编辑标题和备注">✎</span>`;
+  const heroOn = p2 && !!j.has_cover;
+  v.innerHTML = `<div class="jtop"><button class="back">← 返回</button>${p2 ? `<div class="jtop-r">
+      <button id="j-share" class="icon-btn" title="分享卡片" aria-label="分享卡片">📤</button>
+      <button id="j-more" class="icon-btn" title="更多" aria-label="更多">⋯</button>
+      <div id="j-menu" class="pop-menu" hidden><button data-act="setcover">🖼 当前地图设为封面</button>${j.has_cover ? `<button data-act="rmcover">↺ 恢复默认封面</button>` : ""}</div></div>` : ""}</div>
+    ${heroOn ? `<div class="jhero sk" id="j-hero"><div class="jhero-in">
+        <h2>${esc(j.name)} ${pen}</h2><div class="jhero-meta">${meta}</div>
+        <div class="jhero-stats"><span>${n(s.distance_km, 0)} km</span><span>${n(s.energy_used_kwh, 1)} kWh</span><span>${n(s.efficiency_wh_km, 0)} Wh/km</span>${s.costs.length ? `<span>${costTxt(s.costs)}</span>` : ""}</div></div></div>`
+      : `<h2 class="jtitle">🧭 ${esc(j.name)} ${pen}</h2><div class="muted">${meta}</div>`}
+    <div id="j-msg" class="muted"></div>
     ${j.note ? `<div class="jnote">${esc(j.note)}</div>` : ""}
-    ${p2 ? `<div class="jactions"><button id="j-share" class="primary small">📤 分享卡片</button><button id="j-setcover" class="ghost small">🖼 当前地图设为封面</button>${j.has_cover ? `<button id="j-rmcover" class="ghost small">恢复默认封面</button>` : ""}</div><div id="j-msg" class="muted"></div>`
-      : `<div class="muted small-note">ℹ️ 封面、分享卡片、天气和速度分档能耗：${esc(ctx.journey2Message())}</div>`}
+    ${p2 ? "" : `<div class="muted small-note">ℹ️ 封面、分享卡片、天气和速度分档能耗：${esc(ctx.journey2Message())}</div>`}
     <div class="map-tools"><div class="seg" id="j-color"><span data-v="speed" class="${speedOn ? "on" : ""}">速度着色</span><span data-v="plain" class="${speedOn ? "" : "on"}">单色</span></div>
       <div class="speed-legend" ${speedOn ? "" : "hidden"}><span>慢</span><i style="background:${grad}"></i><span>快 (km/h 0–120)</span></div></div>
     <div id="map"><div class="map-ph sk"></div></div>
@@ -386,16 +393,19 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
   const msg = (t: string) => { const m = v.querySelector("#j-msg"); if (m) m.textContent = t; };
   let cover: string | null = null;
   const coverReady = j.has_cover ? J2.loadCover(j.id).then(img => {
-    cover = img; const el = v.querySelector<HTMLElement>("#j-cover");
-    if (img && el) { el.innerHTML = `<img src="${img}" alt="封面">`; el.hidden = false; }
+    cover = img; const el = v.querySelector<HTMLElement>("#j-hero");
+    if (el) { el.classList.remove("sk"); if (img) el.style.backgroundImage = `url("${img}")`; }
   }) : Promise.resolve();
-  (v.querySelector("#j-setcover") as HTMLElement).onclick = async () => {
+  const menu = v.querySelector<HTMLElement>("#j-menu")!;
+  const closeMenu = (e: Event) => { if (!(e.target as HTMLElement).closest("#j-more")) { menu.hidden = true; document.removeEventListener("click", closeMenu); } };
+  (v.querySelector("#j-more") as HTMLElement).onclick = () => { menu.hidden = !menu.hidden; if (!menu.hidden) document.addEventListener("click", closeMenu); };
+  (menu.querySelector('[data-act="setcover"]') as HTMLElement).onclick = async () => {
     msg("正在截取地图…");
     const img = await J2.mapSnapshot(getMap());
     if (!img) return msg("地图还没加载好，稍后再试");
     try { await J2.saveCover(j.id, img); self(); } catch (e) { msg((e as Error).message); }
   };
-  const rm = v.querySelector<HTMLElement>("#j-rmcover");
+  const rm = menu.querySelector<HTMLElement>('[data-act="rmcover"]');
   if (rm) rm.onclick = async () => { try { await J2.resetCover(j.id); self(); } catch (e) { msg((e as Error).message); } };
   (v.querySelector("#j-share") as HTMLElement).onclick = async () => {
     msg("正在生成…");

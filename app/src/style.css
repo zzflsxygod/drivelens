@@ -198,8 +198,19 @@ body:has(.actionbar) .totop { bottom: calc(136px + env(safe-area-inset-bottom));
 .jcover { position: relative; margin: 8px 0 4px; border-radius: 12px; overflow: hidden; background: var(--card); }
 .jcover img { display: block; width: 100%; max-height: 240px; object-fit: cover; }
 .jnote { white-space: pre-wrap; margin-top: 6px; background: var(--card); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.5; }
-.jactions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
-.jactions button { flex: 1; min-width: 96px; }
+.jtop { display: flex; justify-content: space-between; align-items: center; position: relative; }
+.jtop-r { display: flex; gap: 6px; position: relative; }
+.icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #8884; background: var(--card); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; }
+.pop-menu { position: absolute; right: 0; top: 42px; z-index: 1100; background: var(--card); border-radius: 10px; box-shadow: 0 4px 16px #0004; padding: 4px; min-width: 180px; }
+.pop-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 10px 12px; font-size: 14px; border-radius: 8px; cursor: pointer; }
+.pop-menu button:hover { background: #8882; }
+.jhero { position: relative; height: 150px; margin: 8px 0 6px; border-radius: 14px; overflow: hidden; background: #667 center / cover no-repeat; }
+.jhero-in { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px 14px; color: #fff;
+  background: linear-gradient(180deg, #0000 20%, #000a 100%); text-shadow: 0 1px 3px #0008; }
+.jhero h2 { margin: 0; font-size: 20px; }
+.jhero .pen { color: #fff; }
+.jhero-meta { font-size: 12px; opacity: .9; margin-top: 2px; }
+.jhero-stats { display: flex; gap: 12px; font-size: 13px; font-weight: 600; margin-top: 4px; flex-wrap: wrap; }
 .wx { color: #1a73e8; }
 .wx-table { background: var(--card); border-radius: 10px; padding: 6px 12px; }
 .wx-row { display: grid; grid-template-columns: 92px 92px 1fr 40px; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #8882; }
