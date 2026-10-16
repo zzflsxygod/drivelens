@@ -2,6 +2,7 @@ import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
+import { infiniteList, monthLabel } from "./infinite";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
@@ -157,17 +158,21 @@ async function showDrive(id: number, back: () => void = showDrives) {
   } catch (e) { showError(e); }
 }
 
-async function showCharges() {
-  loading();
-  try {
-    const charges = await api<Charge[]>(`/api/charges?limit=100${carQ()}`);
-    if (!charges.length) { view.innerHTML = `<div class="muted">暂无充电记录</div>`; return; }
-    const total = charges.reduce((a, c) => a + (c.charge_energy_added ?? 0), 0);
-    const byCur = new Map<string, number>();
-    for (const c of charges) if (c.cost != null) { const k = c.currency || defaultCurrency(); byCur.set(k, (byCur.get(k) ?? 0) + c.cost); }
-    const costTxt = byCur.size ? [...byCur].map(([k, v]) => fmtMoney(v, k)).join(" + ") : "—";
-    view.innerHTML = `<div class="summary">共 ${charges.length} 次 · ${total.toFixed(1)} kWh · 费用 ${costTxt}</div>` +
-      charges.map(c => `
+async function showCharges(restore = false) {
+  destroyMap();
+  const car = await currentCarId().catch(() => null);
+  view.innerHTML = `<div id="clist"></div>`;
+  const list = infiniteList<Charge>({
+    container: document.getElementById("clist")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ()}`,
+    paging: !lacks("paging"), carId: car, monthsSupported: !lacks("paging"), restore,
+    dateOf: c => c.start_date, empty: "暂无充电记录",
+    header: (m, t, loaded) => {
+      const byCur = new Map<string, number>();
+      for (const c of loaded) if (c.cost != null) { const k = c.currency || defaultCurrency(); byCur.set(k, (byCur.get(k) ?? 0) + c.cost); }
+      const cost = byCur.size ? " · " + [...byCur].map(([k, v]) => fmtMoney(v, k)).join(" + ") : "";
+      return `<b>${monthLabel(m)}</b><span>${t ? `${t.charge_count} 次 · ${n(t.energy_added_kwh, 0)} kWh` : `${loaded.length} 次 · ${n(loaded.reduce((a, c) => a + (c.charge_energy_added ?? 0), 0), 0)} kWh`}${cost}</span>`;
+    },
+    card: c => `
       <div class="card" data-id="${c.id}">
         <div class="row"><b>${esc(c.address)}</b>${costBadge(c)}</div>
         <div class="row muted">${fmtDate(c.start_date)} · ${fmtDur(c.duration_min)}</div>
@@ -176,9 +181,11 @@ async function showCharges() {
           <span>⚡ +${n(c.charge_energy_added, 2)} kWh</span>
           <span>🔋 ${c.start_battery_level ?? "—"}% → ${c.end_battery_level ?? "—"}%</span>
         </div>
-      </div>`).join("");
-    view.querySelectorAll<HTMLElement>(".card").forEach(el => el.onclick = () => showCharge(Number(el.dataset.id)));
-  } catch (e) { showError(e); }
+      </div>`,
+    bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
+      list.leave(); window.scrollTo(0, 0); showCharge(Number(el.dataset.id), () => showCharges(true));
+    }),
+  });
 }
 
 /** SVG chart: power (kW, filled area, left axis) + battery % (line, right axis). */
@@ -218,7 +225,7 @@ function chargeChart(points: ChargePoint[]): string {
   </div>`;
 }
 
-async function showCharge(id: number, back: () => void = showCharges) {
+async function showCharge(id: number, back: () => void = () => showCharges(true)) {
   loading();
   try {
     const c = await api<Charge & { points: ChargePoint[] }>(`/api/charges/${id}`);
@@ -582,6 +589,7 @@ const journeyCtx: JourneyCtx = {
   journeysAvailable: () => !lacks("journeys"),
   journeysMessage: () => featureText("journeys"),
   dismissAvailable: () => !lacks("dismiss"),
+  pagingAvailable: () => !lacks("paging"),
 };
 
 // ---------------- Server version banner ----------------
@@ -635,7 +643,7 @@ window.addEventListener("touchend", e => {
   if (dy > 60) showHome();
 });
 
-const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: showCharges, settings: showSettings };
+const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); tabs[b.dataset.tab!]();

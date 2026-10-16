@@ -77,8 +77,18 @@ struct ListParams {
     offset: Option<i64>,
     #[serde(skip)]
     id: Option<i64>,
+    /// keyset cursor "<start_date ISO>~<id>" (exclusive); a bare date (e.g. month jump) is allowed
+    before: Option<String>,
+    /// paged=true → {items, next_cursor}; otherwise a plain array (compatibility)
+    paged: Option<bool>,
 }
 impl ListParams {
+    /// (timestamp text without zone, id) for keyset pagination
+    fn cursor(&self) -> (Option<String>, i32) {
+        let Some(b) = self.before.as_deref().filter(|b| !b.is_empty()) else { return (None, i32::MAX) };
+        let (d, id) = match b.rsplit_once('~') { Some((d, i)) => (d, i.parse().unwrap_or(i32::MAX)), None => (b, i32::MAX) };
+        (Some(d.to_string()), id)
+    }
     fn limit(&self) -> i64 { self.limit.unwrap_or(50).clamp(1, 500) }
     fn offset(&self) -> i64 { self.offset.unwrap_or(0).max(0) }
 }
@@ -264,10 +274,52 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1)
-pub(crate) const API_LEVEL: u32 = 9;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2)
+pub(crate) const API_LEVEL: u32 = 10;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
+/// {items, next_cursor} when ?paged=true, else the plain array (old clients).
+fn paged<T: Serialize>(rows: Vec<T>, limit: i64, paged: bool, key: impl Fn(&T) -> String) -> Response {
+    if !paged { return Json(rows).into_response(); }
+    let next = (rows.len() as i64 == limit).then(|| rows.last().map(&key)).flatten();
+    Json(serde_json::json!({"items": rows, "next_cursor": next})).into_response()
+}
+async fn drives_route(State(s): State<AppState>, Query(q): Query<ListParams>) -> Result<Response, ApiError> {
+    let (limit, pg) = (q.limit(), q.paged.unwrap_or(false));
+    let Json(rows) = list_drives(State(s), Query(q)).await?;
+    Ok(paged(rows, limit, pg, |d| format!("{}~{}", d.start_date.clone().unwrap_or_default(), d.id)))
+}
+async fn charges_route(State(s): State<AppState>, Query(q): Query<ListParams>) -> Result<Response, ApiError> {
+    let (limit, pg) = (q.limit(), q.paged.unwrap_or(false));
+    let Json(rows) = list_charges(State(s), Query(q)).await?;
+    Ok(paged(rows, limit, pg, |c| format!("{}~{}", c.start_date.clone().unwrap_or_default(), c.id)))
+}
+
+#[derive(Deserialize)]
+struct MonthsParams { tz: Option<String> }
+#[derive(Serialize, FromRow)]
+struct MonthRow { month: String, drive_count: i64, distance_km: f64, duration_min: i64, charge_count: i64, energy_added_kwh: f64 }
+
+/// Per-month totals (user's tz) for list section headers and the month picker.
+async fn car_months(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<MonthsParams>) -> Result<Response, ApiError> {
+    let tz = p.tz.unwrap_or_else(|| "UTC".into());
+    let r = sqlx::query_as::<_, MonthRow>(
+        "WITH d AS (SELECT to_char((start_date AT TIME ZONE 'UTC') AT TIME ZONE $2, 'YYYY-MM') AS month, count(*) AS n,
+                      COALESCE(sum(distance), 0)::float8 AS km, COALESCE(sum(duration_min), 0)::int8 AS dur
+                    FROM drives WHERE car_id = $1 AND end_date IS NOT NULL GROUP BY 1),
+              c AS (SELECT to_char((start_date AT TIME ZONE 'UTC') AT TIME ZONE $2, 'YYYY-MM') AS month, count(*) AS n,
+                      COALESCE(sum(charge_energy_added), 0)::float8 AS kwh
+                    FROM charging_processes WHERE car_id = $1 AND end_date IS NOT NULL GROUP BY 1)
+         SELECT COALESCE(d.month, c.month) AS month, COALESCE(d.n, 0)::int8 AS drive_count, round(COALESCE(d.km, 0)::numeric, 1)::float8 AS distance_km,
+                COALESCE(d.dur, 0)::int8 AS duration_min, COALESCE(c.n, 0)::int8 AS charge_count, round(COALESCE(c.kwh, 0)::numeric, 1)::float8 AS energy_added_kwh
+         FROM d FULL JOIN c ON c.month = d.month ORDER BY 1 DESC").bind(id).bind(&tz).fetch_all(&s.db).await;
+    Ok(match r {
+        Ok(rows) => Json(rows).into_response(),
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22023") => bad(StatusCode::BAD_REQUEST, "unknown tz"),
+        Err(e) => return Err(e.into()),
+    })
+}
+
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status": "ok", "version": env!("CARGO_PKG_VERSION"), "api_level": API_LEVEL}))
 }
@@ -291,11 +343,14 @@ async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
 
 async fn list_charges(State(s): State<AppState>, Query(q): Query<ListParams>) -> ApiResult<Vec<ChargeSummary>> {
     let sql = format!(
-        "{} WHERE ($1::int8 IS NULL OR cp.car_id = $1) AND cp.end_date IS NOT NULL ORDER BY cp.start_date DESC LIMIT $2 OFFSET $3",
+        "{} WHERE ($1::int8 IS NULL OR cp.car_id = $1) AND cp.end_date IS NOT NULL
+           AND ($4::timestamptz IS NULL OR (cp.start_date, cp.id) < (($4::timestamptz AT TIME ZONE 'UTC'), $5::int4))
+         ORDER BY cp.start_date DESC, cp.id DESC LIMIT $2 OFFSET $3",
         charge_select(costs_ok(&s).await?)
     );
+    let (before, bid) = q.cursor();
     let rows = sqlx::query_as::<_, ChargeSummary>(&sql)
-        .bind(q.car_id).bind(q.limit()).bind(q.offset())
+        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(before).bind(bid)
         .fetch_all(&s.db).await?;
     Ok(Json(rows))
 }
@@ -355,17 +410,19 @@ pub(crate) fn drive_select(journeys: bool) -> String {
 async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> ApiResult<Vec<Drive>> {
     let sql = format!(
         "{} WHERE ($1::int8 IS NULL OR d.car_id = $1) AND ($4::int8 IS NULL OR d.id = $4) AND d.end_date IS NOT NULL
-           ORDER BY d.start_date DESC LIMIT $2 OFFSET $3",
+           AND ($5::timestamptz IS NULL OR (d.start_date, d.id) < (($5::timestamptz AT TIME ZONE 'UTC'), $6::int4))
+           ORDER BY d.start_date DESC, d.id DESC LIMIT $2 OFFSET $3",
         drive_select(journey::tables_ok(&s).await?)
     );
+    let (before, bid) = q.cursor();
     let rows = sqlx::query_as::<_, Drive>(&sql)
-        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(q.id)
+        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(q.id).bind(before).bind(bid)
         .fetch_all(&s.db).await?;
     Ok(Json(rows))
 }
 
 async fn get_drive(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    let q = ListParams { car_id: None, limit: Some(1), offset: None, id: Some(id) };
+    let q = ListParams { car_id: None, limit: Some(1), offset: None, id: Some(id), before: None, paged: None };
     let Json(mut rows) = list_drives(State(s), Query(q)).await?;
     Ok(match rows.pop() {
         Some(d) => Json(d).into_response(),
@@ -546,10 +603,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/cars/:id/last-activity", get(summary::car_last_activity))
         .route("/cars/:id/stats", get(summary::car_stats))
         .route("/cars/:id/report", get(report::car_report))
-        .route("/charges", get(list_charges))
+        .route("/charges", get(charges_route))
         .route("/charges/:id", get(get_charge))
         .route("/charges/:id/cost", axum::routing::put(put_cost).delete(delete_cost))
-        .route("/drives", get(list_drives))
+        .route("/drives", get(drives_route))
+        .route("/cars/:id/months", get(car_months))
         .route("/journeys", get(journey::list).post(journey::create))
         .route("/journeys/suggestions", get(journey::suggestions))
         .route("/journeys/suggestions/dismiss", axum::routing::post(journey::dismiss))

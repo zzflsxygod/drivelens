@@ -1,6 +1,7 @@
 // 行程 tab (drive list with multi-select) + 旅程 (journeys): list, suggestions, detail, editing.
 import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } from "./api";
 import { DriveMap, SPEED_STOPS } from "./map";
+import { infiniteList, monthLabel } from "./infinite";
 
 export interface Ctx {
   view: HTMLElement;
@@ -13,6 +14,7 @@ export interface Ctx {
   journeysMessage(): string;
   /** server can store dismissed suggestions (api_level ≥ 9) */
   dismissAvailable(): boolean;
+  pagingAvailable(): boolean;
 }
 interface Money { currency: string; amount: number }
 export interface JourneyRow { id: number; car_id: number; name: string; note: string | null; start_date: string | null; end_date: string | null;
@@ -44,56 +46,75 @@ function segHTML(active: "drives" | "journeys", ctx: Ctx) {
 }
 function bindSeg(ctx: Ctx) {
   ctx.view.querySelectorAll<HTMLElement>("[data-seg]").forEach(b => b.onclick = () =>
-    b.dataset.seg === "journeys" ? showJourneys(ctx) : showDriveList(ctx));
+    b.dataset.seg === "journeys" ? showJourneys(ctx) : showDriveList(ctx, false));
 }
 let lastSeg: "drives" | "journeys" = "drives";
-export function showDrivesTab(ctx: Ctx) { lastSeg === "journeys" && ctx.journeysAvailable() ? showJourneys(ctx) : showDriveList(ctx); }
+export function showDrivesTab(ctx: Ctx) { lastSeg === "journeys" && ctx.journeysAvailable() ? showJourneys(ctx) : showDriveList(ctx, false); }
 
-// ---------------- Drive list (with multi-select) ----------------
-interface SelectOpts { journey?: Journey }
-export async function showDriveList(ctx: Ctx, selectMode = false, preselect: number[] = []) {
+// ---------------- Drive list (infinite, with multi-select) ----------------
+const sel = new Set<number>();
+let selectMode = false;
+export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[] = [], restore = false) {
   lastSeg = "drives"; ctx.setMap(null);
+  if (mode !== undefined) { selectMode = mode; sel.clear(); preselect.forEach(i => sel.add(i)); }
   const v = ctx.view;
-  v.innerHTML = `${segHTML("drives", ctx)}<div class="muted">加载中…</div>`; bindSeg(ctx);
-  let drives: Drive[];
-  try { drives = await api<Drive[]>(`/api/drives?limit=100${ctx.carQ()}`); }
-  catch (e) { v.innerHTML = segHTML("drives", ctx) + err(e); bindSeg(ctx); bindRetry(v, () => showDriveList(ctx, selectMode)); return; }
-  const sel = new Set<number>(preselect);
-  const render = () => {
-    const canSelect = ctx.journeysAvailable();
-    v.innerHTML = `${segHTML("drives", ctx)}
-      ${canSelect ? `<div class="list-tools"><span class="muted">${selectMode ? "选择要合并的行程（已属于旅程的不能选）" : `最近 ${drives.length} 段行程`}</span>
-        <button id="selmode" class="ghost small">${selectMode ? "取消" : "选择"}</button></div>` : ""}
-      ${drives.length ? "" : `<div class="muted">暂无行程</div>`}
-      ${drives.map(d => {
-        const dis = selectMode && !!d.journey_id;
-        return `<div class="card${selectMode ? " sel-mode" : ""}${sel.has(d.id) ? " selected" : ""}${dis ? " disabled" : ""}" data-id="${d.id}">
-          ${selectMode ? `<div class="chk">${sel.has(d.id) ? "✓" : ""}</div>` : ""}<div class="cbody">
-          <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
-          <div class="row muted"><span>${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</span>${badge(d)}</div>
-          <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
-        </div></div>`; }).join("")}
-      ${selectMode ? `<div style="height:70px"></div><div class="actionbar"><span>已选 <b>${sel.size}</b> 段${sel.size ? ` · ${n(drives.filter(d => sel.has(d.id)).reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km` : ""}</span>
-        <button id="merge" class="primary small" ${sel.size < 1 ? "disabled" : ""}>合并为旅程</button></div>` : ""}`;
-    bindSeg(ctx);
-    const sm = v.querySelector<HTMLElement>("#selmode");
-    if (sm) sm.onclick = () => { selectMode = !selectMode; sel.clear(); render(); };
-    v.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
-      const id = Number(el.dataset.id), d = drives.find(x => x.id === id)!;
-      if (!selectMode) return ctx.showDrive(id, () => showDriveList(ctx));
-      if (d.journey_id) return;
-      sel.has(id) ? sel.delete(id) : sel.add(id); render();
-    });
+  const car = await ctx.carId();
+  const canSelect = ctx.journeysAvailable();
+  v.innerHTML = `${segHTML("drives", ctx)}
+    ${canSelect ? `<div class="list-tools"><span class="muted" id="seltip"></span><button id="selmode" class="ghost small"></button></div>` : ""}
+    <div id="dlist"></div><div id="abar"></div>`;
+  bindSeg(ctx);
+  const byId = new Map<number, Drive>();
+  const cardHTML = (d: Drive) => { byId.set(d.id, d); const dis = selectMode && !!d.journey_id;
+    return `<div class="card${selectMode ? " sel-mode" : ""}${sel.has(d.id) ? " selected" : ""}${dis ? " disabled" : ""}" data-id="${d.id}">
+      ${selectMode ? `<div class="chk">${sel.has(d.id) ? "✓" : ""}</div>` : ""}<div class="cbody">
+      <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
+      <div class="row muted"><span>${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</span>${badge(d)}</div>
+      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
+    </div></div>`; };
+  const bar = () => {
+    const tip = v.querySelector("#seltip"), btn = v.querySelector("#selmode");
+    if (tip) tip.textContent = selectMode ? "选择要合并的行程（已属于旅程的不能选）" : "";
+    if (btn) btn.textContent = selectMode ? "取消" : "选择";
+    const picked = [...sel].map(i => byId.get(i)).filter(Boolean) as Drive[];
+    v.querySelector("#abar")!.innerHTML = selectMode ? `<div style="height:70px"></div><div class="actionbar"><span>已选 <b>${sel.size}</b> 段${sel.size ? ` · ${n(picked.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km` : ""}</span>
+      <button id="merge" class="primary small" ${sel.size < 1 ? "disabled" : ""}>合并为旅程</button></div>` : "";
     const mb = v.querySelector<HTMLElement>("#merge");
     if (mb) mb.onclick = () => {
-      const picked = drives.filter(d => sel.has(d.id)).sort((a, b) => a.start_date.localeCompare(b.start_date));
-      nameDialog({ title: "合并为旅程", name: `${picked[0].start_address ?? "?"} → ${picked[picked.length - 1].end_address ?? "?"}`, note: "",
-        hint: `${picked.length} 段行程 · ${fmtDate(picked[0].start_date)} – ${fmtDate(picked[picked.length - 1].end_date)}。只在 DriveLens 里分组，不修改 TeslaMate 的行程。`,
+      const ps = ([...sel].map(i => byId.get(i)).filter(Boolean) as Drive[]).sort((a, b) => a.start_date.localeCompare(b.start_date));
+      const f = ps[0], l = ps[ps.length - 1];
+      nameDialog({ title: "合并为旅程", name: f && l ? `${f.start_address ?? "?"} → ${l.end_address ?? "?"}` : "新旅程", note: "",
+        hint: `${sel.size} 段行程${f && l ? ` · ${fmtDate(f.start_date)} – ${fmtDate(l.end_date)}` : ""}。只在 DriveLens 里分组，不修改 TeslaMate 的行程。`,
         ok: "创建旅程",
-        save: async (name, note) => { const j = await api<Journey>("/api/journeys", "POST", { name, note, drive_ids: picked.map(d => d.id) }); showJourney(ctx, j.id); } });
+        save: async (name, note) => { const j = await api<Journey>("/api/journeys", "POST", { name, note, drive_ids: [...sel] }); selectMode = false; sel.clear(); showJourney(ctx, j.id); } });
     };
   };
-  render();
+  const list = infiniteList<Drive>({
+    container: v.querySelector<HTMLElement>("#dlist")!, key: `drives:${car ?? "all"}`, path: `/api/drives?x=1${ctx.carQ()}`,
+    paging: ctx.pagingAvailable(), carId: car, monthsSupported: ctx.pagingAvailable(), restore,
+    dateOf: d => d.start_date, card: cardHTML, empty: "暂无行程",
+    header: (m, t, loaded) => `<b>${monthLabel(m)}</b><span>${t ? `${t.drive_count} 段 · ${n(t.distance_km, 0)} km · ${fmtDur(t.duration_min)}`
+      : `${loaded.length} 段 · ${n(loaded.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km`}</span>`,
+    bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
+      const id = Number(el.dataset.id), d = byId.get(id);
+      if (!selectMode) { list.leave(); window.scrollTo(0, 0); return ctx.showDrive(id, () => showDriveList(ctx, undefined, [], true)); }
+      if (d?.journey_id) return;
+      sel.has(id) ? sel.delete(id) : sel.add(id);
+      el.classList.toggle("selected", sel.has(id)); el.querySelector(".chk")!.textContent = sel.has(id) ? "✓" : "";
+      bar();
+    }),
+  });
+  const sm = v.querySelector<HTMLElement>("#selmode");
+  if (sm) sm.onclick = () => {
+    selectMode = !selectMode; if (!selectMode) sel.clear();
+    // re-render loaded cards in place (keeps items and scroll)
+    v.querySelectorAll<HTMLElement>("#dlist .card[data-id]").forEach(el => {
+      const d = byId.get(Number(el.dataset.id)); if (!d) return;
+      const t = document.createElement("div"); t.innerHTML = cardHTML(d); el.replaceWith(t.firstElementChild!);
+    });
+    list.rebind(); bar();
+  };
+  bar();
 }
 
 // ---------------- Name / note dialog ----------------

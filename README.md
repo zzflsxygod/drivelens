@@ -341,3 +341,11 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 记录保存在服务器（`drivelens.dismissed_suggestions`，多设备同步）；服务器还没建表时自动退回保存在本机。设置里可以关闭建议、或「恢复已忽略的建议」。建议区可以折叠（本机记住）。
 
 升级：`docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.1.sql`（只建这张表并授权，可重复执行）。API level 9。
+
+## v0.6.2 — 无限滚动
+
+- 行程 / 充电列表改为无限滚动：API `GET /api/drives|charges?paged=true&before=<ISO~id>&limit=50` 返回 `{items, next_cursor}`（keyset 分页；旧的 `limit/offset` 仍可用）。
+- 新增 `GET /api/cars/:id/months?tz=` 月度汇总，用于吸顶月份标题与「跳到月份」。`api_level` = 10。
+- 从详情页返回时保留滚动位置与已加载内容；多选跨页有效；首页缓存秒开。
+- 旧服务器（level < 10）回退为一次加载最近 100 条。
+- 无需 SQL。可选索引建议（数据量很大时）：`CREATE INDEX ON drives (car_id, start_date);` — 仅建议，DriveLens 不会自动创建。
