@@ -318,3 +318,19 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 - App 启动时读取 `/health`：服务器版本过旧或正在更新时显示提示条「服务器正在更新或版本过旧…」并隐藏不支持的功能，不会崩溃。设置页显示服务器版本。
 - 自动更新：`deploy/docker-compose.drivelens.yml` 里的 `watchtower` 服务（nickfedor/watchtower，只更新带 `com.centurylinklabs.watchtower.enable=true` 标签的 drivelens-api，每 5 分钟检查一次）。
 - 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建 Windows 安装包（草稿）→ 发布为预发布版本。
+
+
+## 旅程（v0.6.0）
+
+把多段行程合并成一次「旅程」（只在 DriveLens 的 `drivelens` schema 里分组，不修改 TeslaMate 的 drives）。
+「行程」页顶部切换「行程 | 旅程」；行程列表点「选择」多选后「合并为旅程」；旅程页有自动建议（相邻行程间隔小于设定值，默认 60 分钟；中途有充电时可到 2 小时；单个建议最长 3 天）。
+
+**升级步骤（先执行 SQL，再更新镜像也可以，API 在表不存在时只会提示功能未启用）**：
+
+```bash
+docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.0.sql
+```
+
+`deploy/drivelens-v0.6.0.sql` 只新建 `drivelens.journeys` / `drivelens.journey_drives` 并授权（含序列 USAGE），可重复执行，不需要密码；`drivelens-init.sql` 也已包含这部分。
+
+接口：`GET/POST /api/journeys`、`GET/PATCH/DELETE /api/journeys/:id`、`PUT /api/journeys/:id/drives`、`GET /api/journeys/suggestions`、`GET /api/journeys/:id/path`（最多约 3000 个点，含速度、海拔、累计距离）。API level 8。

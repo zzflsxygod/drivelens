@@ -142,3 +142,36 @@ table.split { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: c
 .srv-banner button { border: 0; background: none; color: inherit; font-weight: 600; cursor: pointer; padding: 4px 6px; }
 .version-box { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .card-error .retry, .srv-banner button { white-space: nowrap; flex: none; }
+/* 旅程 */
+.stop-pin { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid #555; box-shadow: 0 1px 3px #0006; }
+.stop-pin.charge { width: 22px; height: 22px; border: 2px solid #fff; background: #e31937; color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+.seg-tabs { display: flex; background: var(--card); border-radius: 10px; padding: 3px; margin-bottom: 10px; box-shadow: 0 1px 2px #0001; }
+.seg-tabs button { flex: 1; border: 0; background: none; padding: 7px 0; border-radius: 8px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.seg-tabs button.on { background: var(--red); color: #fff; font-weight: 600; }
+.list-tools { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.jbadge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #e3193718; color: var(--red); margin-left: 6px; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; font-weight: 500; }
+.card.sel-mode { display: flex; gap: 10px; align-items: flex-start; }
+.card.sel-mode > .cbody { flex: 1; min-width: 0; }
+.chk { flex: none; width: 22px; height: 22px; border-radius: 11px; border: 2px solid var(--muted); margin-top: 2px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; }
+.card.selected { outline: 2px solid var(--red); }
+.card.selected .chk { background: var(--red); border-color: var(--red); }
+.card.disabled { opacity: .5; cursor: not-allowed; }
+.actionbar { position: fixed; left: 0; right: 0; bottom: calc(52px + env(safe-area-inset-bottom)); z-index: 1001; display: flex; gap: 8px; align-items: center;
+  padding: 10px 16px; background: var(--card); box-shadow: 0 -2px 8px #0002; }
+.actionbar span { flex: 1; font-size: 14px; }
+.sugg { border: 1px dashed var(--red); }
+.sugg .row b { font-size: 14px; }
+.map-tools { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; gap: 8px; flex-wrap: wrap; }
+.speed-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.speed-legend i { display: inline-block; width: 110px; height: 8px; border-radius: 4px; }
+.timeline { position: relative; margin: 8px 0 0 10px; padding-left: 16px; border-left: 2px solid #8884; }
+.tl { position: relative; margin-bottom: 8px; }
+.tl::before { content: ""; position: absolute; left: -23px; top: 14px; width: 12px; height: 12px; border-radius: 6px; background: var(--card); border: 2px solid #888; }
+.tl.drive::before { border-color: #1a73e8; } .tl.charge::before { border-color: var(--red); background: var(--red); } .tl.stop::before { border-color: #aaa; }
+.tl.stop { font-size: 13px; color: var(--muted); padding: 6px 0; }
+.tl .card { margin-bottom: 0; }
+.elev-box { background: var(--card); border-radius: 12px; padding: 8px 8px 4px; margin: 8px 0; }
+.elev-a { fill: #1a73e833; stroke: #1a73e8; stroke-width: 1.5; }
+.btn-row { display: flex; gap: 8px; margin: 12px 0; }
+.btn-row button { flex: 1; }
+.sugg .primary { white-space: nowrap; flex: none; }

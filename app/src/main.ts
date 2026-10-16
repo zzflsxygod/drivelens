@@ -1,6 +1,7 @@
 import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
+import { showDrivesTab, type Ctx as JourneyCtx } from "./journey";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
@@ -131,25 +132,7 @@ async function loadCars() {
   } catch { carSel.hidden = true; }
 }
 
-async function showDrives() {
-  loading();
-  try {
-    const drives = await api<Drive[]>(`/api/drives?limit=100${carQ()}`);
-    if (!drives.length) { view.innerHTML = `<div class="muted">暂无行程</div>`; return; }
-    view.innerHTML = drives.map(d => `
-      <div class="card" data-id="${d.id}">
-        <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
-        <div class="row muted">${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</div>
-        <div class="stats">
-          <span>📏 ${n(d.distance_km)} km</span>
-          <span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span>
-          <span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span>
-        </div>
-      </div>`).join("");
-    view.querySelectorAll<HTMLElement>(".card").forEach(el =>
-      el.onclick = () => showDrive(Number(el.dataset.id)));
-  } catch (e) { showError(e); }
-}
+function showDrives() { showDrivesTab(journeyCtx); }
 
 async function showDrive(id: number, back: () => void = showDrives) {
   loading();
@@ -169,7 +152,7 @@ async function showDrive(id: number, back: () => void = showDrives) {
         <div><small>电量</small><b>${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</b></div>
       </div>`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
-    bindPlaces(() => showDrive(id));
+    bindPlaces(() => showDrive(id, back));
     map = new DriveMap(document.getElementById("map")!, { route: pts.map(p => [p.lng, p.lat] as [number, number]) });
   } catch (e) { showError(e); }
 }
@@ -258,9 +241,9 @@ async function showCharge(id: number, back: () => void = showCharges) {
       ${chargeChart(c.points)}
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
-    bindPlaces(() => showCharge(id));
+    bindPlaces(() => showCharge(id, back));
     (document.getElementById("costcell") as HTMLElement).onclick = () => lacks("costs")
-      ? showBanner(featureText("costs")) : costDialog(c, () => showCharge(id));
+      ? showBanner(featureText("costs")) : costDialog(c, () => showCharge(id, back));
     if (c.latitude != null && c.longitude != null) {
       map = new DriveMap(document.getElementById("map")!, { point: [c.longitude, c.latitude] });
     }
@@ -286,12 +269,17 @@ function showSettings() {
     </select></label>
     <label>默认货币<select id="currency">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select></label>
     <p class="muted">录入费用时默认按充电地点所在国家选择货币（如日本 → JPY）；无法判断地点时使用这里的默认货币。</p>
+    <label>旅程建议：相邻行程间隔小于<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${m} 分钟</option>`).join("")}</select></label>
+    <p class="muted">中途有充电时（如超充）间隔可到 2 小时。</p>
     <p class="muted">地图：OpenFreeMap（OpenStreetMap 数据）</p>`;
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = "检查中…"; checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
   themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "ja";
   themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
+  const gapSel = document.getElementById("jgap") as HTMLSelectElement;
+  gapSel.value = String(s.journeyGap ?? 60);
+  gapSel.onchange = () => saveSettings({ ...loadSettings(), journeyGap: Number(gapSel.value) });
   const curSel = document.getElementById("currency") as HTMLSelectElement;
   curSel.value = s.currency ?? "JPY";
   curSel.onchange = () => saveSettings({ ...loadSettings(), currency: curSel.value });
@@ -574,6 +562,18 @@ async function openReport(month: string, carId?: number) {
   window.scrollTo(0, 0);
 }
 
+// ---------------- 旅程 ----------------
+const journeyCtx: JourneyCtx = {
+  view,
+  setMap(m) { if (map && map !== m) destroyMap(); map = m; },
+  showDrive: (id, back) => showDrive(id, back),
+  showCharge: (id, back) => showCharge(id, back),
+  carQ,
+  carId: () => currentCarId().catch(() => null),
+  journeysAvailable: () => !lacks("journeys"),
+  journeysMessage: () => featureText("journeys"),
+};
+
 // ---------------- Server version banner ----------------
 const banner = document.getElementById("srv-banner")!;
 let bannerOverride: string | null = null;
@@ -643,5 +643,7 @@ else if (start === "charges") (document.querySelector('nav button[data-tab="char
 else if (start?.startsWith("drive:")) showDrive(Number(start.slice(6)));
 else if (start?.startsWith("charge:")) showCharge(Number(start.slice(7)));
 else if (start?.startsWith("report")) openReport(start.slice(7) || nowMonth());
+else if (start?.startsWith("journey:")) { serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(start.slice(8))))); }
+else if (start === "journeys") { (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).classList.add("active"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
 else if (start === "drives") (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).click();
 else showHome();

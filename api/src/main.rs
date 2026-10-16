@@ -15,6 +15,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 mod summary;
 mod report;
+mod journey;
 
 #[derive(Clone)]
 struct AppState {
@@ -22,6 +23,7 @@ struct AppState {
     token: Arc<String>,
     /// drivelens.charge_costs exists (checked lazily; once true it stays true)
     costs_ok: Arc<std::sync::atomic::AtomicBool>,
+    journeys_ok: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -205,6 +207,15 @@ struct Drive {
     /// Wh/km
     efficiency_wh_km: Option<f64>,
     outside_temp_avg: Option<f64>,
+    /// journey this drive belongs to (absent when the journeys tables are not installed)
+    start_lat: Option<f64>,
+    start_lng: Option<f64>,
+    end_lat: Option<f64>,
+    end_lng: Option<f64>,
+    #[sqlx(default)]
+    journey_id: Option<i64>,
+    #[sqlx(default)]
+    journey_name: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -252,8 +263,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1)
-pub(crate) const API_LEVEL: u32 = 7;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0)
+pub(crate) const API_LEVEL: u32 = 8;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 async fn health() -> Json<serde_json::Value> {
@@ -265,7 +276,8 @@ async fn health_full(State(s): State<AppState>) -> Response {
     let db = sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&s.db).await.is_ok();
     let code = if db { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
     (code, Json(serde_json::json!({"status": if db {"ok"} else {"db_error"}, "version": env!("CARGO_PKG_VERSION"),
-        "api_level": API_LEVEL, "database": db, "manual_costs": costs_ok(&s).await.unwrap_or(false)}))).into_response()
+        "api_level": API_LEVEL, "database": db, "manual_costs": costs_ok(&s).await.unwrap_or(false),
+        "journeys": journey::tables_ok(&s).await.unwrap_or(false)}))).into_response()
 }
 
 async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
@@ -304,8 +316,13 @@ async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Re
     Ok(Json(ChargeDetail { summary, points }).into_response())
 }
 
-async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> ApiResult<Vec<Drive>> {
-    let sql = format!(
+/// Drive columns + joins (no WHERE). With `journeys`, also the journey id/name of each drive.
+pub(crate) fn drive_select(journeys: bool) -> String {
+    let (jcols, jjoin) = if journeys {
+        (", jd.journey_id::int8 AS journey_id, j.name AS journey_name",
+         "LEFT JOIN drivelens.journey_drives jd ON jd.drive_id = d.id LEFT JOIN drivelens.journeys j ON j.id = jd.journey_id")
+    } else { ("", "") };
+    format!(
         r#"SELECT d.id::int8 AS id, d.car_id::int8 AS car_id,
              to_char(d.start_date, '{TS}') AS start_date, to_char(d.end_date, '{TS}') AS end_date,
              COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) AS start_address,
@@ -316,7 +333,9 @@ async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> 
              sp.battery_level::int4 AS start_battery_level, ep.battery_level::int4 AS end_battery_level,
              ((d.start_rated_range_km - d.end_rated_range_km) * c.efficiency)::float8 AS energy_kwh,
              CASE WHEN d.distance > 0 THEN ((d.start_rated_range_km - d.end_rated_range_km) * c.efficiency * 1000 / d.distance)::float8 END AS efficiency_wh_km,
-             d.outside_temp_avg::float8 AS outside_temp_avg
+             d.outside_temp_avg::float8 AS outside_temp_avg,
+             sp.latitude::float8 AS start_lat, sp.longitude::float8 AS start_lng,
+             ep.latitude::float8 AS end_lat, ep.longitude::float8 AS end_lng{jcols}
            FROM drives d
            JOIN cars c ON c.id = d.car_id
            LEFT JOIN addresses sa ON sa.id = d.start_address_id
@@ -327,8 +346,15 @@ async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> 
            LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
            LEFT JOIN positions sp ON sp.id = d.start_position_id
            LEFT JOIN positions ep ON ep.id = d.end_position_id
-           WHERE ($1::int8 IS NULL OR d.car_id = $1) AND ($4::int8 IS NULL OR d.id = $4) AND d.end_date IS NOT NULL
-           ORDER BY d.start_date DESC LIMIT $2 OFFSET $3"#
+           {jjoin}"#
+    )
+}
+
+async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> ApiResult<Vec<Drive>> {
+    let sql = format!(
+        "{} WHERE ($1::int8 IS NULL OR d.car_id = $1) AND ($4::int8 IS NULL OR d.id = $4) AND d.end_date IS NOT NULL
+           ORDER BY d.start_date DESC LIMIT $2 OFFSET $3",
+        drive_select(journey::tables_ok(&s).await?)
     );
     let rows = sqlx::query_as::<_, Drive>(&sql)
         .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(q.id)
@@ -468,6 +494,7 @@ async fn migrate(db: &PgPool) -> anyhow::Result<()> {
             tracing::warn!("manual charge costs disabled: cannot create drivelens.charge_costs ({e}); re-run drivelens-init.sql");
         }
     }
+    journey::try_create_tables(db).await;
     Ok(())
 }
 
@@ -507,7 +534,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
     migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()) };
+    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()) };
 
     let api = Router::new()
         .route("/health", get(health_full))
@@ -521,6 +548,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/charges/:id", get(get_charge))
         .route("/charges/:id/cost", axum::routing::put(put_cost).delete(delete_cost))
         .route("/drives", get(list_drives))
+        .route("/journeys", get(journey::list).post(journey::create))
+        .route("/journeys/suggestions", get(journey::suggestions))
+        .route("/journeys/:id", get(journey::get).patch(journey::update).delete(journey::delete))
+        .route("/journeys/:id/drives", axum::routing::put(journey::set_drives))
+        .route("/journeys/:id/path", get(journey::path))
         .route("/drives/:id", get(get_drive))
         .route("/drives/:id/path", get(drive_path))
         .route("/addresses/aliases", get(list_aliases))
@@ -530,7 +562,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .nest("/api", api)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods([axum::http::Method::GET, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS]).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PATCH, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS]).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 

@@ -3,7 +3,7 @@
 --   docker compose exec -T database psql -U teslamate -d teslamate \
 --     -v ro_pass="'你的密码'" < drivelens-init.sql
 -- 作用：创建只读用户 drivelens_ro；TeslaMate 的表只给 SELECT；
---       只有独立的 drivelens schema（自定义地点名称、手动充电费用）可写。不修改 TeslaMate 的任何表。
+--       只有独立的 drivelens schema（自定义地点名称、手动充电费用）可写（地点名称、手动费用、旅程）。不修改 TeslaMate 的任何表。
 
 SELECT format('CREATE ROLE drivelens_ro LOGIN PASSWORD %s', :'ro_pass')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'drivelens_ro') \gexec
@@ -31,3 +31,18 @@ CREATE TABLE IF NOT EXISTS drivelens.charge_costs (
   note text,
   updated_at timestamptz NOT NULL DEFAULT now());
 GRANT SELECT, INSERT, UPDATE, DELETE ON drivelens.charge_costs TO drivelens_ro;
+
+-- v0.6.0：旅程（把多段行程合并为一次旅程；只引用 TeslaMate 的 drives，不修改它）
+CREATE TABLE IF NOT EXISTS drivelens.journeys (
+  id serial PRIMARY KEY,
+  car_id integer NOT NULL REFERENCES public.cars(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (length(btrim(name)) > 0),
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS drivelens.journey_drives (
+  drive_id integer PRIMARY KEY REFERENCES public.drives(id) ON DELETE CASCADE,
+  journey_id integer NOT NULL REFERENCES drivelens.journeys(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS journey_drives_journey_id_idx ON drivelens.journey_drives (journey_id);
+GRANT SELECT, INSERT, UPDATE, DELETE ON drivelens.journeys, drivelens.journey_drives TO drivelens_ro;
+GRANT USAGE ON SEQUENCE drivelens.journeys_id_seq TO drivelens_ro;

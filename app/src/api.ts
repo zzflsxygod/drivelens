@@ -1,6 +1,6 @@
 export type Theme = "auto" | "light" | "dark";
 export type LabelLang = "ja" | "zh" | "en" | "local";
-export interface Settings { apiUrl: string; token: string; theme?: Theme; labelLang?: LabelLang; currency?: string }
+export interface Settings { apiUrl: string; token: string; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean }
 const KEY = "drivelens-settings";
 export function loadSettings(): Settings {
   try { return { apiUrl: "", token: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }
@@ -24,6 +24,8 @@ export interface Drive {
   start_address_id: number | null; end_address_id: number | null; start_alias: string | null; end_alias: string | null;
   distance_km: number | null; duration_min: number | null; speed_max: number | null; start_battery_level: number | null;
   end_battery_level: number | null; energy_kwh: number | null; efficiency_wh_km: number | null; outside_temp_avg: number | null;
+  start_lat?: number | null; start_lng?: number | null; end_lat?: number | null; end_lng?: number | null;
+  journey_id?: number | null; journey_name?: string | null;
 }
 export interface PathPoint { date: string; lat: number; lng: number; speed: number | null; elevation: number | null; battery_level: number | null }
 
@@ -40,6 +42,8 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     try { detail = (await res.json()).error ?? ""; } catch { /* not json */ }
     if (res.status === 503 && /charge_costs/.test(detail))
       throw new Error("服务器还没有启用手动费用：请在服务器上重新执行 drivelens-init.sql（见 README）");
+    if (res.status === 503 && /journey/.test(detail))
+      throw new Error("服务器还没有启用旅程：请在服务器上执行 drivelens-v0.6.0.sql（见 README）");
     const err = new Error(`请求失败：HTTP ${res.status}${detail ? `（${detail}）` : ""}`) as Error & { status?: number };
     err.status = res.status;
     // 404 on a known route = server older than the app; 502/503 = server restarting (update)
