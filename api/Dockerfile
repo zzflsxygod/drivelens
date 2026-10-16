@@ -20,6 +20,10 @@ RUN touch src/main.rs && xx-cargo build --release --locked && \
 
 # Small runtime: glibc + CA certs, no shell, runs as uid 65532 (nonroot)
 FROM gcr.io/distroless/cc-debian12:nonroot
+# OCI labels (CI's docker/metadata-action also sets version/revision/created from git)
+LABEL org.opencontainers.image.title="drivelens-api" \
+      org.opencontainers.image.description="DriveLens API for TeslaMate (read-only)" \
+      org.opencontainers.image.source="https://github.com/zzflsxygod/drivelens"
 COPY --from=builder /drivelens-api /usr/local/bin/drivelens-api
 ENV BIND_ADDR=0.0.0.0:8080 RUST_LOG=info
 EXPOSE 8080

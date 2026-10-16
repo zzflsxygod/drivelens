@@ -250,7 +250,23 @@ pub(crate) fn charge_select(costs: bool) -> String {
     )
 }
 
-async fn health() -> &'static str { "ok" }
+/// Bump when endpoints are added or changed (the app gates features on it).
+/// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1)
+pub(crate) const API_LEVEL: u32 = 7;
+
+/// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
+async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status": "ok", "version": env!("CARGO_PKG_VERSION"), "api_level": API_LEVEL}))
+}
+
+/// Authenticated variant: also checks the database connection.
+async fn health_full(State(s): State<AppState>) -> Response {
+    let db = sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&s.db).await.is_ok();
+    let code = if db { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (code, Json(serde_json::json!({"status": if db {"ok"} else {"db_error"}, "version": env!("CARGO_PKG_VERSION"),
+        "api_level": API_LEVEL, "database": db, "manual_costs": costs_ok(&s).await.unwrap_or(false)}))).into_response()
+}
 
 async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
     let rows = sqlx::query_as::<_, Car>(
@@ -494,6 +510,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()) };
 
     let api = Router::new()
+        .route("/health", get(health_full))
         .route("/cars", get(list_cars))
         .route("/cars/:id/summary", get(summary::car_summary))
         .route("/cars/:id/status", get(summary::car_status))

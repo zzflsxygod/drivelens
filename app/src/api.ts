@@ -40,7 +40,11 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     try { detail = (await res.json()).error ?? ""; } catch { /* not json */ }
     if (res.status === 503 && /charge_costs/.test(detail))
       throw new Error("服务器还没有启用手动费用：请在服务器上重新执行 drivelens-init.sql（见 README）");
-    throw new Error(`请求失败：HTTP ${res.status}${detail ? `（${detail}）` : ""}`);
+    const err = new Error(`请求失败：HTTP ${res.status}${detail ? `（${detail}）` : ""}`) as Error & { status?: number };
+    err.status = res.status;
+    // 404 on a known route = server older than the app; 502/503 = server restarting (update)
+    if ([404, 502, 503].includes(res.status)) window.dispatchEvent(new Event("drivelens-server-error"));
+    throw err;
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

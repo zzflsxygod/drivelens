@@ -19,3 +19,28 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+    # 只让 Watchtower 自动更新这个容器（下面 watchtower 用 label-enable 模式）
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    healthcheck:
+      disable: true   # distroless 镜像没有 shell/curl；用 https://你的域名/health 查看版本
+
+  # ---- 自动更新 drivelens-api（可选，推荐）----
+  # 每 5 分钟检查 ghcr.io/zzflsxygod/drivelens-api:latest，有新镜像就重启 drivelens-api 并删除旧镜像。
+  # 只更新带 com.centurylinklabs.watchtower.enable=true 标签的容器 → 不会动 TeslaMate / 数据库 / Grafana。
+  # 镜像用 nickfedor/watchtower：原版 containrrr/watchtower 已于 2025-12-17 归档停止维护；
+  # 这个分支在维护中，配置/标签/环境变量与原版相同，支持 arm64。
+  # 私有 GHCR 镜像需要登录信息：把宿主机上 `docker login ghcr.io` 生成的 config.json 只读挂载进去。
+  # 路径按实际情况修改（root 登录的是 /root/.docker/config.json，普通用户是 /home/<用户名>/.docker/config.json）。
+  watchtower:
+    image: nickfedor/watchtower:latest
+    restart: always
+    environment:
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - TZ=Asia/Tokyo
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json:ro

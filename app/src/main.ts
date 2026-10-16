@@ -1,6 +1,7 @@
 import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
+import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
@@ -258,7 +259,8 @@ async function showCharge(id: number, back: () => void = showCharges) {
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
     bindPlaces(() => showCharge(id));
-    (document.getElementById("costcell") as HTMLElement).onclick = () => costDialog(c, () => showCharge(id));
+    (document.getElementById("costcell") as HTMLElement).onclick = () => lacks("costs")
+      ? showBanner(featureText("costs")) : costDialog(c, () => showCharge(id));
     if (c.latitude != null && c.longitude != null) {
       map = new DriveMap(document.getElementById("map")!, { point: [c.longitude, c.latitude] });
     }
@@ -270,6 +272,7 @@ function showSettings() {
   const s = loadSettings();
   view.innerHTML = `
     <h2>设置</h2>
+    <div class="version-box muted">App v${esc(APP_VERSION)} · 服务器 <span id="srv-ver">${esc(serverLabel())}</span> <button id="srv-check" class="ghost small">检查</button></div>
     <label>API 地址<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
     <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
     <button id="save" class="primary">保存并测试连接</button>
@@ -284,6 +287,7 @@ function showSettings() {
     <label>默认货币<select id="currency">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select></label>
     <p class="muted">录入费用时默认按充电地点所在国家选择货币（如日本 → JPY）；无法判断地点时使用这里的默认货币。</p>
     <p class="muted">地图：OpenFreeMap（OpenStreetMap 数据）</p>`;
+  (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = "检查中…"; checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
   themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "ja";
@@ -296,6 +300,7 @@ function showSettings() {
     saveSettings({ ...loadSettings(), apiUrl: (document.getElementById("url") as HTMLInputElement).value.trim(),
                    token: (document.getElementById("token") as HTMLInputElement).value.trim() });
     const msg = document.getElementById("msg")!;
+    checkServer();
     try { const cars = await api<Car[]>("/api/cars"); msg.innerHTML = `<div class="ok">✅ 连接成功，找到 ${cars.length} 辆车</div>`; loadCars(); }
     catch (e) { msg.innerHTML = `<div class="error">${esc((e as Error).message)}</div>`; }
   };
@@ -523,6 +528,7 @@ async function showHome() {
     if (!data.stats) return;
     sec("month").innerHTML = monthHTML(data.stats);
     sec("month").querySelectorAll<HTMLElement>("[data-report]").forEach(el => el.onclick = () => openReport(el.dataset.report || nowMonth(), id));
+    applyFeatureGates();
     sec("totals").innerHTML = totalsHTML(data.stats);
   };
 
@@ -549,6 +555,15 @@ async function showHome() {
 /** Monthly report (opened from the 首页 month card; back returns to 首页). */
 async function openReport(month: string, carId?: number) {
   destroyMap();
+  await serverReady();
+  if (lacks("report")) {
+    view.innerHTML = `<button class="back">← 返回</button><div class="pane" style="margin-top:12px">
+      <div class="error card-error">⚠️ ${esc(featureText("report"))} <button class="retry">重试</button></div>
+      <div class="muted">月度报告需要更新服务器上的 drivelens-api。</div></div>`;
+    (view.querySelector(".back") as HTMLElement).onclick = showHome;
+    (view.querySelector(".retry") as HTMLElement).onclick = async () => { await checkServer(); openReport(month, carId); };
+    return;
+  }
   const id = carId ?? await currentCarId().catch(() => null);
   if (id == null) return showHome();
   ++homeGen;
@@ -558,6 +573,39 @@ async function openReport(month: string, carId?: number) {
     drive: d => showDrive(d, back), charge: c => showCharge(c, back) });
   window.scrollTo(0, 0);
 }
+
+// ---------------- Server version banner ----------------
+const banner = document.getElementById("srv-banner")!;
+let bannerOverride: string | null = null;
+function renderBanner() {
+  const text = bannerOverride ?? globalBanner();
+  banner.hidden = !text;
+  if (!text) return;
+  banner.innerHTML = `<span>⚠️ ${esc(text)}</span><button class="retry">重试</button><button class="x" aria-label="关闭">×</button>`;
+  (banner.querySelector(".retry") as HTMLElement).onclick = async () => {
+    banner.querySelector(".retry")!.textContent = "检查中…"; bannerOverride = null;
+    await checkServer();
+    if (!globalBanner()) (document.querySelector("nav button.active") as HTMLElement | null)?.click();
+  };
+  (banner.querySelector(".x") as HTMLElement).onclick = () => { banner.hidden = true; bannerOverride = null; };
+}
+function showBanner(text: string) { bannerOverride = text; renderBanner(); }
+/** Hide entry points the server is known not to support. */
+function applyFeatureGates() {
+  document.querySelectorAll<HTMLElement>("a[data-report]").forEach(a => a.hidden = lacks("report"));
+  document.querySelectorAll<HTMLElement>(".month-card[data-report]").forEach(c => c.classList.toggle("month-card", !lacks("report")));
+  const ver = document.getElementById("srv-ver"); if (ver) ver.textContent = serverLabel();
+}
+onServerInfo(() => {
+  renderBanner(); applyFeatureGates();
+  // a feature screen showing a 404 may now be explained
+});
+let lastCheck = 0;
+window.addEventListener("drivelens-server-error", () => {
+  if (Date.now() - lastCheck < 10000) return; lastCheck = Date.now();
+  checkServer().then(i => { if (i.state === "legacy") showBanner(tooOldText(7)); });
+});
+window.addEventListener("focus", () => { if (Date.now() - lastCheck > 300000) { lastCheck = Date.now(); checkServer(); } });
 
 // Pull-to-refresh on the home tab (touch devices)
 let pullStartY: number | null = null;
@@ -588,6 +636,7 @@ carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (doc
 const qp = new URLSearchParams(location.search);
 if (qp.get("api")) saveSettings({ ...loadSettings(), apiUrl: qp.get("api")!, token: qp.get("token") || "" });
 const start = qp.get("view");
+checkServer();
 loadCars();
 if (!loadSettings().apiUrl) (document.querySelector('nav button[data-tab="settings"]') as HTMLElement).click();
 else if (start === "charges") (document.querySelector('nav button[data-tab="charges"]') as HTMLElement).click();

@@ -1,5 +1,6 @@
 // 月度报告 page. Data: GET /api/cars/:id/report?month=YYYY-MM&tz=..&currency=..
 import { api, fmtMoney, defaultCurrency } from "./api";
+import { featureText } from "./version";
 
 interface Money { currency: string; amount: number }
 interface Overview { distance_km: number; drive_duration_min: number; drive_count: number; energy_used_kwh: number;
@@ -172,7 +173,7 @@ export async function showReport(view: HTMLElement, carId: number, month: string
       const body = view.querySelector("#rp-body")!;
       body.querySelector(".card-error")?.remove();
       if (!cache.has(key)) body.innerHTML = "";
-      body.insertAdjacentHTML("afterbegin", `<div class="error card-error">⚠️ 月度报告加载失败：${esc((e as Error).message)} <button class="retry">重试</button></div>`);
+      body.insertAdjacentHTML("afterbegin", `<div class="error card-error">⚠️ ${(e as { status?: number }).status === 404 ? esc(featureText("report")) : `月度报告加载失败：${esc((e as Error).message)}`} <button class="retry">重试</button></div>`);
       (body.querySelector(".retry") as HTMLElement).onclick = () => { body.querySelector(".card-error")!.innerHTML = "加载中…"; load(); };
     });
   load();

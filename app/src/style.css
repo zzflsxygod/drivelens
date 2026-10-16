@@ -134,3 +134,11 @@ table.split { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: c
 .cal-d b { font-weight: 600; font-size: 11px; } .cal-d span { text-align: right; font-size: 11px; }
 .cal-d i { position: absolute; top: 2px; right: 3px; font-style: normal; font-size: 10px; }
 .cal-d.fut { opacity: .35; }
+.srv-banner { position: sticky; top: 49px; z-index: 999; display: flex; align-items: center; gap: 8px; padding: 8px 16px; font-size: 13px;
+  background: #fff4e5; color: #8a4b00; border-bottom: 1px solid #f0c890; }
+:root[data-theme="dark"] .srv-banner { background: #3a2a10; color: #ffd28a; border-color: #6b4c1c; }
+.srv-banner[hidden] { display: none; }
+.srv-banner span { flex: 1; }
+.srv-banner button { border: 0; background: none; color: inherit; font-weight: 600; cursor: pointer; padding: 4px 6px; }
+.version-box { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.card-error .retry, .srv-banner button { white-space: nowrap; flex: none; }

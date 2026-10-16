@@ -310,3 +310,11 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 - **超充**：直流快充（`charges.fast_charger_present` 为真），且地点名称（自定义名称 / 地理围栏 / 地址）含 Supercharger、超充、スーパーチャージャー 或 Tesla。
 - **家充**：交流充电，且地点名称含 home / 自宅 / 家 / うち，或者是过去 12 个月最常用的交流充电地点（平均功率 < 22 kW 的会话最多的地址）。
 - **其他**：其余所有（其他交流充电、非特斯拉的直流快充）。
+
+
+## 服务器自动更新与版本检查（v0.5.1）
+
+- `GET /health`（无需 Token）返回 `{"status":"ok","version":"0.5.1","api_level":7}`；`GET /api/health`（需要 Token）额外检查数据库。
+- App 启动时读取 `/health`：服务器版本过旧或正在更新时显示提示条「服务器正在更新或版本过旧…」并隐藏不支持的功能，不会崩溃。设置页显示服务器版本。
+- 自动更新：`deploy/docker-compose.drivelens.yml` 里的 `watchtower` 服务（nickfedor/watchtower，只更新带 `com.centurylinklabs.watchtower.enable=true` 标签的 drivelens-api，每 5 分钟检查一次）。
+- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建 Windows 安装包（草稿）→ 发布为预发布版本。

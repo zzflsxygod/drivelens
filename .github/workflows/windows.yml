@@ -41,7 +41,7 @@ jobs:
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('DriveLens {0}', github.ref_name) || '' }}
           releaseBody: "Windows 安装包：下载 *-setup.exe（推荐）或 .msi。安装时会自动安装 WebView2（如系统缺少）。"
-          releaseDraft: false
+          releaseDraft: true  # published by scripts/release.sh after the server reports the new version
           prerelease: true
 
       - name: Upload installers
