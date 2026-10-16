@@ -21,13 +21,24 @@ done
 echo "== 1. push main and wait for Docker CI ($TAG)"
 git push -q origin HEAD:main
 SHA=$(git rev-parse HEAD)
-wait_run() { # workflow name, ref (branch or tag)
-  local id=""
-  for _ in $(seq 60); do
+wait_run() { # workflow file, ref (branch or tag), [paths that trigger it]
+  local id="" tries=60
+  # main pushes are path-filtered: if this commit changed nothing relevant, no run is created →
+  # accept the latest successful run whose commit has the same content for those paths.
+  if [ -n "${3:-}" ]; then tries=6; fi
+  for _ in $(seq $tries); do
     id=$(gh run list --workflow "$1" --json databaseId,headSha,headBranch \
          -q "[.[] | select(.headSha==\"$SHA\" and .headBranch==\"$2\")][0].databaseId // empty")
     [ -n "$id" ] && break; sleep 10
   done
+  if [ -z "$id" ] && [ -n "${3:-}" ]; then
+    local row rsha
+    row=$(gh run list --workflow "$1" --branch "$2" --status success -L 1 --json databaseId,headSha -q '.[0] | "\(.databaseId) \(.headSha)"')
+    id=${row%% *}; rsha=${row##* }
+    # shellcheck disable=SC2086
+    if [ -n "$id" ] && git diff --quiet "$rsha" "$SHA" -- $3; then echo "   $1 ($2): no new run needed (same content as run $id)"; return 0; fi
+    echo "   no '$1' run for $SHA on $2 and content differs from the last successful run"; exit 1
+  fi
   [ -n "$id" ] || { echo "no '$1' run for $SHA on $2"; exit 1; }
   # poll (gh run watch can hang when not attached to a terminal)
   local st=""
@@ -38,7 +49,7 @@ wait_run() { # workflow name, ref (branch or tag)
   done
   echo "   $1 ($2) timed out (run $id)"; exit 1
 }
-wait_run docker.yml main
+wait_run docker.yml main "api .github/workflows/docker.yml"
 
 if [ "$SKIP_HEALTH" != "--skip-health" ]; then
   echo "== 2. wait until $BASE/health reports $VER (Watchtower polls every 5 min; timeout 30 min)"
