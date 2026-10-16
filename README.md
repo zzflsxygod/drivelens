@@ -300,3 +300,13 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 性能测试：在示例数据之后再执行 `testdata/bigdata.sql`，会生成约 300 万条 positions、6000 次行程、1500 次充电（约 30 秒）。
 
 `testdata/schema.sql` 是按 TeslaMate 的 Ecto 表结构整理的子集（只含本应用用到的表），**仅用于测试**，不要在真实 TeslaMate 数据库上执行。
+
+
+## 月度报告（v0.5.0）
+
+首页「本月」卡片 → 查看月度报告 ›。接口：`GET /api/cars/:id/report?month=YYYY-MM&tz=Asia/Tokyo&currency=JPY`（只读，不需要改数据库）。
+
+充电类型分类规则：
+- **超充**：直流快充（`charges.fast_charger_present` 为真），且地点名称（自定义名称 / 地理围栏 / 地址）含 Supercharger、超充、スーパーチャージャー 或 Tesla。
+- **家充**：交流充电，且地点名称含 home / 自宅 / 家 / うち，或者是过去 12 个月最常用的交流充电地点（平均功率 < 22 kW 的会话最多的地址）。
+- **其他**：其余所有（其他交流充电、非特斯拉的直流快充）。

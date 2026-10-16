@@ -1,5 +1,6 @@
 import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
+import { showReport as renderReport, nowMonth } from "./report";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
@@ -149,7 +150,7 @@ async function showDrives() {
   } catch (e) { showError(e); }
 }
 
-async function showDrive(id: number) {
+async function showDrive(id: number, back: () => void = showDrives) {
   loading();
   try {
     const [d, pts] = await Promise.all([api<Drive>(`/api/drives/${id}`), api<PathPoint[]>(`/api/drives/${id}/path`)]);
@@ -166,7 +167,7 @@ async function showDrive(id: number) {
         <div><small>最高速度</small><b>${d.speed_max ?? "—"} km/h</b></div>
         <div><small>电量</small><b>${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</b></div>
       </div>`;
-    (view.querySelector(".back") as HTMLElement).onclick = showDrives;
+    (view.querySelector(".back") as HTMLElement).onclick = back;
     bindPlaces(() => showDrive(id));
     map = new DriveMap(document.getElementById("map")!, { route: pts.map(p => [p.lng, p.lat] as [number, number]) });
   } catch (e) { showError(e); }
@@ -233,7 +234,7 @@ function chargeChart(points: ChargePoint[]): string {
   </div>`;
 }
 
-async function showCharge(id: number) {
+async function showCharge(id: number, back: () => void = showCharges) {
   loading();
   try {
     const c = await api<Charge & { points: ChargePoint[] }>(`/api/charges/${id}`);
@@ -255,7 +256,7 @@ async function showCharge(id: number) {
       <h3>充电曲线</h3>
       ${chargeChart(c.points)}
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
-    (view.querySelector(".back") as HTMLElement).onclick = showCharges;
+    (view.querySelector(".back") as HTMLElement).onclick = back;
     bindPlaces(() => showCharge(id));
     (document.getElementById("costcell") as HTMLElement).onclick = () => costDialog(c, () => showCharge(id));
     if (c.latitude != null && c.longitude != null) {
@@ -400,8 +401,8 @@ const heroSkeleton = () => `
 
 function monthHTML(d: StatsData) {
   const m = d.this_month;
-  return `<div class="section-title">本月 ${esc(m.month ?? "")}</div>
-    <div class="grid">
+  return `<div class="section-title">本月 ${esc(m.month ?? "")} <a class="link" data-report="${esc(m.month ?? "")}">查看月度报告 ›</a></div>
+    <div class="grid month-card" data-report="${esc(m.month ?? "")}">
       <div><small>行驶</small><b>${n(m.distance_km, 0)} km</b></div>
       <div><small>耗电</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
       <div><small>充电</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
@@ -521,6 +522,7 @@ async function showHome() {
   const paintStats = () => {
     if (!data.stats) return;
     sec("month").innerHTML = monthHTML(data.stats);
+    sec("month").querySelectorAll<HTMLElement>("[data-report]").forEach(el => el.onclick = () => openReport(el.dataset.report || nowMonth(), id));
     sec("totals").innerHTML = totalsHTML(data.stats);
   };
 
@@ -542,6 +544,19 @@ async function showHome() {
     paintStats(); updateStale();
   }).catch(e => { if (alive()) { fresh.stats = true; updateStale(); errorBox("month", `统计加载失败：${(e as Error).message}`, loadStats); } });
   loadStatus(); loadActivity(); loadStats();
+}
+
+/** Monthly report (opened from the 首页 month card; back returns to 首页). */
+async function openReport(month: string, carId?: number) {
+  destroyMap();
+  const id = carId ?? await currentCarId().catch(() => null);
+  if (id == null) return showHome();
+  ++homeGen;
+  const self = (m: string) => openReport(m, id);
+  const back = () => self(month);
+  renderReport(view, id, month, { back: showHome, month: self,
+    drive: d => showDrive(d, back), charge: c => showCharge(c, back) });
+  window.scrollTo(0, 0);
 }
 
 // Pull-to-refresh on the home tab (touch devices)
@@ -578,5 +593,6 @@ if (!loadSettings().apiUrl) (document.querySelector('nav button[data-tab="settin
 else if (start === "charges") (document.querySelector('nav button[data-tab="charges"]') as HTMLElement).click();
 else if (start?.startsWith("drive:")) showDrive(Number(start.slice(6)));
 else if (start?.startsWith("charge:")) showCharge(Number(start.slice(7)));
+else if (start?.startsWith("report")) openReport(start.slice(7) || nowMonth());
 else if (start === "drives") (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).click();
 else showHome();

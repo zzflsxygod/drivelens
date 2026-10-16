@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 mod summary;
+mod report;
 
 #[derive(Clone)]
 struct AppState {
@@ -498,6 +499,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/cars/:id/status", get(summary::car_status))
         .route("/cars/:id/last-activity", get(summary::car_last_activity))
         .route("/cars/:id/stats", get(summary::car_stats))
+        .route("/cars/:id/report", get(report::car_report))
         .route("/charges", get(list_charges))
         .route("/charges/:id", get(get_charge))
         .route("/charges/:id/cost", axum::routing::put(put_cost).delete(delete_cost))
