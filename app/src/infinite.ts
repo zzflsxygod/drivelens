@@ -1,3 +1,4 @@
+import { setJumpedPeek, setJumpedReset } from "./totop";
 // Infinite list with keyset paging (api_level ≥ 10), sticky month headers, month jump, first-page cache
 // and scroll restore. Older servers: one request with limit=100 (no paging).
 import { api } from "./api";
@@ -137,6 +138,8 @@ export function infiniteList<T>(o: InfOpts<T>) {
     renderEnd(); fillJump(); loadMore();
   }
 
+  setJumpedPeek(() => alive && itemsEl.isConnected && !!S.jumpedTo);
+  setJumpedReset(() => { if (!alive || !itemsEl.isConnected || !S.jumpedTo) return false; reset(null); return true; });
   const io = new IntersectionObserver(es => { if (!itemsEl.isConnected) return cleanup(); if (es.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: "600px" });
   io.observe(sentinel);
   // remember the scroll position while the list is on screen (ignored once a detail page replaced it)

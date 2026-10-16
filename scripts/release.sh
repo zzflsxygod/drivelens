@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DriveLens release: server first, then the app.
 #   1. push main  → wait for the "Docker image" CI run of this commit to succeed (:latest pushed)
-#   2. poll https://<domain>/health until "version" == the version in api/Cargo.toml
+#   2. poll https://<domain>/health until "version" == api/Cargo.toml version (skipped when api/ is unchanged since the last tag)
 #      (Watchtower on the server pulls :latest within ~5 min)
 #   3. tag vX.Y.Z → wait for the Windows build (creates a DRAFT release)
 #   4. publish the draft as a prerelease (only now can users download the new app)
@@ -11,9 +11,10 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 BASE="${1:-${DRIVELENS_URL:-https://drivelens.example.com}}"; BASE="${BASE%/}"
 SKIP_HEALTH="${2:-}"
-VER=$(grep -m1 '^version' api/Cargo.toml | cut -d'"' -f2)
+VER=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' app/package.json | head -1)
+API_VER=$(grep -m1 '^version' api/Cargo.toml | cut -d'"' -f2)
 TAG="v$VER"
-for f in app/package.json app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml; do
+for f in app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml; do
   grep -q "\"$VER\"\|= \"$VER\"" "$f" || { echo "version mismatch: $f is not $VER"; exit 1; }
 done
 [ -z "$(git status --porcelain)" ] || { echo "working tree not clean"; exit 1; }
@@ -51,11 +52,18 @@ wait_run() { # workflow file, ref (branch or tag), [paths that trigger it]
 }
 wait_run docker.yml main "api .github/workflows/docker.yml"
 
+# app-only release: api/ unchanged since the previous release tag → the server keeps its version; don't wait for it
+PREV=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+[ "$PREV" = "$TAG" ] && PREV=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+if [ "$SKIP_HEALTH" != "--skip-health" ] && [ -n "$PREV" ] && git diff --quiet "$PREV" HEAD -- api; then
+  echo "== 2. api/ unchanged since $PREV (server stays $API_VER) — skipping health wait"; SKIP_HEALTH=--skip-health
+fi
 if [ "$SKIP_HEALTH" != "--skip-health" ]; then
-  echo "== 2. wait until $BASE/health reports $VER (Watchtower polls every 5 min; timeout 30 min)"
+  [ "$API_VER" = "$VER" ] || echo "   note: api/Cargo.toml is $API_VER, app is $VER — waiting for $API_VER"
+  echo "== 2. wait until $BASE/health reports $API_VER (Watchtower polls every 5 min; timeout 30 min)"
   for i in $(seq 120); do
     got=$(curl -fsS --max-time 10 "$BASE/health" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)
-    [ "$got" = "$VER" ] && { echo "   server is $got"; break; }
+    [ "$got" = "$API_VER" ] && { echo "   server is $got"; break; }
     [ "$i" = 120 ] && { echo "   server still reports '${got:-unreachable}' — not publishing. Re-run later."; exit 2; }
     sleep 15
   done

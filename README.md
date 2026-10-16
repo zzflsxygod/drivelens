@@ -349,3 +349,10 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 从详情页返回时保留滚动位置与已加载内容；多选跨页有效；首页缓存秒开。
 - 旧服务器（level < 10）回退为一次加载最近 100 条。
 - 无需 SQL。可选索引建议（数据量很大时）：`CREATE INDEX ON drives (car_id, start_date);` — 仅建议，DriveLens 不会自动创建。
+
+## v0.6.3 — 回到顶部（仅 App）
+
+- 长页面滚动超过约 1.5 屏后右下角出现 ↑ 按钮（避开底部标签栏与多选合并栏，适配安全区/深色模式），平滑回到顶部。
+- 列表处于「跳到月份」状态时，按钮会回到最新记录。
+- 再次点击当前底部标签也会回到顶部。
+- 无 API 变更，服务器仍为 0.6.2；`scripts/release.sh` 在 `api/` 无改动时自动跳过 /health 等待。

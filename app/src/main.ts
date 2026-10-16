@@ -3,6 +3,7 @@ import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList, monthLabel } from "./infinite";
+import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
@@ -644,7 +645,10 @@ window.addEventListener("touchend", e => {
 });
 
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
-document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = () => {
+initBackToTop();
+document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = e => {
+  // re-tapping the active tab (real tap, not a programmatic re-render) scrolls to top / back to newest
+  if (e.isTrusted && b.classList.contains("active") && (window.scrollY > 0 || isJumped())) return backToTop();
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); tabs[b.dataset.tab!]();
 });
