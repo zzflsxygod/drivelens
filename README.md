@@ -334,3 +334,10 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 `deploy/drivelens-v0.6.0.sql` 只新建 `drivelens.journeys` / `drivelens.journey_drives` 并授权（含序列 USAGE），可重复执行，不需要密码；`drivelens-init.sql` 也已包含这部分。
 
 接口：`GET/POST /api/journeys`、`GET/PATCH/DELETE /api/journeys/:id`、`PUT /api/journeys/:id/drives`、`GET /api/journeys/suggestions`、`GET /api/journeys/:id/path`（最多约 3000 个点，含速度、海拔、累计距离）。API level 8。
+
+### 忽略旅程建议（v0.6.1）
+
+建议卡片上的「忽略」会记住这条建议里的所有行程：这些行程以后不再出现在任何建议里（和已属于旅程的行程一样会把建议「断开」），之后新记录的行程仍可能组成新的建议。
+记录保存在服务器（`drivelens.dismissed_suggestions`，多设备同步）；服务器还没建表时自动退回保存在本机。设置里可以关闭建议、或「恢复已忽略的建议」。建议区可以折叠（本机记住）。
+
+升级：`docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.1.sql`（只建这张表并授权，可重复执行）。API level 9。

@@ -175,3 +175,7 @@ table.split { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: c
 .btn-row { display: flex; gap: 8px; margin: 12px 0; }
 .btn-row button { flex: 1; }
 .sugg .primary { white-space: nowrap; flex: none; }
+.sugg-head { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px dashed var(--red); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; cursor: pointer; font-size: 14px; color: var(--red); font-weight: 600; }
+.sg-x { flex: none; padding: 2px 10px; font-size: 12px; }
+.chk-row { display: flex; align-items: center; gap: 8px; }
+.chk-row input { width: auto; margin: 0; }

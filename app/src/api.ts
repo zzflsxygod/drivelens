@@ -1,6 +1,7 @@
 export type Theme = "auto" | "light" | "dark";
 export type LabelLang = "ja" | "zh" | "en" | "local";
-export interface Settings { apiUrl: string; token: string; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean }
+export interface Settings { apiUrl: string; token: string; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean;
+  suggestionsOff?: boolean; suggestionsCollapsed?: boolean; dismissedDrives?: number[] }
 const KEY = "drivelens-settings";
 export function loadSettings(): Settings {
   try { return { apiUrl: "", token: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }

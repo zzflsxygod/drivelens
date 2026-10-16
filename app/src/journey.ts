@@ -11,6 +11,8 @@ export interface Ctx {
   carId(): Promise<number | null>;
   journeysAvailable(): boolean;
   journeysMessage(): string;
+  /** server can store dismissed suggestions (api_level ≥ 9) */
+  dismissAvailable(): boolean;
 }
 interface Money { currency: string; amount: number }
 export interface JourneyRow { id: number; car_id: number; name: string; note: string | null; start_date: string | null; end_date: string | null;
@@ -140,26 +142,44 @@ export async function showJourneys(ctx: Ctx) {
       </div>`).join("") : `<div class="muted">还没有旅程。在「行程」里点「选择」，选几段行程合并；或者用上面的建议一键创建。</div>`);
     el.querySelectorAll<HTMLElement>("[data-j]").forEach(c => c.onclick = () => showJourney(ctx, Number(c.dataset.j)));
   }).catch(e => { const el = v.querySelector<HTMLElement>("#j-list"); if (el) { el.innerHTML = err(e); bindRetry(el, loadList); } });
-  const loadSugg = () => api<Suggestion[]>(`/api/journeys/suggestions?gap_min=${gap}${car != null ? `&car_id=${car}` : ""}`).then(sg => {
-    const el = v.querySelector("#j-sugg"); if (!el) return;
-    if (!sg.length) { el.innerHTML = ""; return; }
-    el.innerHTML = `<div class="section-title">建议合并 <span class="muted">间隔 &lt; ${gap} 分钟或中途充电</span></div>` + sg.slice(0, 5).map((s, i) => `
-      <div class="card sugg" data-s="${i}">
-        <div class="row"><b>${esc(s.name)}</b></div>
-        <div class="row muted">${fmtDate(s.start_date)} – ${fmtDate(s.end_date)}</div>
-        <div class="row"><span class="stats" style="margin:0"><span>🚗 ${s.drive_ids.length} 段</span><span>📏 ${n(s.distance_km, 0)} km</span>${s.charge_count ? `<span>⚡ 充电 ${s.charge_count} 次</span>` : ""}</span>
-          <button class="primary small" data-create="${i}">一键创建</button></div>
-      </div>`).join("");
-    el.querySelectorAll<HTMLElement>("[data-create]").forEach(b => b.onclick = async ev => {
-      ev.stopPropagation(); b.textContent = "创建中…";
-      const s = sg[Number(b.dataset.create)];
-      try { const j = await api<Journey>("/api/journeys", "POST", { name: s.name, drive_ids: s.drive_ids }); showJourney(ctx, j.id); }
-      catch (e) { b.textContent = "失败，重试"; alert((e as Error).message); }
-    });
-    el.querySelectorAll<HTMLElement>("[data-s]").forEach(c => c.onclick = () => {
-      const s = sg[Number(c.dataset.s)]; showDriveList(ctx, true, s.drive_ids);
-    });
-  }).catch(() => { const el = v.querySelector("#j-sugg"); if (el) el.innerHTML = ""; });
+  const loadSugg = () => {
+    const el = v.querySelector<HTMLElement>("#j-sugg"); if (!el) return Promise.resolve();
+    if (loadSettings().suggestionsOff) { el.innerHTML = ""; return Promise.resolve(); }
+    return api<Suggestion[]>(`/api/journeys/suggestions?gap_min=${gap}${car != null ? `&car_id=${car}` : ""}`).then(all => {
+      const el = v.querySelector<HTMLElement>("#j-sugg"); if (!el) return;
+      const local = new Set(loadSettings().dismissedDrives ?? []);
+      const sg = all.filter(s => !s.drive_ids.some(id => local.has(id))).slice(0, 5);
+      if (!sg.length) { el.innerHTML = ""; return; }
+      const collapsed = loadSettings().suggestionsCollapsed ?? false;
+      if (collapsed) {
+        el.innerHTML = `<div class="sugg-head collapsed" id="sg-toggle"><span>💡 ${sg.length} 条合并建议</span><span>›</span></div>`;
+      } else {
+        el.innerHTML = `<div class="section-title">建议合并 <span class="muted">间隔 &lt; ${gap} 分钟或中途充电 · <a class="link" id="sg-toggle">收起</a></span></div>` + sg.map((s, i) => `
+        <div class="card sugg" data-s="${i}">
+          <div class="row"><b>${esc(s.name)}</b><button class="ghost small sg-x" data-dismiss="${i}" title="不再建议这些行程">忽略</button></div>
+          <div class="row muted">${fmtDate(s.start_date)} – ${fmtDate(s.end_date)}</div>
+          <div class="row"><span class="stats" style="margin:0"><span>🚗 ${s.drive_ids.length} 段</span><span>📏 ${n(s.distance_km, 0)} km</span>${s.charge_count ? `<span>⚡ 充电 ${s.charge_count} 次</span>` : ""}</span>
+            <button class="primary small" data-create="${i}">一键创建</button></div>
+        </div>`).join("");
+      }
+      (el.querySelector("#sg-toggle") as HTMLElement).onclick = () => { saveSettings({ ...loadSettings(), suggestionsCollapsed: !collapsed }); loadSugg(); };
+      el.querySelectorAll<HTMLElement>("[data-create]").forEach(b => b.onclick = async ev => {
+        ev.stopPropagation(); b.textContent = "创建中…";
+        const s = sg[Number(b.dataset.create)];
+        try { const j = await api<Journey>("/api/journeys", "POST", { name: s.name, drive_ids: s.drive_ids }); showJourney(ctx, j.id); }
+        catch (e) { b.textContent = "失败，重试"; alert((e as Error).message); }
+      });
+      el.querySelectorAll<HTMLElement>("[data-dismiss]").forEach(b => b.onclick = async ev => {
+        ev.stopPropagation(); b.textContent = "…";
+        await dismissSuggestion(ctx, sg[Number(b.dataset.dismiss)].drive_ids);
+        const card = b.closest(".card") as HTMLElement | null; if (card) { card.style.transition = "opacity .2s"; card.style.opacity = "0"; }
+        setTimeout(loadSugg, 200);
+      });
+      el.querySelectorAll<HTMLElement>("[data-s]").forEach(c => c.onclick = () => {
+        const s = sg[Number(c.dataset.s)]; showDriveList(ctx, true, s.drive_ids);
+      });
+    }).catch(() => { const el = v.querySelector("#j-sugg"); if (el) el.innerHTML = ""; });
+  };
   loadSugg(); loadList();
 }
 
@@ -304,4 +324,23 @@ function editDrives(ctx: Ctx, j: Journey) {
     };
   };
   render();
+}
+
+/** Server-side when available (syncs across devices); otherwise remembered on this device. */
+async function dismissSuggestion(ctx: Ctx, ids: number[]) {
+  if (ctx.dismissAvailable()) {
+    try { await api("/api/journeys/suggestions/dismiss", "POST", { drive_ids: ids }); return; }
+    catch { /* table missing (503) or offline → local fallback */ }
+  }
+  const st = loadSettings();
+  saveSettings({ ...st, dismissedDrives: [...new Set([...(st.dismissedDrives ?? []), ...ids])].slice(-2000) });
+}
+
+/** 设置 → 恢复已忽略的建议 */
+export async function restoreDismissed(ctx: Ctx): Promise<string> {
+  const st = loadSettings(); const local = st.dismissedDrives?.length ?? 0;
+  saveSettings({ ...st, dismissedDrives: [] });
+  if (!ctx.dismissAvailable()) return local ? "已恢复（本机）" : "没有已忽略的建议";
+  try { const r = await api<{ restored: number }>("/api/journeys/suggestions/dismissed", "DELETE"); return `已恢复 ${r.restored + local} 条记录`; }
+  catch { return local ? "已恢复本机记录（服务器未启用同步）" : "服务器未启用忽略同步，本机没有已忽略的建议"; }
 }

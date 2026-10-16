@@ -1,7 +1,7 @@
 import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
-import { showDrivesTab, type Ctx as JourneyCtx } from "./journey";
+import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
@@ -271,6 +271,8 @@ function showSettings() {
     <p class="muted">录入费用时默认按充电地点所在国家选择货币（如日本 → JPY）；无法判断地点时使用这里的默认货币。</p>
     <label>旅程建议：相邻行程间隔小于<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${m} 分钟</option>`).join("")}</select></label>
     <p class="muted">中途有充电时（如超充）间隔可到 2 小时。</p>
+    <label class="chk-row"><input type="checkbox" id="sgon"> 显示旅程合并建议</label>
+    <button id="sgrestore" class="ghost small">恢复已忽略的建议</button> <span id="sgmsg" class="muted"></span>
     <p class="muted">地图：OpenFreeMap（OpenStreetMap 数据）</p>`;
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = "检查中…"; checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
@@ -280,6 +282,13 @@ function showSettings() {
   const gapSel = document.getElementById("jgap") as HTMLSelectElement;
   gapSel.value = String(s.journeyGap ?? 60);
   gapSel.onchange = () => saveSettings({ ...loadSettings(), journeyGap: Number(gapSel.value) });
+  const sgOn = document.getElementById("sgon") as HTMLInputElement;
+  sgOn.checked = !s.suggestionsOff;
+  sgOn.onchange = () => saveSettings({ ...loadSettings(), suggestionsOff: !sgOn.checked });
+  (document.getElementById("sgrestore") as HTMLElement).onclick = async () => {
+    document.getElementById("sgmsg")!.textContent = "…";
+    document.getElementById("sgmsg")!.textContent = await restoreDismissed(journeyCtx);
+  };
   const curSel = document.getElementById("currency") as HTMLSelectElement;
   curSel.value = s.currency ?? "JPY";
   curSel.onchange = () => saveSettings({ ...loadSettings(), currency: curSel.value });
@@ -572,6 +581,7 @@ const journeyCtx: JourneyCtx = {
   carId: () => currentCarId().catch(() => null),
   journeysAvailable: () => !lacks("journeys"),
   journeysMessage: () => featureText("journeys"),
+  dismissAvailable: () => !lacks("dismiss"),
 };
 
 // ---------------- Server version banner ----------------

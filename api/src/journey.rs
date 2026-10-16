@@ -19,7 +19,25 @@ const DDL: [&str; 3] = [
     "CREATE INDEX IF NOT EXISTS journey_drives_journey_id_idx ON drivelens.journey_drives (journey_id)",
 ];
 
+const DISMISS_DDL: &str = "CREATE TABLE IF NOT EXISTS drivelens.dismissed_suggestions (
+        drive_id integer PRIMARY KEY REFERENCES public.drives(id) ON DELETE CASCADE,
+        dismissed_at timestamptz NOT NULL DEFAULT now())";
+const DISMISS_MISSING: &str = "table drivelens.dismissed_suggestions is missing or not writable; run the v0.6.1 SQL (deploy/drivelens-v0.6.1.sql)";
+
+/// Suggestion dismissal table usable (cached once true).
+pub async fn dismiss_ok(s: &AppState) -> Result<bool, ApiError> {
+    if s.dismiss_ok.load(Ordering::Relaxed) { return Ok(true); }
+    let ok: bool = sqlx::query_scalar(
+        "SELECT to_regclass('drivelens.dismissed_suggestions') IS NOT NULL
+           AND has_table_privilege('drivelens.dismissed_suggestions', 'SELECT,INSERT,DELETE')").fetch_one(&s.db).await
+        .or_else(|e| match &e { sqlx::Error::Database(_) => Ok(false), _ => Err(e) })?;
+    if ok { s.dismiss_ok.store(true, Ordering::Relaxed); }
+    Ok(ok)
+}
+
 pub async fn try_create_tables(db: &PgPool) {
+    let d: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.dismissed_suggestions')::text").fetch_one(db).await.ok().flatten();
+    if d.is_none() { let _ = sqlx::query(DISMISS_DDL).execute(db).await; }
     let has: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.journey_drives')::text").fetch_one(db).await.ok().flatten();
     if has.is_some() { return; }
     for q in DDL {
@@ -288,6 +306,9 @@ struct Suggestion {
 
 /// Consecutive ungrouped drives with a short gap (< gap_min, default 60) or a gap with a charge
 /// in between (< charge_gap_min, default 120) → one suggestion (max span 3 days). Looks at the latest 400 drives.
+/// Drives that already belong to a journey or were dismissed (drivelens.dismissed_suggestions) are
+/// skipped and break a chain, so a dismissed suggestion never comes back; drives recorded later can
+/// still form a new suggestion of their own.
 pub async fn suggestions(State(s): State<AppState>, Query(q): Query<SuggestParams>) -> Result<Response, ApiError> {
     need_tables!(s);
     let gap = q.gap_min.unwrap_or(60).clamp(1, 24 * 60) * 60;
@@ -299,6 +320,10 @@ pub async fn suggestions(State(s): State<AppState>, Query(q): Query<SuggestParam
         "{} WHERE d.car_id = $1 AND d.end_date IS NOT NULL ORDER BY d.start_date DESC LIMIT 400", drive_select(true)))
         .bind(car).fetch_all(&s.db).await?;
     drives.reverse();
+    let dismissed: std::collections::HashSet<i64> = if dismiss_ok(&s).await? {
+        sqlx::query_scalar::<_, i64>("SELECT drive_id::int8 FROM drivelens.dismissed_suggestions WHERE drive_id = ANY($1::int4[])")
+            .bind(drives.iter().map(|d| d.id as i32).collect::<Vec<_>>()).fetch_all(&s.db).await?.into_iter().collect()
+    } else { Default::default() };
     let Some(first) = drives.first() else { return Ok(Json(Vec::<Suggestion>::new()).into_response()) };
     let charge_starts: Vec<i64> = sqlx::query_scalar::<_, String>(&format!(
         "SELECT to_char(start_date, '{TS}') FROM charging_processes WHERE car_id = $1 AND start_date >= $2::timestamp ORDER BY start_date"))
@@ -309,7 +334,7 @@ pub async fn suggestions(State(s): State<AppState>, Query(q): Query<SuggestParam
     let mut groups: Vec<(Vec<usize>, usize)> = vec![];
     let mut cur: Vec<usize> = vec![]; let mut cc = 0;
     for i in 0..drives.len() {
-        if drives[i].journey_id.is_some() { if cur.len() > 1 { groups.push((cur.clone(), cc)); } cur.clear(); cc = 0; continue; }
+        if drives[i].journey_id.is_some() || dismissed.contains(&drives[i].id) { if cur.len() > 1 { groups.push((cur.clone(), cc)); } cur.clear(); cc = 0; continue; }
         if let Some(&last) = cur.last() {
             let (a, b) = (epoch(&drives[last].end_date), epoch(&drives[i].start_date));
             let n = charges_between(a, b);
@@ -380,4 +405,25 @@ pub async fn path(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Resp
         }
     }
     Ok(Json(JPath { points: out, total_points: total, downsampled: step > 1 }).into_response())
+}
+
+#[derive(Deserialize)]
+pub struct DismissBody { drive_ids: Vec<i64> }
+
+/// Dismiss a suggestion: remembers its drives so they are no longer suggested.
+pub async fn dismiss(State(s): State<AppState>, Json(b): Json<DismissBody>) -> Result<Response, ApiError> {
+    if !dismiss_ok(&s).await? { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, DISMISS_MISSING)); }
+    if b.drive_ids.is_empty() || b.drive_ids.len() > 1000 { return Ok(err(StatusCode::BAD_REQUEST, "drive_ids must contain 1-1000 drives")); }
+    let r = sqlx::query(
+        "INSERT INTO drivelens.dismissed_suggestions (drive_id)
+         SELECT d.id FROM drives d WHERE d.id = ANY($1::int4[]) ON CONFLICT (drive_id) DO NOTHING")
+        .bind(b.drive_ids.iter().map(|&i| i as i32).collect::<Vec<_>>()).execute(&s.db).await?;
+    Ok(Json(serde_json::json!({"dismissed": r.rows_affected()})).into_response())
+}
+
+/// Restore all dismissed suggestions.
+pub async fn restore_dismissed(State(s): State<AppState>) -> Result<Response, ApiError> {
+    if !dismiss_ok(&s).await? { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, DISMISS_MISSING)); }
+    let r = sqlx::query("DELETE FROM drivelens.dismissed_suggestions").execute(&s.db).await?;
+    Ok(Json(serde_json::json!({"restored": r.rows_affected()})).into_response())
 }

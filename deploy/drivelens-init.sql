@@ -46,3 +46,9 @@ CREATE TABLE IF NOT EXISTS drivelens.journey_drives (
 CREATE INDEX IF NOT EXISTS journey_drives_journey_id_idx ON drivelens.journey_drives (journey_id);
 GRANT SELECT, INSERT, UPDATE, DELETE ON drivelens.journeys, drivelens.journey_drives TO drivelens_ro;
 GRANT USAGE ON SEQUENCE drivelens.journeys_id_seq TO drivelens_ro;
+
+-- v0.6.1：忽略的旅程建议（记录被忽略建议里的行程，不修改 TeslaMate）
+CREATE TABLE IF NOT EXISTS drivelens.dismissed_suggestions (
+  drive_id integer PRIMARY KEY REFERENCES public.drives(id) ON DELETE CASCADE,
+  dismissed_at timestamptz NOT NULL DEFAULT now());
+GRANT SELECT, INSERT, DELETE ON drivelens.dismissed_suggestions TO drivelens_ro;

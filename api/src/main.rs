@@ -24,6 +24,7 @@ struct AppState {
     /// drivelens.charge_costs exists (checked lazily; once true it stays true)
     costs_ok: Arc<std::sync::atomic::AtomicBool>,
     journeys_ok: Arc<std::sync::atomic::AtomicBool>,
+    dismiss_ok: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -263,8 +264,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0)
-pub(crate) const API_LEVEL: u32 = 8;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1)
+pub(crate) const API_LEVEL: u32 = 9;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 async fn health() -> Json<serde_json::Value> {
@@ -277,7 +278,8 @@ async fn health_full(State(s): State<AppState>) -> Response {
     let code = if db { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
     (code, Json(serde_json::json!({"status": if db {"ok"} else {"db_error"}, "version": env!("CARGO_PKG_VERSION"),
         "api_level": API_LEVEL, "database": db, "manual_costs": costs_ok(&s).await.unwrap_or(false),
-        "journeys": journey::tables_ok(&s).await.unwrap_or(false)}))).into_response()
+        "journeys": journey::tables_ok(&s).await.unwrap_or(false),
+        "suggestion_dismissal": journey::dismiss_ok(&s).await.unwrap_or(false)}))).into_response()
 }
 
 async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
@@ -534,7 +536,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
     migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()) };
+    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()) };
 
     let api = Router::new()
         .route("/health", get(health_full))
@@ -550,6 +552,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/drives", get(list_drives))
         .route("/journeys", get(journey::list).post(journey::create))
         .route("/journeys/suggestions", get(journey::suggestions))
+        .route("/journeys/suggestions/dismiss", axum::routing::post(journey::dismiss))
+        .route("/journeys/suggestions/dismissed", axum::routing::delete(journey::restore_dismissed))
         .route("/journeys/:id", get(journey::get).patch(journey::update).delete(journey::delete))
         .route("/journeys/:id/drives", axum::routing::put(journey::set_drives))
         .route("/journeys/:id/path", get(journey::path))
