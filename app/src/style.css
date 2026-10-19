@@ -479,3 +479,19 @@ button:not(:disabled):active, .tb-btn:active, .car-pill:active, .sel-pill:active
 .msw .msw-arrow:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 12%, transparent) !important; }
 .msw .msw-arrow:disabled { color: var(--muted) !important; opacity: .3; cursor: default; }
 .msw-sub { font-size: 12.5px; }
+
+/* ===== v0.12.4 overlay scrollbar (native hidden everywhere → no layout width / no gutter jump) ===== */
+html, body, * { scrollbar-width: none; -ms-overflow-style: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+html { scrollbar-gutter: auto; overflow-x: hidden; }
+.osb { position: fixed; top: 0; right: 0; width: 14px; z-index: 3000; display: flex; justify-content: flex-end; padding: 2px 2px; box-sizing: border-box;
+  opacity: 0; pointer-events: none; transition: opacity .35s ease; touch-action: none; will-change: transform, opacity; cursor: default; }
+.osb i { display: block; width: 5px; height: 100%; border-radius: 99px; background: #1b1d2a55; transition: width .15s, background-color .15s; }
+:root[data-theme="dark"] .osb i { background: #ffffff5c; }
+.osb.on, .osb.hot, .osb.drag { opacity: 1; pointer-events: auto; transition-duration: .12s; }
+.osb.hot i, .osb.drag i { width: 8px; background: color-mix(in srgb, var(--accent) 70%, transparent); }
+.osb.none { display: none; }
+@media (prefers-reduced-motion: reduce) { .osb, .osb i { transition: none !important; } }
+.page-head .ph-title { flex: 0 1 auto; margin: 0 auto; padding: 0 18px; border: 1px solid var(--line); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); background: #ffffffcc; }
+:root[data-theme="dark"] .page-head .ph-title { background: #1a1c2bcc; }
