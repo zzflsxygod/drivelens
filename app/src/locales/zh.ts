@@ -245,6 +245,7 @@ const zh = {
   "rp.range": "{m}月1日 – {d}日",
   "rp.prevMonth": "上个月",
   "rp.nextMonth": "下个月",
+  "rp.pageTitle": "月度报告",
   "rp.distance": "🚗 里程",
   "rp.driveTime": "⏱ 驾驶时长",
   "rp.unitH": "小时",

@@ -90,7 +90,7 @@ function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[
 }
 
 export async function showBattery(view: HTMLElement, carId: number, back: () => void, car: Car | null = null) {
-  view.innerHTML = `<button class="back">${t("common.back")}</button><h2>${t("bat.pageTitle")}</h2><div class="muted">${t("common.loading")}</div>`;
+  view.innerHTML = `<button class="back" data-title="${t("bat.pageTitle")}">${t("common.back")}</button><div class="muted">${t("common.loading")}</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   let b: Battery;
   try { b = await api<Battery>(`/api/cars/${carId}/battery`); }
@@ -107,7 +107,7 @@ export async function showBattery(view: HTMLElement, carId: number, back: () => 
   const capMed = b.months.filter(m => m.capacity_kwh != null).map(m => ({ x: tms(m.month + "-15T00:00:00Z"), y: m.capacity_kwh! }));
   const ym = (x: number) => { const d = new Date(x); return `${d.getFullYear()}/${d.getMonth() + 1}`; };
   const odoSpan = odo.length ? Math.max(...odo.map(p => p.x)) - Math.min(...odo.map(p => p.x)) : 0;
-  view.innerHTML = `<button class="back">${t("common.back")}</button><h2>${t("bat.pageTitle")}</h2>
+  view.innerHTML = `<button class="back" data-title="${t("bat.pageTitle")}">${t("common.back")}</button>
     <div class="ov">
       <div><small>${t("bat.retention")}</small><b>${n(bl.pct, 1)}<i>%</i></b><div class="d neu">${t("bat.curVsBase", { km: n(bl.km) })}${bl.raw_pct != null && bl.raw_pct > 100 ? t("bat.rawPct", { v: n(bl.raw_pct, 1) }) : ""}</div></div>
       <div><small>${t("bat.range100")}</small><b>${n(b.current_range100_km)}<i>km</i></b><div class="d neu">${t("bat.initial", { km: n(b.initial_range100_km) })}</div></div>

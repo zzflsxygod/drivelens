@@ -246,6 +246,7 @@ const en: Record<keyof typeof zh, string> = {
   "rp.range": "{m} 1 – {d}",
   "rp.prevMonth": "Previous month",
   "rp.nextMonth": "Next month",
+  "rp.pageTitle": "Monthly report",
   "rp.distance": "🚗 Distance",
   "rp.driveTime": "⏱ Driving time",
   "rp.unitH": "h",

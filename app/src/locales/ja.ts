@@ -246,6 +246,7 @@ const ja: Record<keyof typeof zh, string> = {
   "rp.range": "{m}月1日〜{d}日",
   "rp.prevMonth": "前の月",
   "rp.nextMonth": "次の月",
+  "rp.pageTitle": "月次レポート",
   "rp.distance": "🚗 走行距離",
   "rp.driveTime": "⏱ 運転時間",
   "rp.unitH": "時間",

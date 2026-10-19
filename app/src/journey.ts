@@ -355,7 +355,7 @@ function editDrives(ctx: Ctx, j: Journey) {
   const all = [...j.drives.map(d => ({ ...d, journey_id: null as number | null })), ...j.candidates].sort((a, b) => a.start_date.localeCompare(b.start_date));
   const sel = new Set(j.drives.map(d => d.id));
   const render = () => {
-    v.innerHTML = `<button class="back">${t("common.back")}</button><h2>${t("j.editDrives")}</h2>
+    v.innerHTML = `<button class="back" data-title="${t("j.editDrives")}">${t("common.back")}</button>
       <div class="muted">${esc(t("j.editHint", { name: j.name }))}</div><div style="height:8px"></div>
       ${all.map(d => { const dis = !!d.journey_id;
         return `<div class="card sel-mode${sel.has(d.id) ? " selected" : ""}${dis ? " disabled" : ""}" data-id="${d.id}"><div class="chk">${sel.has(d.id) ? "✓" : ""}</div><div class="cbody">

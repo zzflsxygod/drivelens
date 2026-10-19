@@ -84,7 +84,7 @@ function calendar(r: Report) {
 
 export function reportSkeleton(month: string) {
   const sk = (w: string, h = "14px") => `<span class="sk" style="width:${w};height:${h}"></span>`;
-  return `<button class="back">${t("common.back")}</button>${switcher(month, null)}
+  return `<button class="back" data-title="${t("rp.pageTitle")}">${t("common.back")}</button>${switcher(month, null)}
     <div id="rp-body"><div class="ov">${Array.from({ length: 6 }, () => `<div>${sk("50%", "10px")}<br>${sk("70%", "22px")}<br>${sk("40%", "10px")}</div>`).join("")}</div>
     <div class="section-title">${sk("25%")}</div><div class="pane">${sk("100%", "150px")}</div>
     <div class="section-title">${sk("20%")}</div><div class="pane">${sk("100%", "150px")}</div></div>`;
@@ -95,9 +95,12 @@ function switcher(month: string, r: Report | null) {
   const canNext = month < nowMonth(), canPrev = !r?.first_month || month > r.first_month;
   const mn = currentLang() === "en" ? new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, 1))) : String(m);
   const sub = r ? (r.is_current ? t("rp.rangeCur", { m: mn, d: r.days_elapsed }) : t("rp.range", { m: mn, d: r.days_in_month })) : "&nbsp;";
-  return `<div class="msw"><button data-m="${shiftMonth(month, -1)}" ${canPrev ? "" : "disabled"} aria-label="${t("rp.prevMonth")}">‹</button>
-    <div style="text-align:center"><b>${monthLabel(month)}</b><div class="muted">${sub}</div></div>
-    <button data-m="${shiftMonth(month, 1)}" ${canNext ? "" : "disabled"} aria-label="${t("rp.nextMonth")}">›</button></div>`;
+  const chev = (d: string) => `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<div class="msw"><div class="msw-pill" role="group" aria-label="${monthLabel(month)}">
+      <button class="msw-arrow" data-m="${shiftMonth(month, -1)}" data-dir="-1" ${canPrev ? "" : "disabled"} aria-label="${t("rp.prevMonth")}" title="${t("rp.prevMonth")}">${chev("m14.5 6-6 6 6 6")}</button>
+      <b class="msw-label">${monthLabel(month)}</b>
+      <button class="msw-arrow" data-m="${shiftMonth(month, 1)}" data-dir="1" ${canNext ? "" : "disabled"} aria-label="${t("rp.nextMonth")}" title="${t("rp.nextMonth")}">${chev("m9.5 6 6 6-6 6")}</button>
+    </div><div class="muted msw-sub">${sub}</div></div>`;
 }
 
 export function reportHTML(r: Report) {
@@ -168,7 +171,7 @@ export async function showReport(view: HTMLElement, carId: number, month: string
       view.querySelector("#rp-daily")!.innerHTML = s.dataset.v === "cal" ? calendar(r) : bars(r);
     });
   };
-  const paint = (r: Report) => { view.innerHTML = `<button class="back">${t("common.back")}</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r);
+  const paint = (r: Report) => { view.innerHTML = `<button class="back" data-title="${t("rp.pageTitle")}">${t("common.back")}</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r);
     if (nav.extras) loadReportExtras(view.querySelector<HTMLElement>("#rp-body")!, carId, month, nav.extras.setMap); };
   const hit = cache.get(key);
   if (hit) paint(hit); else { view.innerHTML = reportSkeleton(month); bind(null); }

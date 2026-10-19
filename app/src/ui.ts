@@ -21,6 +21,10 @@ function upgradeBack(b: HTMLButtonElement) {
   if (par.classList.contains("jtop")) { par.classList.add("page-head"); return; }
   const head = document.createElement("div"); head.className = "page-head";
   par.insertBefore(head, b); head.appendChild(b);
+  if (b.dataset.title) {
+    const h = document.createElement("h2"); h.className = "ph-title"; h.textContent = b.dataset.title;
+    head.appendChild(h); head.appendChild(document.createElement("span")).className = "ph-spacer";
+  }
 }
 
 function upgradeSelect(s: HTMLSelectElement) {
@@ -127,6 +131,8 @@ const PUSH_SEL = ".card, [data-drive], [data-charge], [data-report], [data-batte
 export function initUI(view: HTMLElement) {
   document.addEventListener("click", e => {
     const el = e.target as HTMLElement;
+    const mArrow = el.closest(".msw [data-m]") as HTMLButtonElement | null;
+    if (mArrow) { if (!mArrow.disabled) segDir = { dir: mArrow.dataset.dir === "1" ? "segR" : "segL", at: Date.now(), key: "msw" }; return; }
     const segItem = el.closest(".seg-tabs > button, .seg > span") as HTMLElement | null;
     if (segItem) { onSegClick(segItem); return; }
     if (el.closest(".back")) pending = { dir: "pop", at: Date.now() };
@@ -141,7 +147,7 @@ export function initUI(view: HTMLElement) {
     const now = Date.now();
     if (segDir && now - segDir.at < 1500) {
       // segment switch: toolbar stays put, the content below slides in from the segment's side
-      [...view.children].forEach(c => { if (!c.classList.contains("list-toolbar")) playOn(c as HTMLElement, segDir!.dir); });
+      [...view.children].forEach(c => { if (!c.matches(".list-toolbar, .page-head, .msw")) playOn(c as HTMLElement, segDir!.dir); });
       view.querySelectorAll<HTMLElement>(".list-toolbar .tb-right .tb-btn").forEach(b => b.classList.add("tb-pop"));
       segDir = null; lastAnim = now; return;
     }
