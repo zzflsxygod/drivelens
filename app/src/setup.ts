@@ -3,6 +3,7 @@ import { loadSettings, saveSettings } from "./api";
 import { t, langSetting } from "./i18n";
 import { MIN_API_LEVEL, FEATURE_LEVEL, checkServer } from "./version";
 import { enterDemo } from "./demo";
+import { isAndroid } from "./platform";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
@@ -40,9 +41,15 @@ export async function testConnection(rawUrl: string, token: string): Promise<Tes
   if (!/^https?:$/.test(parsed.protocol)) return fail(t("su.scheme"));
   if (!token) return fail(t("su.noToken"));
   const isHttp = parsed.protocol === "http:";
-  const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.|\[?::1)/.test(parsed.hostname) || parsed.hostname.endsWith(".ts.net") || parsed.hostname.endsWith(".local");
+  const host = parsed.hostname.toLowerCase();
+  // private / tailnet hosts: RFC1918, CGNAT 100.64/10 (Tailscale), link-local, loopback, *.ts.net, mDNS / home suffixes, dot-less MagicDNS names
+  const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|169\.254\.|\[?::1|\[?f[cd][0-9a-f]{2}:|\[?fe80:)/.test(host)
+    || /\.(ts\.net|local|lan|home\.arpa|internal)$/.test(host) || !host.includes(".");
   if (isHttp && location.protocol === "https:") return fail(t("su.mixed"));
+  // mobile app: https only, except a server on your own network / tailnet (explicit http:// + warning)
+  if (isHttp && !local && isAndroid()) return fail(t("su.httpPublic"));
   if (isHttp && !local) warnings.push(t("su.plainHttp"));
+  else if (isHttp) warnings.push(t("su.httpLan"));
 
   // 1) /health
   let res: Response;

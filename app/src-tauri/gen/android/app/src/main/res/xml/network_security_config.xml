@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DriveLens talks to a server the user picks. Cleartext (http://) is permitted at the OS level because a
+  self-hosted server on a LAN IP or a Tailscale address (100.x.y.z / MagicDNS) cannot be listed here
+  (the config has no IP ranges). The app itself enforces "https by default": the connection test refuses http://
+  to public hosts and shows a clear warning for http:// on private networks (src/setup.ts).
+  User-installed CAs are NOT trusted.
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>

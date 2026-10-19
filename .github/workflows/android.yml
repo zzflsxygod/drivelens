@@ -1,0 +1,121 @@
+name: Android app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  NDK_VERSION: 27.0.12077973
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Cache NDK
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}
+
+      - name: Install NDK + SDK platform
+        run: |
+          pkgs="platforms;android-37.0 build-tools;37.0.0"
+          [ "${{ steps.ndk-cache.outputs.cache-hit }}" = "true" ] || pkgs="$pkgs ndk;$NDK_VERSION"
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install $pkgs > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+          key: android
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/src-tauri/gen/android/**/*.gradle*', 'app/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties', 'app/src-tauri/gen/android/buildSrc/**') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Install frontend deps
+        working-directory: app
+        run: npm ci
+
+      - name: Release keystore (from secrets, outside the workspace)
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$KS_B64" ] || { echo "::error::ANDROID_KEYSTORE_B64 secret missing"; exit 1; }
+          umask 077
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$RUNNER_TEMP/release.p12" "$KS_PASS" "$KEY_ALIAS" "$KEY_PASS" > "$RUNNER_TEMP/keystore.properties"
+          echo "DRIVELENS_KEYSTORE_PROPERTIES=$RUNNER_TEMP/keystore.properties" >> "$GITHUB_ENV"
+
+      - name: Build signed APK (universal) + AAB
+        working-directory: app
+        run: npx tauri android build --apk --aab --target aarch64 armv7 x86_64
+
+      - name: Verify signature and collect
+        id: out
+        run: |
+          VER=$(node -p "require('./app/package.json').version")
+          OUT=app/src-tauri/gen/android/app/build/outputs
+          mkdir -p dist-android
+          cp "$OUT/apk/universal/release/app-universal-release.apk" "dist-android/DriveLens_${VER}_android_universal.apk"
+          cp "$OUT/bundle/universalRelease/app-universal-release.aab" "dist-android/DriveLens_${VER}_android.aab"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "dist-android/DriveLens_${VER}_android_universal.apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          jarsigner -verify "dist-android/DriveLens_${VER}_android.aab" > /dev/null && echo "AAB signature OK"
+          ls -la dist-android
+          rm -f "$RUNNER_TEMP/release.p12" "$RUNNER_TEMP/keystore.properties"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DriveLens-android
+          path: dist-android/*
+          if-no-files-found: error
+
+      - name: Attach to the draft release (created by the Windows workflow)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # the Windows job creates the draft; wait for it (up to 30 min), create it ourselves as a last resort
+          for i in $(seq 60); do gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && break; sleep 30; done
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --prerelease --title "DriveLens $TAG" --notes ""
+          gh release upload "$TAG" dist-android/* --repo "$GITHUB_REPOSITORY" --clobber

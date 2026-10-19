@@ -34,3 +34,4 @@ export function popMenu(anchor: HTMLElement, items: MenuItem[], onPick: (v: stri
   openMenu = close;
 }
 export const closeMenus = () => openMenu?.();
+export const hasOpenMenu = () => openMenu != null;

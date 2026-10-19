@@ -3,7 +3,7 @@
 #   1. push main  → wait for the "Docker image" CI run of this commit to succeed (:latest pushed)
 #   2. poll https://<domain>/health until "version" == api/Cargo.toml version (skipped when api/ is unchanged since the last tag)
 #      (Watchtower on the server pulls :latest within ~5 min)
-#   3. tag vX.Y.Z → wait for the Windows build (creates a DRAFT release)
+#   3. tag vX.Y.Z → wait for the Windows build (creates a DRAFT release) and the Android build (attaches APK + AAB)
 #   4. publish the draft as a prerelease (only now can users download the new app)
 # Usage: scripts/release.sh [api-base-url] [--skip-health]
 #   api-base-url defaults to $DRIVELENS_URL, else the first line of scripts/.release.local (gitignored, per machine)
@@ -72,10 +72,14 @@ if [ "$SKIP_HEALTH" != "--skip-health" ]; then
   done
 fi
 
-echo "== 3. tag $TAG and wait for the Windows build (draft release)"
+echo "== 3. tag $TAG and wait for the Windows (draft release) + Android builds"
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG"
 git push -q origin "$TAG" 2>/dev/null || true
 wait_run windows.yml "$TAG"
+wait_run android.yml "$TAG"
+for a in _android_universal.apk _android.aab; do
+  gh release view "$TAG" --json assets -q '.assets[].name' | grep -q -- "$a\$" || { echo "   Android asset *$a missing on the draft — not publishing"; exit 1; }
+done
 
 echo "== 4. publish $TAG as prerelease"
 gh release edit "$TAG" --draft=false --prerelease

@@ -1,4 +1,5 @@
 import "./style.css";
+import { initPlatform, setRootBack } from "./platform";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
@@ -735,6 +736,15 @@ window.addEventListener("touchend", e => {
 
 mountDemoBanner();
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
+initPlatform();   // touch class, external links, Android insets / status bar / back button
+setRootBack(() => {   // Android back at a tab root: other tab → home; on home → exit
+  const active = document.querySelector<HTMLElement>("nav button.active");
+  if (document.body.classList.contains("setup-mode")) return false;
+  if (active?.dataset.tab !== "home" || !document.getElementById("home")) {
+    (document.querySelector('nav button[data-tab="home"]') as HTMLElement).click(); return true;
+  }
+  return false;
+});
 initBackToTop();
 initUI(view);
 initOverlayScrollbar();

@@ -1,6 +1,8 @@
 // Overlay scrollbar: the native one is hidden everywhere (it took layout width on Windows), and a thin fixed
 // thumb for the page scroll shows while scrolling / hovering the right edge, then fades out. Draggable.
 export function initOverlayScrollbar() {
+  // touch devices keep their native overlay scrollbar (it takes no layout width there)
+  if (document.documentElement.classList.contains("touch")) return;
   const bar = document.createElement("div");
   bar.className = "osb"; bar.setAttribute("aria-hidden", "true");
   bar.innerHTML = `<i></i>`;

@@ -264,18 +264,24 @@ npm run tauri build      # 打包桌面安装包（在哪个系统上打包就�
 Linux 需先安装：`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev build-essential`。
 
 首次打开 App 进入「设置」，填 API 地址（如 `https://drivelens.example.com`）和 Token，点「保存并测试连接」。
-（手机上请务必使用 HTTPS 地址，iOS/Android 默认禁止明文 HTTP。）
+（Android App 连接公网服务器只允许 https；局域网 / Tailscale 地址可以用 http，但会提示数据未加密。）
 
-### Android
+### Android（v0.14.0 起）
 
-1. 安装 Android Studio、SDK + NDK，设置 `ANDROID_HOME`、`NDK_HOME`、`JAVA_HOME`
-2. `rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`
-3. 执行：
-   ```bash
-   npm run tauri android init
-   npm run tauri android dev          # 连接手机或模拟器调试
-   npm run tauri android build --apk
-   ```
+发布版由 GitHub Actions（`.github/workflows/android.yml`）在打 `v*` tag 时构建：签名的通用 APK（arm64-v8a / armeabi-v7a / x86_64）和 AAB，附加到与 Windows 同一个 Release。`scripts/release.sh` 会等 Windows 和 Android 都完成后再发布。
+
+- Android 工程已提交在 `app/src-tauri/gen/android`（Tauri 推荐做法）。改动集中在 `MainActivity.kt`（edge-to-edge 安全区、键盘、状态栏颜色、分享 / 保存图片桥接）、`network_security_config.xml` 和 `build.gradle.kts`（签名）。
+- 签名：`keystore.properties` 的路径由 `DRIVELENS_KEYSTORE_PROPERTIES` 指定，否则读 `gen/android/keystore.properties`（已 gitignore）。CI 从 Secrets（`ANDROID_KEYSTORE_B64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`）生成该文件。**keystore 丢失就无法再给已安装的 App 推送更新，务必备份。**
+- 本地构建：
+
+  1. 准备 JDK 17+、Android SDK（platform 37、build-tools）、NDK 27，设置 `ANDROID_HOME`、`NDK_HOME`。
+  2. 用 rustup 安装 stable 工具链，并执行 `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`。
+  3. 执行：
+
+     ```bash
+     npx tauri android dev                      # 模拟器 / 手机调试
+     npx tauri android build --apk --aab --target aarch64 armv7 x86_64
+     ```
 
 ### iOS（需要 macOS + Xcode）
 
