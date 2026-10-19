@@ -1,6 +1,7 @@
 import "./style.css";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
+import { batteryCardHTML, showBattery, type Battery } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList, monthLabel } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
@@ -465,6 +466,7 @@ async function showHome() {
       <div class="hero" id="sec-hero">${heroSkeleton()}</div>
       <div id="sec-map"><div class="section-title">${sk("40%")}</div><div class="map-ph sk"></div></div>
       <div id="sec-month"><div class="section-title">${sk("30%")}</div>${skGrid(6)}</div>
+      <div id="sec-battery"></div>
       <div id="sec-drive"><div class="section-title">${sk("25%")}</div>${skCard()}</div>
       <div id="sec-charge"><div class="section-title">${sk("25%")}</div>${skCard()}</div>
       <div id="sec-totals"><div class="section-title">${sk("20%")}</div>${skGrid(3)}</div>
@@ -555,7 +557,18 @@ async function showHome() {
     paintStats(); updateStale();
   }).catch(e => { if (alive()) { fresh.stats = true; updateStale(); errorBox("month", `统计加载失败：${(e as Error).message}`, loadStats); } });
   loadStatus(); loadActivity(); loadStats();
+  // 电池健康 card (api_level ≥ 12)
+  serverReady().then(() => {
+    if (lacks("insights") || !alive()) return;
+    api<Battery>(`/api/cars/${id}/battery?summary=true`).then(b => {
+      if (!alive()) return;
+      sec("battery").innerHTML = batteryCardHTML(b);
+      sec("battery").querySelectorAll<HTMLElement>("[data-battery]").forEach(el => el.onclick = () => openBattery(id));
+    }).catch(() => { /* optional card */ });
+  });
 }
+
+function openBattery(id: number) { destroyMap(); ++homeGen; showBattery(view, id, showHome); window.scrollTo(0, 0); }
 
 /** Monthly report (opened from the 首页 month card; back returns to 首页). */
 async function openReport(month: string, carId?: number) {
@@ -575,7 +588,8 @@ async function openReport(month: string, carId?: number) {
   const self = (m: string) => openReport(m, id);
   const back = () => self(month);
   renderReport(view, id, month, { back: showHome, month: self,
-    drive: d => showDrive(d, back), charge: c => showCharge(c, back) });
+    drive: d => showDrive(d, back), charge: c => showCharge(c, back),
+    extras: lacks("insights") ? undefined : { setMap: m => { destroyMap(); map = m; } } });
   window.scrollTo(0, 0);
 }
 
@@ -667,6 +681,7 @@ else if (start === "charges") (document.querySelector('nav button[data-tab="char
 else if (start?.startsWith("drive:")) showDrive(Number(start.slice(6)));
 else if (start?.startsWith("charge:")) showCharge(Number(start.slice(7)));
 else if (start?.startsWith("report")) openReport(start.slice(7) || nowMonth());
+else if (start === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
 else if (start?.startsWith("journey:")) { serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(start.slice(8))))); }
 else if (start === "journeys") { (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).classList.add("active"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
 else if (start === "drives") (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).click();

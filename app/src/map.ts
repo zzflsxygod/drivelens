@@ -46,7 +46,7 @@ function applyLabels(map: maplibregl.Map) {
 export interface Stop { p: [number, number]; kind: "stop" | "charge"; title: string }
 /** Journey: one line per drive with per-point speeds (for speed colouring) and stop markers. */
 export interface Overlay { route?: [number, number][]; point?: [number, number];
-  lines?: { coords: [number, number][]; speeds: (number | null)[] }[]; stops?: Stop[]; speedColor?: boolean }
+  lines?: { coords: [number, number][]; speeds: (number | null)[] }[]; stops?: Stop[]; speedColor?: boolean; noPins?: boolean }
 
 /** slow red → fast green (km/h) */
 export const SPEED_STOPS: [number, string][] = [[0, "#d7301f"], [30, "#fc8d59"], [60, "#fee08b"], [90, "#91cf60"], [120, "#1a9850"]];
@@ -144,15 +144,16 @@ export class DriveMap {
       map.addSource("jroute-whole", { type: "geojson", data: whole, tolerance: 0 });
       map.addSource("jroute", { type: "geojson", data: { type: "FeatureCollection", features }, tolerance: 0 });
       const layout = { "line-cap": "round", "line-join": "round" } as const;
+      const thin = !!this.overlay.noPins; // footprint: many overlapping routes → thinner lines
       map.addLayer({ id: "jroute-casing", type: "line", source: "jroute-whole", layout,
-        paint: { "line-color": dark ? "#0b1d3a" : "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
+        paint: { "line-color": dark ? "#0b1d3a" : "#ffffff", "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 3, 14, 6] : ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
       map.addLayer({ id: "jroute-line", type: "line", source: "jroute", layout,
-        paint: { "line-color": this.overlay.speedColor ? speedExpr() : this.plainColor(), "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
+        paint: { "line-color": this.overlay.speedColor ? speedExpr() : thin ? "#7b5cff" : this.plainColor(), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 1.5, 14, 3.5] : ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
     }
     this.markers.forEach(m => m.remove());
     const pts: [[number, number], string, string][] = [];
     const ends = lines && lines.length ? [lines[0].coords[0], lines[lines.length - 1].coords[lines[lines.length - 1].coords.length - 1]] : r && r.length ? [r[0], r[r.length - 1]] : null;
-    if (ends && ends[0] && ends[1]) pts.push([ends[0], "#2a9d3a", "起点"], [ends[1], "#e31937", "终点"]);
+    if (ends && ends[0] && ends[1] && !this.overlay.noPins) pts.push([ends[0], "#2a9d3a", "起点"], [ends[1], "#e31937", "终点"]);
     if (this.overlay.point) pts.push([this.overlay.point, "#e31937", "充电地点"]);
     this.markers = pts.map(([p, color, title]) => {
       const e = document.createElement("div");

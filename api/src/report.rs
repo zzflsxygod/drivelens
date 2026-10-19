@@ -64,11 +64,11 @@ pub struct Report {
 }
 
 #[derive(FromRow)]
-struct DriveRow { id: i64, start_date: Option<String>, day: Option<String>, start_address: Option<String>, end_address: Option<String>,
+pub(crate) struct DriveRow { pub(crate) id: i64, start_date: Option<String>, day: Option<String>, start_address: Option<String>, end_address: Option<String>,
     distance_km: Option<f64>, duration_min: Option<i32>, speed_max: Option<i32>, energy_kwh: Option<f64>, cur: bool }
 
 #[derive(FromRow)]
-struct ChargeRow { id: i64, start_date: Option<String>, day: Option<String>, address: Option<String>, energy_kwh: Option<f64>,
+pub(crate) struct ChargeRow { id: i64, start_date: Option<String>, day: Option<String>, address: Option<String>, energy_kwh: Option<f64>,
     cost: Option<f64>, currency: Option<String>, kind: String, peak_kw: Option<f64>, start_battery_level: Option<i32>,
     end_battery_level: Option<i32>, duration_min: Option<i32>, cur: bool }
 
@@ -119,52 +119,8 @@ pub async fn car_report(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
 
-    let drives_sql = format!(
-        r#"SELECT d.id::int8 AS id, to_char(d.start_date, '{TS}') AS start_date,
-             to_char((d.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
-             COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) AS start_address,
-             COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) AS end_address,
-             d.distance::float8 AS distance_km, d.duration_min::int4 AS duration_min, d.speed_max::int4 AS speed_max,
-             ((d.start_rated_range_km - d.end_rated_range_km) * c.efficiency)::float8 AS energy_kwh,
-             d.start_date >= $3::timestamp AS cur
-           FROM drives d JOIN cars c ON c.id = d.car_id
-           LEFT JOIN addresses sa ON sa.id = d.start_address_id
-           LEFT JOIN addresses ea ON ea.id = d.end_address_id
-           LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
-           LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
-           LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
-           LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
-           WHERE d.car_id = $1 AND d.start_date >= $2::timestamp AND d.start_date < $4::timestamp AND d.end_date IS NOT NULL"#
-    );
-    // home_addr: most frequent AC-rate (< 22 kW average) charging location in the last 12 months — no charges scan needed.
-    let charges_sql = format!(
-        r#"WITH home_addr AS (
-             SELECT address_id FROM charging_processes
-             WHERE car_id = $1 AND address_id IS NOT NULL AND start_date >= $4::timestamp - interval '12 months'
-               AND duration_min > 0 AND charge_energy_added * 60 / duration_min < 22
-             GROUP BY address_id ORDER BY count(*) DESC LIMIT 1)
-           SELECT cp.id::int8 AS id, to_char(cp.start_date, '{TS}') AS start_date,
-             to_char((cp.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
-             {PLACE} AS address, cp.charge_energy_added::float8 AS energy_kwh,
-             {cc_amount}::float8 AS cost, {cc_cur} AS currency,
-             CASE WHEN fx.fast AND (CONCAT_WS(' ', al.name, g.name, a.name, a.display_name) ~* '(supercharger|超充|スーパーチャージャー|tesla)') THEN 'supercharger'
-                  WHEN NOT fx.fast AND (CONCAT_WS(' ', al.name, g.name) ~* '(home|自宅|家|うち|house)'
-                       OR cp.address_id = (SELECT address_id FROM home_addr)) THEN 'home'
-                  ELSE 'other' END AS kind,
-             fx.peak_kw, cp.start_battery_level::int4 AS start_battery_level, cp.end_battery_level::int4 AS end_battery_level,
-             cp.duration_min::int4 AS duration_min, cp.start_date >= $3::timestamp AS cur
-           FROM charging_processes cp
-           LEFT JOIN addresses a ON a.id = cp.address_id
-           LEFT JOIN drivelens.address_aliases al ON al.address_id = cp.address_id
-           LEFT JOIN geofences g ON g.id = cp.geofence_id
-           LEFT JOIN positions p ON p.id = cp.position_id
-           {cc_join}
-           -- per-process probe via TeslaMate's charges(charging_process_id) index
-           CROSS JOIN LATERAL (SELECT COALESCE(bool_or(ch.fast_charger_present), false) AS fast,
-                                      max(ch.charger_power)::float8 AS peak_kw
-                               FROM charges ch WHERE ch.charging_process_id = cp.id) fx
-           WHERE cp.car_id = $1 AND cp.start_date >= $2::timestamp AND cp.start_date < $4::timestamp AND cp.end_date IS NOT NULL"#
-    );
+    let drives_sql = drives_sql();
+    let charges_sql = charges_sql(cc_amount, &cc_cur, cc_join);
     let (drives, charges, first) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&drives_sql).bind(id).bind(&b.p0).bind(&b.m0).bind(&b.m1).bind(&tz).fetch_all(&s.db),
         sqlx::query_as::<_, ChargeRow>(&charges_sql).bind(id).bind(&b.p0).bind(&b.m0).bind(&b.m1).bind(&tz).fetch_all(&s.db),
@@ -227,4 +183,104 @@ pub async fn car_report(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
     let daily = days.into_iter().map(|(date, (km, kwh))| Day { date, distance_km: r1(km), energy_added_kwh: r1(kwh) }).collect();
     Ok(Json(Report { month: b.month, timezone: tz, is_current: b.is_current, first_month: first, days_in_month: b.days_in_month,
         days_elapsed: b.days_elapsed, overview: ov, previous: prev, split, daily, records }).into_response())
+}
+
+pub(crate) fn drives_sql() -> String { format!(
+        r#"SELECT d.id::int8 AS id, to_char(d.start_date, '{TS}') AS start_date,
+             to_char((d.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
+             COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) AS start_address,
+             COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) AS end_address,
+             d.distance::float8 AS distance_km, d.duration_min::int4 AS duration_min, d.speed_max::int4 AS speed_max,
+             ((d.start_rated_range_km - d.end_rated_range_km) * c.efficiency)::float8 AS energy_kwh,
+             d.start_date >= $3::timestamp AS cur
+           FROM drives d JOIN cars c ON c.id = d.car_id
+           LEFT JOIN addresses sa ON sa.id = d.start_address_id
+           LEFT JOIN addresses ea ON ea.id = d.end_address_id
+           LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
+           LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
+           LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
+           LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
+           WHERE d.car_id = $1 AND d.start_date >= $2::timestamp AND d.start_date < $4::timestamp AND d.end_date IS NOT NULL"#
+    ) }
+// home_addr: most frequent AC-rate (< 22 kW average) charging location in the last 12 months — no charges scan needed.
+pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str) -> String { format!(
+        r#"WITH home_addr AS (
+             SELECT address_id FROM charging_processes
+             WHERE car_id = $1 AND address_id IS NOT NULL AND start_date >= $4::timestamp - interval '12 months'
+               AND duration_min > 0 AND charge_energy_added * 60 / duration_min < 22
+             GROUP BY address_id ORDER BY count(*) DESC LIMIT 1)
+           SELECT cp.id::int8 AS id, to_char(cp.start_date, '{TS}') AS start_date,
+             to_char((cp.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
+             {PLACE} AS address, cp.charge_energy_added::float8 AS energy_kwh,
+             {cc_amount}::float8 AS cost, {cc_cur} AS currency,
+             CASE WHEN fx.fast AND (CONCAT_WS(' ', al.name, g.name, a.name, a.display_name) ~* '(supercharger|超充|スーパーチャージャー|tesla)') THEN 'supercharger'
+                  WHEN NOT fx.fast AND (CONCAT_WS(' ', al.name, g.name) ~* '(home|自宅|家|うち|house)'
+                       OR cp.address_id = (SELECT address_id FROM home_addr)) THEN 'home'
+                  ELSE 'other' END AS kind,
+             fx.peak_kw, cp.start_battery_level::int4 AS start_battery_level, cp.end_battery_level::int4 AS end_battery_level,
+             cp.duration_min::int4 AS duration_min, cp.start_date >= $3::timestamp AS cur
+           FROM charging_processes cp
+           LEFT JOIN addresses a ON a.id = cp.address_id
+           LEFT JOIN drivelens.address_aliases al ON al.address_id = cp.address_id
+           LEFT JOIN geofences g ON g.id = cp.geofence_id
+           LEFT JOIN positions p ON p.id = cp.position_id
+           {cc_join}
+           -- per-process probe via TeslaMate's charges(charging_process_id) index
+           CROSS JOIN LATERAL (SELECT COALESCE(bool_or(ch.fast_charger_present), false) AS fast,
+                                      max(ch.charger_power)::float8 AS peak_kw
+                               FROM charges ch WHERE ch.charging_process_id = cp.id) fx
+           WHERE cp.car_id = $1 AND cp.start_date >= $2::timestamp AND cp.start_date < $4::timestamp AND cp.end_date IS NOT NULL"#
+    ) }
+
+// ---------------- 12-month trends (api_level 12) ----------------
+#[derive(Serialize, Default)]
+pub struct TrendMonth { month: String, distance_km: f64, energy_used_kwh: f64, energy_added_kwh: f64, efficiency_wh_km: Option<f64>,
+    drive_count: i64, charge_count: i64, costs: Vec<Money>, home_kwh: f64, supercharger_kwh: f64, other_kwh: f64 }
+
+/// GET /api/cars/:id/trends?month=YYYY-MM&tz=&currency= → the 12 months ending with `month` (same rules as the report).
+pub async fn car_trends(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<ReportParams>) -> Result<Response, ApiError> {
+    let bad = |m: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response();
+    if let Some(m) = &p.month { if !valid_month(m) { return Ok(bad("month must be YYYY-MM")); } }
+    let tz = p.tz.unwrap_or_else(|| "UTC".into());
+    let def_cur = p.currency.map(|c| c.trim().to_ascii_uppercase())
+        .filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase())).unwrap_or_else(|| "JPY".into());
+    let r: Result<(String, String, Vec<String>), _> = sqlx::query_as(
+        "WITH x AS (SELECT (COALESCE($1::text, to_char(now() AT TIME ZONE $2, 'YYYY-MM')) || '-01')::timestamp AS lm0)
+         SELECT to_char(((lm0 - interval '11 months') AT TIME ZONE $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                to_char(((lm0 + interval '1 month') AT TIME ZONE $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                ARRAY(SELECT to_char(lm0 - make_interval(months => g), 'YYYY-MM') FROM generate_series(11, 0, -1) g)
+         FROM x").bind(&p.month).bind(&tz).fetch_one(&s.db).await;
+    let (t0, t1, months) = match r {
+        Ok(v) => v,
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22023") => return Ok(bad("unknown tz")),
+        Err(e) => return Err(e.into()),
+    };
+    let costs = costs_ok(&s).await?;
+    let (cc_amount, cc_cur, cc_join) = if costs {
+        ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
+    } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
+    let (dsql, csql) = (drives_sql(), charges_sql(cc_amount, &cc_cur, cc_join));
+    let (drives, charges) = tokio::try_join!(
+        sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
+        sqlx::query_as::<_, ChargeRow>(&csql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
+    )?;
+    let mut by: BTreeMap<String, TrendMonth> = months.iter().map(|m| (m.clone(), TrendMonth { month: m.clone(), ..Default::default() })).collect();
+    for d in &drives {
+        let Some(m) = d.day.as_ref().and_then(|x| by.get_mut(&x[..7])) else { continue };
+        m.distance_km += d.distance_km.unwrap_or(0.0); m.energy_used_kwh += d.energy_kwh.unwrap_or(0.0).max(0.0); m.drive_count += 1;
+    }
+    for c in &charges {
+        let Some(m) = c.day.as_ref().and_then(|x| by.get_mut(&x[..7])) else { continue };
+        let e = c.energy_kwh.unwrap_or(0.0);
+        m.energy_added_kwh += e; m.charge_count += 1;
+        match c.kind.as_str() { "home" => m.home_kwh += e, "supercharger" => m.supercharger_kwh += e, _ => m.other_kwh += e }
+        if let Some(a) = c.cost { add_money(&mut m.costs, &c.currency.clone().unwrap_or_else(|| def_cur.clone()), a); }
+    }
+    let r1 = |v: f64| (v * 10.0).round() / 10.0;
+    let out: Vec<TrendMonth> = by.into_values().map(|mut m| {
+        m.efficiency_wh_km = (m.distance_km > 1.0).then(|| r1(m.energy_used_kwh * 1000.0 / m.distance_km));
+        m.distance_km = r1(m.distance_km); m.energy_used_kwh = r1(m.energy_used_kwh); m.energy_added_kwh = r1(m.energy_added_kwh);
+        m.home_kwh = r1(m.home_kwh); m.supercharger_kwh = r1(m.supercharger_kwh); m.other_kwh = r1(m.other_kwh);
+        round_money(&mut m.costs); m }).collect();
+    Ok(Json(serde_json::json!({"months": out, "timezone": tz})).into_response())
 }

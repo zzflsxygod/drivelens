@@ -1,6 +1,8 @@
 // 月度报告 page. Data: GET /api/cars/:id/report?month=YYYY-MM&tz=..&currency=..
 import { api, fmtMoney, defaultCurrency } from "./api";
 import { featureText } from "./version";
+import type { DriveMap } from "./map";
+import { loadReportExtras } from "./insights";
 
 interface Money { currency: string; amount: number }
 interface Overview { distance_km: number; drive_duration_min: number; drive_count: number; energy_used_kwh: number;
@@ -14,7 +16,9 @@ export interface Report { month: string; is_current: boolean; first_month: strin
   overview: Overview; previous: Overview; split: Bucket[]; daily: { date: string; distance_km: number; energy_added_kwh: number }[];
   records: { longest_drive: DriveRec | null; top_speed_drive: DriveRec | null; most_expensive_charge: ChargeRec | null; fastest_charge: ChargeRec | null } }
 
-export interface ReportNav { back: () => void; drive: (id: number) => void; charge: (id: number) => void; month: (m: string) => void }
+export interface ReportNav { back: () => void; drive: (id: number) => void; charge: (id: number) => void; month: (m: string) => void;
+  /** api_level ≥ 12: footprint map + 12-month trends */
+  extras?: { setMap: (m: DriveMap | null) => void } }
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const num = (v: number, d = 0) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -162,7 +166,8 @@ export async function showReport(view: HTMLElement, carId: number, month: string
       view.querySelector("#rp-daily")!.innerHTML = s.dataset.v === "cal" ? calendar(r) : bars(r);
     });
   };
-  const paint = (r: Report) => { view.innerHTML = `<button class="back">← 返回</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r); };
+  const paint = (r: Report) => { view.innerHTML = `<button class="back">← 返回</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r);
+    if (nav.extras) loadReportExtras(view.querySelector<HTMLElement>("#rp-body")!, carId, month, nav.extras.setMap); };
   const hit = cache.get(key);
   if (hit) paint(hit); else { view.innerHTML = reportSkeleton(month); bind(null); }
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

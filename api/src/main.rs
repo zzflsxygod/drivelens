@@ -17,6 +17,7 @@ mod summary;
 mod report;
 mod journey;
 mod phase2;
+mod insights;
 
 #[derive(Clone)]
 struct AppState {
@@ -277,8 +278,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0)
-pub(crate) const API_LEVEL: u32 = 11;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0)
+pub(crate) const API_LEVEL: u32 = 12;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -608,6 +609,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/cars/:id/last-activity", get(summary::car_last_activity))
         .route("/cars/:id/stats", get(summary::car_stats))
         .route("/cars/:id/report", get(report::car_report))
+        .route("/cars/:id/trends", get(report::car_trends))
+        .route("/cars/:id/footprint", get(insights::footprint))
+        .route("/cars/:id/battery", get(insights::battery))
         .route("/charges", get(charges_route))
         .route("/charges/:id", get(get_charge))
         .route("/charges/:id/cost", axum::routing::put(put_cost).delete(delete_cost))

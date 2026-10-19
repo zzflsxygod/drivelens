@@ -299,3 +299,18 @@ input, select, textarea { border-radius: 12px !important; border-color: var(--li
 .wx-bar i { background: var(--grad); }
 .band-share { height: 12px; border-radius: 6px; }
 .version-box { padding: 8px 8px 8px 14px; }
+/* v0.9.0 battery + report extras */
+.bat-card { display: flex; gap: 16px; align-items: center; }
+.bat-ring { --p: 90; flex: none; width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(#22c58b 0, var(--accent) calc(var(--p) * 1%), var(--line) 0); position: relative; }
+.bat-ring::before { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--cardsolid); }
+.bat-ring b { position: relative; font-size: 22px; font-weight: 800; } .bat-ring small { font-size: 12px; color: var(--muted); }
+.bat-info { flex: 1; display: grid; gap: 6px; } .bat-info small { display: block; color: var(--muted); font-size: 12px; } .bat-info b { font-size: 17px; }
+.bdot { fill: var(--accent); opacity: .28; } .bmed { fill: none; stroke: var(--accent2); stroke-width: 2.5; stroke-linejoin: round; }
+.btrend { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 6 4; opacity: .7; }
+.lg-dot { background: var(--accent); opacity: .4; border-radius: 50% !important; } .lg-med { background: var(--accent2); } .lg-trend { background: var(--text); opacity: .6; height: 2px !important; vertical-align: 3px !important; }
+.foot-map { height: 320px; border-radius: 22px; overflow: hidden; position: relative; box-shadow: var(--shadow); }
+.pane-t { font-weight: 700; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px; }
+.pane svg .ct { font-size: 10px; fill: var(--muted); } .pane svg .ct.on { fill: var(--text); font-weight: 700; }
+.pane svg .cg { stroke: #8884; stroke-width: 1; }
+.lline { fill: none; stroke: #22c58b; stroke-width: 2.5; stroke-linejoin: round; } .ldot { fill: #22c58b; } .ldot.on { fill: var(--accent2); }
