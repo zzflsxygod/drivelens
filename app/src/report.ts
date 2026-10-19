@@ -82,12 +82,14 @@ function calendar(r: Report) {
     <div class="lg"><span><i style="background:rgba(227,25,55,.5)"></i>${t("rp.calLegend")}</span><span>${t("rp.calCharge")}</span></div>`;
 }
 
-export function reportSkeleton(month: string) {
+function bodySkeleton() {
   const sk = (w: string, h = "14px") => `<span class="sk" style="width:${w};height:${h}"></span>`;
-  return `<button class="back" data-title="${t("rp.pageTitle")}">${t("common.back")}</button>${switcher(month, null)}
-    <div id="rp-body"><div class="ov">${Array.from({ length: 6 }, () => `<div>${sk("50%", "10px")}<br>${sk("70%", "22px")}<br>${sk("40%", "10px")}</div>`).join("")}</div>
+  return `<div class="ov">${Array.from({ length: 6 }, () => `<div>${sk("50%", "10px")}<br>${sk("70%", "22px")}<br>${sk("40%", "10px")}</div>`).join("")}</div>
     <div class="section-title">${sk("25%")}</div><div class="pane">${sk("100%", "150px")}</div>
-    <div class="section-title">${sk("20%")}</div><div class="pane">${sk("100%", "150px")}</div></div>`;
+    <div class="section-title">${sk("20%")}</div><div class="pane">${sk("100%", "150px")}</div>`;
+}
+export function reportSkeleton(month: string) {
+  return `<button class="back" data-title="${t("rp.pageTitle")}">${t("common.back")}</button>${switcher(month, null)}<div id="rp-body">${bodySkeleton()}</div>`;
 }
 
 function switcher(month: string, r: Report | null) {
@@ -158,29 +160,60 @@ export function reportHTML(r: Report) {
 
 let gen = 0;
 const cache = new Map<string, Report>();
+const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/**
+ * One persistent page shell (sticky header + month pill + sliding #rp-main). A month change only swaps what is
+ * inside #rp-main — once, with one directional slide — and data fills in place afterwards (no second entrance
+ * animation, no page re-render). Months already seen render instantly from the cache and refresh silently.
+ */
 export async function showReport(view: HTMLElement, carId: number, month: string, nav: ReportNav) {
   const g = ++gen, key = `${carId}:${month}`;
-  const bind = (r: Report | null) => {
-    (view.querySelector(".back") as HTMLElement).onclick = nav.back;
-    view.querySelectorAll<HTMLButtonElement>(".msw button[data-m]").forEach(b => b.onclick = () => { if (!b.disabled) nav.month(b.dataset.m!); });
-    if (!r) return;
-    view.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => nav.drive(Number(el.dataset.drive)));
-    view.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => nav.charge(Number(el.dataset.charge)));
-    view.querySelectorAll<HTMLElement>("#rp-seg span").forEach(s => s.onclick = () => {
-      view.querySelectorAll("#rp-seg span").forEach(x => x.classList.toggle("on", x === s));
-      view.querySelector("#rp-daily")!.innerHTML = s.dataset.v === "cal" ? calendar(r) : bars(r);
+  let shell = view.querySelector<HTMLElement>("#rp-shell");
+  const prevMonth = shell?.dataset.car === String(carId) ? shell.dataset.month : undefined;
+  if (!shell || prevMonth === undefined) {
+    view.innerHTML = `<div id="rp-shell" data-car="${carId}"><button class="back" data-title="${t("rp.pageTitle")}">${t("common.back")}</button>
+      <div id="rp-sw">${switcher(month, null)}</div><div id="rp-main"><div id="rp-body"></div><div id="rp-extras"></div></div></div>`;
+    shell = view.querySelector<HTMLElement>("#rp-shell")!;
+  }
+  shell.dataset.month = month;
+  const sw = shell.querySelector<HTMLElement>("#rp-sw")!, main = shell.querySelector<HTMLElement>("#rp-main")!;
+  const body = shell.querySelector<HTMLElement>("#rp-body")!, extras = shell.querySelector<HTMLElement>("#rp-extras")!;
+  (shell.querySelector(".back") as HTMLElement).onclick = nav.back;
+  let shown: Report | null = null;
+  const setSwitcher = (r: Report | null) => {
+    sw.innerHTML = switcher(month, r ?? cache.get(key) ?? null);
+    sw.querySelectorAll<HTMLButtonElement>("button[data-m]").forEach(b => b.onclick = () => { if (!b.disabled) nav.month(b.dataset.m!); });
+  };
+  const fill = (r: Report) => {
+    shown = r; setSwitcher(r);
+    body.innerHTML = reportHTML(r);
+    body.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => nav.drive(Number(el.dataset.drive)));
+    body.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => nav.charge(Number(el.dataset.charge)));
+    body.querySelectorAll<HTMLElement>("#rp-seg span").forEach(sp => sp.onclick = () => {
+      body.querySelectorAll("#rp-seg span").forEach(x => x.classList.toggle("on", x === sp));
+      body.querySelector("#rp-daily")!.innerHTML = sp.dataset.v === "cal" ? calendar(r) : bars(r);
     });
   };
-  const paint = (r: Report) => { view.innerHTML = `<button class="back" data-title="${t("rp.pageTitle")}">${t("common.back")}</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r);
-    if (nav.extras) loadReportExtras(view.querySelector<HTMLElement>("#rp-body")!, carId, month, nav.extras.setMap); };
   const hit = cache.get(key);
-  if (hit) paint(hit); else { view.innerHTML = reportSkeleton(month); bind(null); }
+  if (prevMonth !== month) {
+    if (hit) fill(hit); else { setSwitcher(null); body.innerHTML = bodySkeleton(); }
+    if (nav.extras) loadReportExtras(extras, carId, month, nav.extras.setMap);
+    if (prevMonth && !reduceMotion()) {
+      const cls = month > prevMonth ? "mv-segR" : "mv-segL";
+      main.classList.remove("mv-segR", "mv-segL"); void main.offsetWidth; main.classList.add(cls);
+      main.addEventListener("animationend", () => main.classList.remove(cls), { once: true });
+    }
+  } else if (hit) fill(hit);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const load = () => api<Report>(`/api/cars/${carId}/report?month=${month}&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`)
-    .then(r => { if (g !== gen) return; cache.set(key, r); paint(r); })
+    .then(r => {
+      if (g !== gen) return;
+      const same = shown != null && JSON.stringify(shown) === JSON.stringify(r);
+      cache.set(key, r);
+      if (!same) fill(r);   // in place: no re-animation
+    })
     .catch(e => {
       if (g !== gen) return;
-      const body = view.querySelector("#rp-body")!;
       body.querySelector(".card-error")?.remove();
       if (!cache.has(key)) body.innerHTML = "";
       body.insertAdjacentHTML("afterbegin", `<div class="error card-error">⚠️ ${(e as { status?: number }).status === 404 ? esc(featureText("report")) : esc(t("rp.loadErr", { e: (e as Error).message }))} <button class="retry">${t("common.retry")}</button></div>`);

@@ -79,7 +79,7 @@ function upgradeSeg(g: HTMLElement) {
   const key = segKey(g), prev = lastSegIdx.get(key);
   const items = segItems(g), cur = items.findIndex(x => x.classList.contains("on"));
   requestAnimationFrame(() => {
-    if (prev != null && prev !== cur && items[prev] && !reduce()) {
+    if (prev != null && prev !== cur && items[prev] && !reduce() && g.classList.contains("seg-tabs")) {
       // re-rendered page: start where the previous control's thumb was, then glide
       const o = items[prev]; th.classList.add("no-anim"); th.style.opacity = "1";
       th.style.width = `${o.offsetWidth}px`; th.style.height = `${o.offsetHeight}px`; th.style.transform = `translate(${o.offsetLeft}px, ${o.offsetTop}px)`;
@@ -131,8 +131,7 @@ const PUSH_SEL = ".card, [data-drive], [data-charge], [data-report], [data-batte
 export function initUI(view: HTMLElement) {
   document.addEventListener("click", e => {
     const el = e.target as HTMLElement;
-    const mArrow = el.closest(".msw [data-m]") as HTMLButtonElement | null;
-    if (mArrow) { if (!mArrow.disabled) segDir = { dir: mArrow.dataset.dir === "1" ? "segR" : "segL", at: Date.now(), key: "msw" }; return; }
+    if (el.closest(".msw [data-m]")) return;   // the report animates its own month swap
     const segItem = el.closest(".seg-tabs > button, .seg > span") as HTMLElement | null;
     if (segItem) { onSegClick(segItem); return; }
     if (el.closest(".back")) pending = { dir: "pop", at: Date.now() };

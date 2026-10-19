@@ -193,22 +193,38 @@ export function trendsHTML(ms: TM[], cur: string) {
     <div class="pane"><div class="pane-t">${t("tr.mix")}</div>${mixChart(ms, cur)}</div>`;
 }
 
-/** Appends 足迹 + 趋势 to the report body. Returns the created map (for cleanup by the caller). */
-export async function loadReportExtras(body: HTMLElement, carId: number, month: string, setMap: (m: DriveMap | null) => void) {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  body.insertAdjacentHTML("beforeend", `<div id="rp-foot"><div class="section-title">${t("fp.title")}</div><div id="fmap" class="foot-map"><div class="map-ph sk" style="height:100%"></div></div><div class="muted small-note" id="fnote"></div></div>
-    <div id="rp-trends"><div class="section-title">${t("tr.title")}</div><div class="pane"><span class="sk" style="width:100%;height:140px;display:block"></span></div></div>`);
-  const alive = () => document.body.contains(body) && body.querySelector("#rp-foot") != null;
-  api<{ lines: [number, number][][]; points: number; raw_points: number }>(`/api/cars/${carId}/footprint?month=${month}&tz=${encodeURIComponent(tz)}`).then(f => {
-    if (!alive()) return;
-    const el = body.querySelector<HTMLElement>("#fmap")!;
-    if (!f.lines.length) { el.outerHTML = `<div class="chart-empty">${t("fp.none")}</div>`; return; }
-    el.innerHTML = "";
-    const m = new DriveMap(el, { lines: f.lines.map(l => ({ coords: l, speeds: l.map(() => null) })), speedColor: false, noPins: true });
+type Foot = { lines: [number, number][][]; points: number; raw_points: number };
+const footCache = new Map<string, Foot>();
+let trendWin: { car: number; months: TM[] } | null = null;
+let extrasGen = 0;
+/** 足迹 + 趋势 into `box` (persistent across month changes). Cached per month; the 12-month trends are only
+ *  re-highlighted when the month is inside the window already shown (no refetch, no re-entrance). */
+export async function loadReportExtras(box: HTMLElement, carId: number, month: string, setMap: (m: DriveMap | null) => void) {
+  const g = ++extrasGen, tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const alive = () => g === extrasGen && document.body.contains(box);
+  if (!box.querySelector("#rp-foot")) box.innerHTML = `<div id="rp-foot"></div><div id="rp-trends"><div class="section-title">${t("tr.title")}</div><div class="pane"><span class="sk" style="width:100%;height:140px;display:block"></span></div></div>`;
+  const foot = box.querySelector<HTMLElement>("#rp-foot")!, trends = box.querySelector<HTMLElement>("#rp-trends")!;
+  const fkey = `${carId}:${month}`;
+  const drawFoot = (f: Foot) => {
+    if (!f.lines.length) { foot.innerHTML = `<div class="section-title">${t("fp.title")}</div><div class="chart-empty">${t("fp.none")}</div>`; setMap(null); return; }
+    foot.innerHTML = `<div class="section-title">${t("fp.title")}</div><div id="fmap" class="foot-map"></div><div class="muted small-note" id="fnote"></div>`;
+    const m = new DriveMap(foot.querySelector<HTMLElement>("#fmap")!, { lines: f.lines.map(l => ({ coords: l, speeds: l.map(() => null) })), speedColor: false, noPins: true });
     setMap(m);
-    body.querySelector("#fnote")!.textContent = t("fp.note", { n: f.lines.length }) + (f.raw_points > f.points ? t("fp.simplified", { a: n(f.points), b: n(f.raw_points) }) : "");
-  }).catch(e => { const el = body.querySelector("#fmap"); if (el) el.outerHTML = `<div class="error">${esc(t("fp.err", { e: (e as Error).message }))}</div>`; });
-  api<{ months: TM[] }>(`/api/cars/${carId}/trends?month=${month}&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(t => {
-    if (!alive()) return; body.querySelector("#rp-trends")!.innerHTML = trendsHTML(t.months, month);
-  }).catch(e => { const el = body.querySelector("#rp-trends"); if (el) el.innerHTML = `<div class="error">${esc(t("tr.err", { e: (e as Error).message }))}</div>`; });
+    foot.querySelector("#fnote")!.textContent = t("fp.note", { n: f.lines.length }) + (f.raw_points > f.points ? t("fp.simplified", { a: n(f.points), b: n(f.raw_points) }) : "");
+  };
+  const fc = footCache.get(fkey);
+  if (fc) drawFoot(fc);
+  else {
+    foot.innerHTML = `<div class="section-title">${t("fp.title")}</div><div id="fmap" class="foot-map"><div class="map-ph sk" style="height:100%"></div></div><div class="muted small-note" id="fnote"></div>`;
+    api<Foot>(`/api/cars/${carId}/footprint?month=${month}&tz=${encodeURIComponent(tz)}`).then(f => { footCache.set(fkey, f); if (alive()) drawFoot(f); })
+      .catch(e => { if (alive()) foot.innerHTML = `<div class="section-title">${t("fp.title")}</div><div class="error">${esc(t("fp.err", { e: (e as Error).message }))}</div>`; });
+  }
+  if (trendWin && trendWin.car === carId && trendWin.months.some(m => m.month === month)) {
+    trends.innerHTML = trendsHTML(trendWin.months, month);   // same window: just move the highlight
+    return;
+  }
+  if (trends.querySelector("svg")) trends.style.opacity = ".55";
+  api<{ months: TM[] }>(`/api/cars/${carId}/trends?month=${month}&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(r => {
+    if (!alive()) return; trendWin = { car: carId, months: r.months }; trends.style.opacity = ""; trends.innerHTML = trendsHTML(r.months, month);
+  }).catch(e => { if (alive()) { trends.style.opacity = ""; trends.innerHTML = `<div class="error">${esc(t("tr.err", { e: (e as Error).message }))}</div>`; } });
 }
