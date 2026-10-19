@@ -20,7 +20,9 @@ export function popMenu(anchor: HTMLElement, items: MenuItem[], onPick: (v: stri
     `<button role="menuitemradio" aria-checked="${!!i.active}" data-v="${esc(i.value)}" class="${i.active ? "on" : ""}"><span>${esc(i.label)}${i.sub ? `<small>${esc(i.sub)}</small>` : ""}</span><i>${i.active ? ICON.check : ""}</i></button>`).join("");
   document.body.appendChild(m);
   const r = anchor.getBoundingClientRect();
-  m.style.top = `${r.bottom + window.scrollY + 8}px`;
+  const h = m.offsetHeight, below = innerHeight - r.bottom - 90;   // keep clear of the bottom nav
+  if (h > below && r.top - 8 > below) { m.style.top = `${r.top + window.scrollY - 8 - Math.min(h, r.top - 70)}px`; m.style.maxHeight = `${r.top - 78}px`; m.style.transformOrigin = "bottom right"; }
+  else { m.style.top = `${r.bottom + window.scrollY + 8}px`; if (h > below) m.style.maxHeight = `${Math.max(160, below)}px`; }
   m.style.right = `${Math.max(8, document.documentElement.clientWidth - r.right)}px`;
   anchor.classList.add("open"); anchor.setAttribute("aria-expanded", "true");
   const close = () => { m.remove(); anchor.classList.remove("open"); anchor.setAttribute("aria-expanded", "false"); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key); openMenu = null; };

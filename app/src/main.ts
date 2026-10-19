@@ -2,6 +2,7 @@ import "./style.css";
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { ICON, popMenu } from "./toolbar";
+import { initUI } from "./ui";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { batteryCardHTML, showBattery, type Battery } from "./insights";
@@ -697,6 +698,7 @@ window.addEventListener("touchend", e => {
 
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 initBackToTop();
+initUI(view);
 document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => { b.textContent = t(`nav.${b.dataset.tab}` as "nav.home"); });
 document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = e => {
   // re-tapping the active tab (real tap, not a programmatic re-render) scrolls to top / back to newest

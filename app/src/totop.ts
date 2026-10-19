@@ -14,12 +14,12 @@ export function backToTop() {
 
 export function initBackToTop() {
   const b = document.createElement("button");
-  b.className = "totop"; b.setAttribute("aria-label", t("top.top")); b.textContent = "↑"; b.hidden = true;
+  b.className = "totop"; b.setAttribute("aria-label", t("top.top")); b.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5.5M6 11.5l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`; b.tabIndex = -1;
   b.onclick = backToTop;
   document.body.appendChild(b);
   const upd = () => {
     const show = window.scrollY > innerHeight * 1.5 || (peek() && window.scrollY > innerHeight * 0.5);
-    b.hidden = !show; b.title = peek() ? t("top.latest") : t("top.top");
+    b.classList.toggle("show", show); b.tabIndex = show ? 0 : -1; b.setAttribute("aria-hidden", String(!show)); b.title = peek() ? t("top.latest") : t("top.top");
   };
   addEventListener("scroll", upd, { passive: true });
   addEventListener("resize", upd);
