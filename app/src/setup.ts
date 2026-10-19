@@ -6,7 +6,7 @@ import { enterDemo } from "./demo";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
-export const LATEST_SERVER = "0.10.0";
+export const LATEST_SERVER = "0.10.1";
 
 export interface TestResult { ok: boolean; url: string; message: string; warnings: string[]; cars?: number }
 

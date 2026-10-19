@@ -1,4 +1,5 @@
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
+import { skey } from "./demo";
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
 import { DriveMap } from "./map";
 import { t, monthLabel, fmtNum } from "./i18n";
@@ -25,7 +26,7 @@ const FACTORY: { re: RegExp; km: number; label: string }[] = [
   { re: /model\s*y.*(long range|\blr\b|awd)/i, km: 531, label: "Model Y Long Range (EPA 330 mi)" },
   { re: /model\s*y/i, km: 418, label: "Model Y RWD (EPA 260 mi)" },
 ];
-const OV_KEY = "drivelens-battery-baseline";
+const OV_KEY = skey("drivelens-battery-baseline");
 export function baselineOverride(carId: number): number | null {
   try { const v = JSON.parse(localStorage.getItem(OV_KEY) || "{}")[carId]; return typeof v === "number" && v > 0 ? v : null; } catch { return null; }
 }

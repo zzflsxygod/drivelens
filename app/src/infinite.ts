@@ -1,3 +1,4 @@
+import { skey } from "./demo";
 import { setJumpedPeek, setJumpedReset } from "./totop";
 // Infinite list with keyset paging (api_level ≥ 10), sticky month headers, month jump, first-page cache
 // and scroll restore. Older servers: one request with limit=100 (no paging).
@@ -38,7 +39,7 @@ export interface InfOpts<T> {
 const PAGE = 50;
 const ym = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const skRows = () => Array.from({ length: 3 }, () => `<div class="card sk-card"><span class="sk" style="width:70%;height:16px"></span><br><span class="sk" style="width:45%;height:14px"></span><br><span class="sk" style="width:85%;height:14px"></span></div>`).join("");
-const cacheKey = (k: string) => `drivelens-list-${k}`;
+const cacheKey = (k: string) => skey(`drivelens-list-${k}`);
 
 export function infiniteList<T>(o: InfOpts<T>) {
   let st = (o.restore && getState<T>(o.key)) || undefined;

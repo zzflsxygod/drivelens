@@ -1,5 +1,5 @@
 import "./style.css";
-import { isDemo, enterDemo, exitDemo, DEMO_CREDIT } from "./demo";   // first: installs the demo fetch layer before any request
+import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { ICON, popMenu } from "./toolbar";
@@ -418,8 +418,8 @@ type Activity = Pick<Summary, "location" | "last_drive" | "last_charge">;
 type StatsData = Pick<Summary, "stats" | "this_month">;
 interface HomeCache { status?: Status; activity?: Activity; stats?: StatsData; savedAt?: number }
 
-const LAST_CAR_KEY = "drivelens-last-car";
-const homeCacheKey = (id: number) => `drivelens-home-${id}`;
+const LAST_CAR_KEY = skey("drivelens-last-car");   // demo mode has its own namespace
+const homeCacheKey = (id: number) => skey(`drivelens-home-${id}`);
 function readHomeCache(id: number): HomeCache {
   try { return JSON.parse(localStorage.getItem(homeCacheKey(id)) || "{}"); } catch { return {}; }
 }
@@ -431,7 +431,16 @@ function writeHomeCache(id: number, patch: HomeCache) {
 async function currentCarId(): Promise<number | null> {
   if (carSel.value) return Number(carSel.value);
   const last = Number(localStorage.getItem(LAST_CAR_KEY));
-  if (last) { loadCars().then(() => { if ([...carSel.options].some(o => o.value === String(last))) carSel.value = String(last); syncCarPill(); }); return last; }
+  if (last) {
+    loadCars().then(() => {
+      if (!carSel.options.length) return;
+      if ([...carSel.options].some(o => o.value === String(last))) { carSel.value = String(last); syncCarPill(); return; }
+      // the remembered car is not on this server (removed, other server): switch to the first one and re-render
+      localStorage.setItem(LAST_CAR_KEY, carSel.value); syncCarPill();
+      (document.querySelector("nav button.active") as HTMLElement | null)?.click();
+    });
+    return last;
+  }
   await loadCars();
   return carSel.value ? Number(carSel.value) : null;
 }

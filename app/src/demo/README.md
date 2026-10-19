@@ -1,7 +1,7 @@
 # Demo Mode data
 
 Offline demo (app ≥ 0.13.0): every API call goes to `server.ts`, which works out the responses from a dataset that `gen.ts` builds at load time.
-This chunk is lazy-loaded, about 78 KB raw / 32 KB gzip.
+This chunk is lazy-loaded, about 77 KB raw / 32 KB gzip.
 
 - **Car**: "Demo Car". It is fictional, with specs like a Model 3 RWD.
 - **Timeline**: about 92 days ending today (Asia/Tokyo), generated deterministically. Dates shift relative to the current day.

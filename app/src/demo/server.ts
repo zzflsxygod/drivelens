@@ -4,7 +4,7 @@ import { generate, hav, climate, DEMO_CAR_ID, type DB, type DDrive, type DCharge
 
 // Demo always reports the newest server the app knows (set by ../demo.ts from FEATURE_LEVEL / LATEST_SERVER)
 let DEMO_API_LEVEL = 12;
-let DEMO_SERVER_VERSION = "0.10.0";
+let DEMO_SERVER_VERSION = "0.10.1";
 export function configure(level: number, version: string) { DEMO_API_LEVEL = level; DEMO_SERVER_VERSION = version; }
 export const attribution = () => db?.attribution ?? "";
 
@@ -184,7 +184,6 @@ function cursor(q: URLSearchParams): [number | null, number] {
 }
 function list<T extends { start: number; id: number }>(rows: T[], q: URLSearchParams, json: (x: T) => { start_date: string; id: number }) {
   const limit = Math.min(500, Math.max(1, Number(q.get("limit") ?? 50) || 50)), offset = Math.max(0, Number(q.get("offset") ?? 0) || 0);
-  const car = q.get("car_id"); if (car && Number(car) !== DEMO_CAR_ID) return q.get("paged") === "true" ? ok({ items: [], next_cursor: null }) : ok([]);
   const [bt, bid] = cursor(q);
   const out = rows.filter(r => bt == null || r.start < bt || (Math.floor(r.start / 1000) * 1000 === bt && r.id < bid)).sort(byStartDesc).slice(offset, offset + limit).map(json);
   if (q.get("paged") !== "true") return ok(out);
@@ -405,7 +404,7 @@ export function handle(method: string, url: string, body: unknown): Res {
   if (p === "/health" || p === "/api/health") return ok(health());
   if (p === "/api/cars" && M === "GET") return ok(cars());
   if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery)$/))) {
-    if (Number(m[1]) !== DEMO_CAR_ID) return err(404, "car not found");
+    // the demo has a single car: any car id (e.g. one remembered from a real server) is answered as the demo car
     switch (m[2]) { case "status": return ok(status()); case "last-activity": return ok(lastActivity()); case "stats": return stats(q); case "months": return months(q);
       case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); }
   }

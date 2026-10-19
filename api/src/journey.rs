@@ -317,7 +317,7 @@ pub async fn suggestions(State(s): State<AppState>, Query(q): Query<SuggestParam
     let gap = q.gap_min.unwrap_or(60).clamp(1, 24 * 60) * 60;
     let cgap = q.charge_gap_min.unwrap_or(120).clamp(1, 24 * 60) * 60;
     let limit = q.limit.unwrap_or(10).clamp(1, 50) as usize;
-    let car = match q.car_id { Some(c) => c, None => sqlx::query_scalar::<_, i32>("SELECT id FROM cars ORDER BY display_priority, id LIMIT 1")
+    let car = match q.car_id { Some(c) => c, None => sqlx::query_scalar::<_, i32>("SELECT id::int4 FROM cars ORDER BY display_priority, id LIMIT 1")
         .fetch_optional(&s.db).await?.map(i64::from).unwrap_or(0) };
     let mut drives = sqlx::query_as::<_, Drive>(&format!(
         "{} WHERE d.car_id = $1 AND d.end_date IS NOT NULL ORDER BY d.start_date DESC LIMIT 400", drive_select(true)))
