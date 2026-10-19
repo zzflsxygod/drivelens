@@ -50,6 +50,72 @@ export function enhance(root: ParentNode) {
     if (c === "⋯") b.innerHTML = MORE; else if (c === "📤") b.innerHTML = SHARE; else if (c === "⟳") b.innerHTML = REFRESH;
   });
   root.querySelectorAll<HTMLSelectElement>("select:not([data-up]):not(#car)").forEach(upgradeSelect);
+  root.querySelectorAll<HTMLElement>(".seg-tabs:not([data-up]), .seg:not([data-up])").forEach(upgradeSeg);
+}
+
+// ---- segmented controls: sliding thumb ----
+const segItems = (g: HTMLElement) => [...g.children].filter(c => !c.classList.contains("seg-thumb")) as HTMLElement[];
+const segKey = (g: HTMLElement) => g.id || segItems(g).map(i => i.dataset.seg || i.dataset.v).join("|");
+const lastSegIdx = new Map<string, number>();
+let segDir: { dir: "segL" | "segR"; at: number; key: string } | null = null;
+function placeThumb(g: HTMLElement, th: HTMLElement, animate: boolean) {
+  const items = segItems(g), i = items.findIndex(x => x.classList.contains("on"));
+  if (i < 0) { th.style.opacity = "0"; return; }
+  const it = items[i];
+  if (!animate) th.classList.add("no-anim");
+  th.style.opacity = "1"; th.style.width = `${it.offsetWidth}px`; th.style.height = `${it.offsetHeight}px`;
+  th.style.transform = `translate(${it.offsetLeft}px, ${it.offsetTop}px)`;
+  if (!animate) { void th.offsetWidth; th.classList.remove("no-anim"); }
+  lastSegIdx.set(segKey(g), i);
+}
+function upgradeSeg(g: HTMLElement) {
+  g.dataset.up = "1"; g.classList.add("has-thumb");
+  const th = document.createElement("i"); th.className = "seg-thumb"; th.setAttribute("aria-hidden", "true");
+  g.prepend(th);
+  const key = segKey(g), prev = lastSegIdx.get(key);
+  const items = segItems(g), cur = items.findIndex(x => x.classList.contains("on"));
+  requestAnimationFrame(() => {
+    if (prev != null && prev !== cur && items[prev] && !reduce()) {
+      // re-rendered page: start where the previous control's thumb was, then glide
+      const o = items[prev]; th.classList.add("no-anim"); th.style.opacity = "1";
+      th.style.width = `${o.offsetWidth}px`; th.style.height = `${o.offsetHeight}px`; th.style.transform = `translate(${o.offsetLeft}px, ${o.offsetTop}px)`;
+      void th.offsetWidth; th.classList.remove("no-anim");
+      requestAnimationFrame(() => placeThumb(g, th, true));
+    } else placeThumb(g, th, false);
+  });
+  new MutationObserver(rs => { if (rs.some(r => r.target !== th)) placeThumb(g, th, true); }).observe(g, { subtree: true, attributes: true, attributeFilter: ["class"] });
+  new ResizeObserver(() => placeThumb(g, th, false)).observe(g);
+}
+const SEG_TARGET: Record<string, string> = { "rp-seg": "#rp-daily" };
+function onSegClick(item: HTMLElement) {
+  const g = item.parentElement as HTMLElement;
+  const items = segItems(g), to = items.indexOf(item), from = items.findIndex(x => x.classList.contains("on"));
+  if (to < 0 || to === from) return;
+  const dir = to > from ? "segR" : "segL";
+  if (g.classList.contains("seg-tabs")) {
+    segDir = { dir, at: Date.now(), key: segKey(g) };
+    ghostToolbar(g.closest(".list-toolbar"));
+    if (window.scrollY > 0) window.scrollTo(0, 0);   // each segment opens at its top
+  } else {
+    const sel = SEG_TARGET[g.id]; if (!sel) return;
+    setTimeout(() => { const el = document.querySelector<HTMLElement>(sel); if (el) playOn(el, dir); });
+  }
+}
+/** toolbar buttons that vanish on a segment switch fade/scale out as fixed ghosts (no layout jump) */
+function ghostToolbar(tb: Element | null) {
+  if (!tb || reduce()) return;
+  tb.querySelectorAll<HTMLElement>(".tb-right .tb-btn").forEach(b => {
+    const r = b.getBoundingClientRect(), c = b.cloneNode(true) as HTMLElement;
+    c.removeAttribute("id"); c.classList.add("tb-ghost");
+    Object.assign(c.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "950" });
+    document.body.appendChild(c); setTimeout(() => c.remove(), 260);
+    (b as any)._ghost = c;
+  });
+}
+function playOn(el: HTMLElement, kind: string) {
+  if (reduce()) return;
+  el.classList.remove("mv-segL", "mv-segR"); void el.offsetWidth; el.classList.add(`mv-${kind}`);
+  el.addEventListener("animationend", () => el.classList.remove(`mv-${kind}`), { once: true });
 }
 
 // ---- motion ----
@@ -61,6 +127,8 @@ const PUSH_SEL = ".card, [data-drive], [data-charge], [data-report], [data-batte
 export function initUI(view: HTMLElement) {
   document.addEventListener("click", e => {
     const el = e.target as HTMLElement;
+    const segItem = el.closest(".seg-tabs > button, .seg > span") as HTMLElement | null;
+    if (segItem) { onSegClick(segItem); return; }
     if (el.closest(".back")) pending = { dir: "pop", at: Date.now() };
     else if (el.closest("nav button")) pending = { dir: "tab", at: Date.now() };
     else if (el.closest("#view") && el.closest(PUSH_SEL) && !el.closest(".sel-on, .selecting")) pending = { dir: "push", at: Date.now() };
@@ -71,6 +139,12 @@ export function initUI(view: HTMLElement) {
     const replaced = recs.some(r => r.target === view && r.type === "childList" && r.removedNodes.length > 0);
     if (!replaced) return;
     const now = Date.now();
+    if (segDir && now - segDir.at < 1500) {
+      // segment switch: toolbar stays put, the content below slides in from the segment's side
+      [...view.children].forEach(c => { if (!c.classList.contains("list-toolbar")) playOn(c as HTMLElement, segDir!.dir); });
+      view.querySelectorAll<HTMLElement>(".list-toolbar .tb-right .tb-btn").forEach(b => b.classList.add("tb-pop"));
+      segDir = null; lastAnim = now; return;
+    }
     if (pending && now - pending.at < 1500) {
       // a push that only rendered "loading…" and then the real page stays one transition
       if (pending.dir === "push" && view.querySelector(".back") == null && view.children.length <= 1) { play(view, "fade"); return; }

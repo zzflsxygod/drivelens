@@ -445,3 +445,23 @@ button:not(:disabled):active, .tb-btn:active, .car-pill:active, .sel-pill:active
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ===== v0.12.1 segmented thumb + directional swaps ===== */
+.has-thumb { position: relative; isolation: isolate; }
+.seg-thumb { position: absolute; left: 0; top: 0; z-index: -1; border-radius: 12px; background: var(--cardsolid); box-shadow: 0 2px 8px #0000001a;
+  pointer-events: none; opacity: 0; will-change: transform;
+  transition: transform .42s cubic-bezier(.34,1.45,.55,1), width .3s cubic-bezier(.22,.9,.3,1), opacity .2s; }
+:root[data-theme="dark"] .seg-thumb { background: #ffffff22; }
+.seg-thumb.no-anim { transition: none; }
+.has-thumb > button, .has-thumb > span { position: relative; background: transparent !important; box-shadow: none !important; transition: color .25s ease, transform .18s; }
+.has-thumb > :not(.on):not(.seg-thumb) { color: var(--muted); }
+.has-thumb > .on { color: var(--text); }
+.mv-segR { animation: segR .32s cubic-bezier(.22,.9,.3,1); }
+.mv-segL { animation: segL .32s cubic-bezier(.22,.9,.3,1); }
+@keyframes segR { from { opacity: 0; transform: translateX(28px); } }
+@keyframes segL { from { opacity: 0; transform: translateX(-28px); } }
+.tb-pop { animation: tbPop .34s cubic-bezier(.34,1.56,.64,1) both; }
+.tb-pop + .tb-pop { animation-delay: 40ms; }
+@keyframes tbPop { from { opacity: 0; transform: scale(.5); } }
+.tb-ghost { pointer-events: none; animation: tbOut .22s ease-in forwards; }
+@keyframes tbOut { to { opacity: 0; transform: scale(.5); } }
