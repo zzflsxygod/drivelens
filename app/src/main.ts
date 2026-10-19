@@ -1,6 +1,7 @@
 import "./style.css";
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
+import { ICON, popMenu } from "./toolbar";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { batteryCardHTML, showBattery, type Battery } from "./insights";
@@ -130,10 +131,34 @@ function loading() { destroyMap(); view.innerHTML = `<div class="muted">${t("com
 async function loadCars() {
   try {
     const cars = await api<Car[]>("/api/cars");
-    carSel.innerHTML = cars.map(c => `<option value="${c.id}">${esc(c.name || c.marketing_name || `Car ${c.id}`)}</option>`).join("");
-    carSel.hidden = cars.length < 2;
-  } catch { carSel.hidden = true; }
+    carList = cars;
+    const keep = carSel.value;
+    carSel.innerHTML = cars.map(c => `<option value="${c.id}">${esc(carName(c))}</option>`).join("");
+    if (keep && cars.some(c => String(c.id) === keep)) carSel.value = keep;
+    syncCarPill();
+  } catch { carPill.hidden = true; }
 }
+let carList: Car[] = [];
+const carPill = document.getElementById("carpill") as HTMLButtonElement;
+const carName = (c: Car) => c.name || c.marketing_name || `Car ${c.id}`;
+const carSub = (c: Car) => { const m = c.marketing_name || (c.model ? `Model ${c.model}` : ""); return m && m !== carName(c) ? m : ""; };
+function syncCarPill() {
+  const c = carList.find(x => String(x.id) === carSel.value) ?? carList[0];
+  carPill.hidden = !c;
+  if (!c) return;
+  const multi = carList.length > 1;
+  carPill.classList.toggle("single", !multi);
+  carPill.innerHTML = `${ICON.car}<span>${esc(carName(c))}</span>${multi ? ICON.chev : ""}`;
+  carPill.title = carSub(c) || carName(c);
+  carPill.setAttribute("aria-label", carName(c));
+}
+carPill.onclick = () => {
+  if (carList.length < 2) return;
+  popMenu(carPill, carList.map(c => ({ value: String(c.id), label: carName(c), sub: carSub(c), active: String(c.id) === carSel.value })), v => {
+    if (v === carSel.value) return;
+    carSel.value = v; syncCarPill(); carSel.onchange?.(new Event("change"));
+  });
+};
 
 function showDrives() { showDrivesTab(journeyCtx); }
 
@@ -377,7 +402,7 @@ function writeHomeCache(id: number, patch: HomeCache) {
 async function currentCarId(): Promise<number | null> {
   if (carSel.value) return Number(carSel.value);
   const last = Number(localStorage.getItem(LAST_CAR_KEY));
-  if (last) { loadCars().then(() => { if ([...carSel.options].some(o => o.value === String(last))) carSel.value = String(last); }); return last; }
+  if (last) { loadCars().then(() => { if ([...carSel.options].some(o => o.value === String(last))) carSel.value = String(last); syncCarPill(); }); return last; }
   await loadCars();
   return carSel.value ? Number(carSel.value) : null;
 }

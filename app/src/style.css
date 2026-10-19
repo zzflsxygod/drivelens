@@ -357,3 +357,18 @@ body.setup-mode main { padding-bottom: 24px; }
 .tb-menu button:hover { background: #8881; }
 .tb-menu button.on { color: var(--accent); font-weight: 600; background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .tb-menu button i { width: 16px; height: 16px; display: grid; place-items: center; flex: none; }
+
+/* v0.11.2 car selector pill */
+.car-pill { display: inline-flex; align-items: center; gap: 7px; height: 38px; max-width: 52vw; padding: 0 12px 0 11px; margin: 0; width: auto;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); box-shadow: var(--shadow);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: border-color .15s, color .15s; }
+.car-pill[hidden] { display: none; }
+.car-pill > svg:first-child { flex: none; color: var(--accent); }
+.car-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.car-pill > svg:last-child:not(:first-child) { flex: none; opacity: .6; transition: transform .2s; }
+.car-pill.open { border-color: var(--accent); }
+.car-pill.open > svg:last-child { transform: rotate(180deg); }
+.car-pill.single { cursor: default; padding-right: 14px; }
+.tb-menu button > span small { display: block; font-size: 12px; font-weight: 400; opacity: .65; margin-top: 2px; }
+.tb-menu button > span { text-align: left; min-width: 0; }
+header select#car { display: none !important; }
