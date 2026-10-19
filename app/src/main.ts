@@ -560,15 +560,16 @@ async function showHome() {
   // 电池健康 card (api_level ≥ 12)
   serverReady().then(() => {
     if (lacks("insights") || !alive()) return;
-    api<Battery>(`/api/cars/${id}/battery?summary=true`).then(b => {
+    api<Battery>(`/api/cars/${id}/battery?summary=true`).then(async b => {
       if (!alive()) return;
-      sec("battery").innerHTML = batteryCardHTML(b);
+      sec("battery").innerHTML = batteryCardHTML(b, await carInfo(id), id);
       sec("battery").querySelectorAll<HTMLElement>("[data-battery]").forEach(el => el.onclick = () => openBattery(id));
     }).catch(() => { /* optional card */ });
   });
 }
 
-function openBattery(id: number) { destroyMap(); ++homeGen; showBattery(view, id, showHome); window.scrollTo(0, 0); }
+async function carInfo(id: number): Promise<Car | null> { try { return (await api<Car[]>("/api/cars")).find(c => c.id === id) ?? null; } catch { return null; } }
+async function openBattery(id: number) { destroyMap(); ++homeGen; showBattery(view, id, showHome, await carInfo(id)); window.scrollTo(0, 0); }
 
 /** Monthly report (opened from the 首页 month card; back returns to 首页). */
 async function openReport(month: string, carId?: number) {

@@ -1,5 +1,5 @@
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
-import { api, fmtMoney, defaultCurrency } from "./api";
+import { api, fmtMoney, defaultCurrency, type Car } from "./api";
 import { DriveMap } from "./map";
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
@@ -12,15 +12,50 @@ export interface Battery { points: BPoint[]; months: BMonth[]; n_points: number;
   initial_range100_km: number | null; current_range100_km: number | null; retained_pct: number | null;
   capacity_from_range_kwh: number | null; capacity_from_energy_kwh: number | null }
 
-export function batteryCardHTML(b: Battery) {
-  if (!b.n_points || b.retained_pct == null) return `<div class="section-title">🔋 电池健康</div><div class="card" data-battery><div class="muted">充电记录还不够（需要充到 50% 以上的记录）</div></div>`;
-  const pct = b.retained_pct;
+// ----- baseline (100 %) -----
+/** Factory rated full-charge range (km) as reported by Tesla's API when new — EPA figures (TeslaMate "rated").
+ *  Other markets' cars may report a different constant (e.g. some Japanese/Chinese cars show more), hence:
+ *  baseline = user override ?? max(factory value, highest estimate seen in TeslaMate). */
+const FACTORY: { re: RegExp; km: number; label: string }[] = [
+  { re: /model\s*3.*(performance|\bp\b)/i, km: 507, label: "Model 3 Performance（EPA 315 mi）" },
+  { re: /model\s*3.*(long range|\blr\b|awd)/i, km: 576, label: "Model 3 Long Range（EPA 358 mi）" },
+  { re: /model\s*3/i, km: 438, label: "Model 3 RWD（EPA 272 mi）" },
+  { re: /model\s*y.*(performance|\bp\b)/i, km: 488, label: "Model Y Performance（EPA 303 mi）" },
+  { re: /model\s*y.*(long range|\blr\b|awd)/i, km: 531, label: "Model Y Long Range（EPA 330 mi）" },
+  { re: /model\s*y/i, km: 418, label: "Model Y RWD（EPA 260 mi）" },
+];
+const OV_KEY = "drivelens-battery-baseline";
+export function baselineOverride(carId: number): number | null {
+  try { const v = JSON.parse(localStorage.getItem(OV_KEY) || "{}")[carId]; return typeof v === "number" && v > 0 ? v : null; } catch { return null; }
+}
+export function setBaselineOverride(carId: number, km: number | null) {
+  let m: Record<string, number> = {}; try { m = JSON.parse(localStorage.getItem(OV_KEY) || "{}"); } catch { /* reset */ }
+  if (km == null) delete m[carId]; else m[carId] = km;
+  localStorage.setItem(OV_KEY, JSON.stringify(m));
+}
+export interface Baseline { km: number; source: string; raw_pct: number | null; pct: number | null; factory: { km: number; label: string } }
+export function baseline(b: Battery, car: Car | null, carId: number): Baseline | null {
+  const name = `Model ${car?.model ?? "3"} ${car?.marketing_name ?? ""}`;
+  const f = FACTORY.find(x => x.re.test(name)) ?? FACTORY[2];
+  const ov = baselineOverride(carId);
+  const seen = Math.max(b.initial_range100_km ?? 0, b.current_range100_km ?? 0);
+  let km: number, source: string;
+  if (ov) { km = ov; source = `手动设置 ${ov} km`; }
+  else if (seen > f.km) { km = seen; source = `出厂值 ${f.km} km 低于记录到的最高值，按最高值 ${Math.round(seen)} km`; }
+  else { km = f.km; source = `出厂值 ${f.label} ${f.km} km`; }
+  const raw = b.current_range100_km != null ? b.current_range100_km / km * 100 : null;
+  return { km, source, raw_pct: raw == null ? null : Math.round(raw * 10) / 10, pct: raw == null ? null : Math.min(100, Math.round(raw * 10) / 10), factory: f };
+}
+
+export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
+  const bl = baseline(b, car, carId);
+  if (!b.n_points || !bl || bl.pct == null) return `<div class="section-title">🔋 电池健康</div><div class="card" data-battery><div class="muted">充电记录还不够（需要充到 50% 以上的记录）</div></div>`;
   return `<div class="section-title">🔋 电池健康 <a class="link" data-battery>查看衰减曲线 ›</a></div>
     <div class="card bat-card" data-battery>
-      <div class="bat-ring" style="--p:${Math.min(100, pct)}"><b>${n(pct, 1)}<small>%</small></b></div>
-      <div class="bat-info"><div><small>满电续航（估算）</small><b>${n(b.current_range100_km)} km</b><span class="muted"> / 初始 ${n(b.initial_range100_km)} km</span></div>
+      <div class="bat-ring" style="--p:${bl.pct}"><b>${n(bl.pct, 1)}<small>%</small></b></div>
+      <div class="bat-info"><div><small>满电续航（估算）</small><b>${n(b.current_range100_km)} km</b><span class="muted"> / 基准 ${n(bl.km)} km</span></div>
         <div><small>可用容量（估算）</small><b>${n(b.capacity_from_range_kwh, 1)} kWh</b></div>
-        <div class="muted small-note">基于 ${b.n_points} 次充电${b.first_date ? ` · 自 ${b.first_date.slice(0, 7)}` : ""}</div></div>
+        <div class="muted small-note">${b.first_date ? `数据自 ${b.first_date.slice(0, 7)} 起记录 · ` : ""}${b.n_points} 次充电<br>基准：${esc(bl.source)}</div></div>
     </div>`;
 }
 
@@ -38,7 +73,7 @@ function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
   const sorted = [...ys].sort((a, b) => a - b), q = (f: number) => sorted[Math.floor(f * (sorted.length - 1))];
-  let lo = Math.min(q(0.02), ...med.map(m => m.y)), hi = Math.max(q(0.98), ...med.map(m => m.y), o.ref ?? -Infinity);
+  let lo = Math.min(q(0.02), ...med.map(m => m.y), o.ref ?? Infinity), hi = Math.max(q(0.98), ...med.map(m => m.y), o.ref ?? -Infinity);
   const pad = Math.max(2, (hi - lo) * 0.12); lo = Math.floor(lo - pad); hi = Math.ceil(hi + pad);
   const X = (x: number) => L + iw * (x1 > x0 ? (x - x0) / (x1 - x0) : 0.5), Y = (y: number) => T + ih * (1 - (y - lo) / (hi - lo));
   let g = "";
@@ -48,21 +83,23 @@ function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[
   const mline = med.length > 1 ? `<path d="${med.map((m, i) => `${i ? "L" : "M"}${X(m.x).toFixed(1)},${Y(m.y).toFixed(1)}`).join("")}" class="bmed"/>` : "";
   const f = fit(xs, ys);
   const tl = f ? `<line x1="${X(x0)}" y1="${Y(f.a + f.b * x0)}" x2="${X(x1)}" y2="${Y(f.a + f.b * x1)}" class="btrend"/>` : "";
-  return `<div class="chart-box"><svg viewBox="0 0 ${W} ${H}" width="100%">${g}${dots}${mline}${tl}</svg>
+  const rl = o.ref != null ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" class="bref"/><text x="${W - R}" y="${Y(o.ref) - 4}" text-anchor="end" class="ct">基准 ${Math.round(o.ref)}</text>` : "";
+  return `<div class="chart-box"><svg viewBox="0 0 ${W} ${H}" width="100%">${g}${rl}${dots}${mline}${tl}</svg>
     <div class="legend"><span><i class="lg-dot"></i>单次充电</span><span><i class="lg-med"></i>月中位数</span><span><i class="lg-trend"></i>趋势线</span>${o.yUnit ? `<span>${o.yUnit}</span>` : ""}</div></div>`;
 }
 
-export async function showBattery(view: HTMLElement, carId: number, back: () => void) {
+export async function showBattery(view: HTMLElement, carId: number, back: () => void, car: Car | null = null) {
   view.innerHTML = `<button class="back">← 返回</button><h2>🔋 电池衰减</h2><div class="muted">加载中…</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   let b: Battery;
   try { b = await api<Battery>(`/api/cars/${carId}/battery`); }
   catch (e) { view.insertAdjacentHTML("beforeend", `<div class="error">⚠️ ${esc((e as Error).message)}</div>`); return; }
+  const bl = baseline(b, car, carId)!;
   const t = (d: string) => new Date(d).getTime(), day = 864e5;
   const pts = b.points.map(p => ({ x: t(p.date), y: p.range100_km }));
   const med = b.months.map(m => ({ x: t(m.month + "-15T00:00:00Z"), y: m.range100_km }));
   const f = fit(pts.map(p => p.x / day / 365), pts.map(p => p.y));
-  const perYear = f && b.initial_range100_km ? f.b / b.initial_range100_km * 100 : null;
+  const perYear = f ? f.b / bl.km * 100 : null;
   const odo = b.points.filter(p => p.odometer_km != null).map(p => ({ x: p.odometer_km!, y: p.range100_km }));
   const odoMed = b.months.filter(m => m.odometer_km != null).map(m => ({ x: m.odometer_km!, y: m.range100_km }));
   const capPts = b.points.filter(p => p.capacity_kwh != null && p.capacity_kwh > 20 && p.capacity_kwh < 150).map(p => ({ x: t(p.date), y: p.capacity_kwh! }));
@@ -71,17 +108,29 @@ export async function showBattery(view: HTMLElement, carId: number, back: () => 
   const odoSpan = odo.length ? Math.max(...odo.map(p => p.x)) - Math.min(...odo.map(p => p.x)) : 0;
   view.innerHTML = `<button class="back">← 返回</button><h2>🔋 电池衰减</h2>
     <div class="ov">
-      <div><small>保持率</small><b>${n(b.retained_pct, 1)}<i>%</i></b><div class="d neu">当前 / 初始满电续航</div></div>
-      <div><small>满电续航（估算）</small><b>${n(b.current_range100_km)}<i>km</i></b><div class="d neu">初始 ${n(b.initial_range100_km)} km</div></div>
+      <div><small>保持率</small><b>${n(bl.pct, 1)}<i>%</i></b><div class="d neu">当前 / 基准 ${n(bl.km)} km${bl.raw_pct != null && bl.raw_pct > 100 ? `（实算 ${n(bl.raw_pct, 1)}%）` : ""}</div></div>
+      <div><small>满电续航（估算）</small><b>${n(b.current_range100_km)}<i>km</i></b><div class="d neu">记录初期 ${n(b.initial_range100_km)} km</div></div>
       <div><small>可用容量（续航 × 能耗系数）</small><b>${n(b.capacity_from_range_kwh, 1)}<i>kWh</i></b></div>
       <div><small>每年变化（趋势）</small><b class="${perYear != null && perYear < 0 ? "dn" : ""}">${perYear == null ? "—" : `${perYear > 0 ? "+" : ""}${n(perYear, 1)}`}<i>%/年</i></b></div>
     </div>
-    <div class="section-title">满电续航 · 随时间</div>${scatter(pts, med, { xLabel: ym, yUnit: "km" })}
+    <div class="pane bl-box"><div class="pane-t">100% 基准</div>
+      <div class="muted">${esc(bl.source)}${b.first_date ? ` · TeslaMate 数据自 ${b.first_date.slice(0, 7)} 起` : ""}</div>
+      <div class="bl-row"><input id="bl-km" type="number" min="100" max="1000" step="1" placeholder="新车时 100% 显示的续航（km）" value="${baselineOverride(carId) ?? ""}">
+        <button id="bl-save" class="primary small">保存</button>${baselineOverride(carId) ? `<button id="bl-reset" class="ghost small">恢复默认</button>` : ""}</div>
+      <div class="muted small-note">默认用出厂额定值（${esc(bl.factory.label)} ${bl.factory.km} km，EPA 口径）；若记录到的值更高则用记录值。知道新车时充满显示的续航，可以在这里填写（只保存在本机）。</div></div>
+    <div class="section-title">满电续航 · 随时间</div>${scatter(pts, med, { xLabel: ym, yUnit: "km", ref: bl.km })}
     <div class="section-title">满电续航 · 随里程</div>${odoSpan > 100 ? scatter(odo, odoMed, { xLabel: x => `${n(x / 1000, 0)}k km`, yUnit: "km" }) : `<div class="chart-empty">里程数据不足</div>`}
     <div class="section-title">容量估算（充入电量 ÷ 充电百分比）</div>${capPts.length > 2 ? scatter(capPts, capMed, { xLabel: ym, yUnit: "kWh" }) : `<div class="chart-empty">需要单次充电 ≥ 30% 的记录</div>`}
     <div class="muted small-note">满电续航 = 充电结束时的额定续航 ÷ 电量百分比 × 100，只用结束电量 ≥ 50% 的充电；初始 / 当前 = 最早 / 最近 10 次的中位数。
       容量估算包含充电损耗，通常偏高几个 kWh${b.capacity_from_energy_kwh ? `（最近：${n(b.capacity_from_energy_kwh, 1)} kWh）` : ""}。温度、BMS 校准都会让数值波动，看趋势比看单点更有意义。</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
+  const again = () => showBattery(view, carId, back, car);
+  (view.querySelector("#bl-save") as HTMLElement).onclick = () => {
+    const v = Number((view.querySelector("#bl-km") as HTMLInputElement).value);
+    if (!(v >= 100 && v <= 1000)) return alert("请输入 100–1000 之间的公里数");
+    setBaselineOverride(carId, Math.round(v)); again();
+  };
+  const rs = view.querySelector<HTMLElement>("#bl-reset"); if (rs) rs.onclick = () => { setBaselineOverride(carId, null); again(); };
 }
 
 // ---------------- report: footprint + trends ----------------
