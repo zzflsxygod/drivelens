@@ -495,3 +495,32 @@ html { scrollbar-gutter: auto; overflow-x: hidden; }
 .page-head .ph-title { flex: 0 1 auto; margin: 0 auto; padding: 0 18px; border: 1px solid var(--line); box-shadow: var(--shadow);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); background: #ffffffcc; }
 :root[data-theme="dark"] .page-head .ph-title { background: #1a1c2bcc; }
+
+/* ===== v0.12.5 consistent vertical rhythm ===== */
+.ov { margin-bottom: 14px; }
+.ov + .muted { margin-top: -6px; margin-bottom: 12px; }
+.ov > div { padding: 14px; line-height: 1.35; }
+.ov > div small { margin-bottom: 4px; }
+.ov .d { margin-top: 4px; font-size: 12px; line-height: 1.4; }
+.pane { margin-bottom: 14px; line-height: 1.45; }
+.section-title { margin: 22px 4px 10px; }
+.ov + .section-title, .pane + .section-title { margin-top: 22px; }
+.chart-box, .chart-empty { margin-bottom: 4px; }
+.small-note { line-height: 1.5; }
+.bat-method { margin-top: 14px; }
+/* battery baseline card */
+.bl-box { padding: 16px; }
+.bl-box .pane-t { font-size: 15px; margin-bottom: 4px; }
+.bl-src { font-size: 12.5px; line-height: 1.5; }
+.bl-row { margin-top: 12px; gap: 10px; align-items: stretch; }
+.bl-row input { height: 44px; box-sizing: border-box; padding: 0 14px; min-width: 0; }
+.bl-row button { height: 44px; margin: 0; padding: 0 18px; white-space: nowrap; flex: none; display: inline-flex; align-items: center; }
+.bl-more { margin-top: 10px; }
+.bl-more summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--accent); list-style: none; display: inline-flex; align-items: center; gap: 4px; }
+.bl-more summary::-webkit-details-marker { display: none; }
+.bl-more summary::after { content: "›"; display: inline-block; transition: transform .2s; font-size: 15px; line-height: 1; }
+.bl-more[open] summary::after { transform: rotate(90deg); }
+.bl-more .small-note { margin-top: 6px; font-size: 12px; }
+.card { margin-bottom: 12px; }
+.page-head .ph-spacer { flex: 0 1 42px; min-width: 0; } .page-head .ph-title { font-size: 16px; padding: 0 14px; }
+.page-head .ph-spacer { flex: 0 1000 42px; }

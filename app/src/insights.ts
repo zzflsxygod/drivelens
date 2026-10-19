@@ -115,14 +115,14 @@ export async function showBattery(view: HTMLElement, carId: number, back: () => 
       <div><small>${t("bat.perYear")}</small><b class="${perYear != null && perYear < 0 ? "dn" : ""}">${perYear == null ? "—" : `${perYear > 0 ? "+" : ""}${n(perYear, 1)}`}<i>${t("bat.perYearUnit")}</i></b></div>
     </div>
     <div class="pane bl-box"><div class="pane-t">${t("bat.base100")}</div>
-      <div class="muted">${esc(bl.source)}${b.first_date ? t("bat.tmSince", { m: monthLabel(b.first_date) }) : ""}</div>
+      <div class="muted bl-src">${esc(bl.source)}${b.first_date ? t("bat.tmSince", { m: monthLabel(b.first_date) }) : ""}</div>
       <div class="bl-row"><input id="bl-km" type="number" min="100" max="1000" step="1" placeholder="${t("bat.basePh")}" value="${baselineOverride(carId) ?? ""}">
         <button id="bl-save" class="primary small">${t("common.save")}</button>${baselineOverride(carId) ? `<button id="bl-reset" class="ghost small">${t("bat.reset")}</button>` : ""}</div>
-      <div class="muted small-note">${esc(t("bat.baseHint", { label: bl.factory.label, km: bl.factory.km }))}</div></div>
+      <details class="bl-more"><summary>${t("common.details")}</summary><div class="muted small-note">${esc(t("bat.baseHint", { label: bl.factory.label, km: bl.factory.km }))}</div></details></div>
     <div class="section-title">${t("bat.overTime")}</div>${scatter(pts, med, { xLabel: ym, yUnit: "km", ref: bl.km })}
     <div class="section-title">${t("bat.overOdo")}</div>${odoSpan > 100 ? scatter(odo, odoMed, { xLabel: x => `${n(x / 1000, 0)}k km`, yUnit: "km" }) : `<div class="chart-empty">${t("bat.noOdo")}</div>`}
     <div class="section-title">${t("bat.capEst")}</div>${capPts.length > 2 ? scatter(capPts, capMed, { xLabel: ym, yUnit: "kWh" }) : `<div class="chart-empty">${t("bat.needBig")}</div>`}
-    <div class="muted small-note">${t("bat.method")}
+    <div class="muted small-note bat-method">${t("bat.method")}
       ${t("bat.method2", { recent: b.capacity_from_energy_kwh ? t("bat.recent", { v: n(b.capacity_from_energy_kwh, 1) }) : "" })}</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   const again = () => showBattery(view, carId, back, car);
