@@ -1,5 +1,6 @@
 // Server version / API level check. Never throws; features degrade instead of crashing.
 import { loadSettings } from "./api";
+import { t } from "./i18n";
 
 export const APP_VERSION: string = __APP_VERSION__;
 /** Lowest API level this app works with at all (split home endpoints). */
@@ -48,17 +49,17 @@ async function doCheck(): Promise<ServerInfo> {
 
 /** Known to be unsupported by the server → hide/disable the entry point. Unknown level → optimistic (404s handled). */
 export const lacks = (f: Feature) => info.level != null && info.level < FEATURE_LEVEL[f];
-const have = () => info.state === "ok" ? `v${info.version ?? "?"}` : info.state === "legacy" ? "旧版（无版本信息）" : "未知";
+const have = () => info.state === "ok" ? `v${info.version ?? "?"}` : info.state === "legacy" ? t("ver.legacy") : t("ver.unknown");
 const need = (lv: number) => `v${LEVEL_VERSION[lv] ?? "?"}+`;
-export const tooOldText = (lv: number) => `服务器正在更新或版本过旧（服务器 ${have()}，需要 ${need(lv)}），请稍后再试`;
+export const tooOldText = (lv: number) => t("ver.tooOld", { have: have(), need: need(lv) });
 export const featureText = (f: Feature) => tooOldText(FEATURE_LEVEL[f]);
 /** Global banner: unreachable, or older than the app's minimum. */
 export function globalBanner(): string | null {
-  if (info.state === "unreachable") return "服务器正在更新或暂时无法连接，请稍后再试";
+  if (info.state === "unreachable") return t("ver.unreachable");
   if (info.state === "ok" && (info.level ?? 0) < MIN_API_LEVEL) return tooOldText(MIN_API_LEVEL);
   return null;
 }
 export function serverLabel() {
-  return info.state === "ok" ? `v${info.version ?? "?"}（API level ${info.level}）` : info.state === "legacy" ? "旧版（v0.5.1 之前，无版本信息）"
-    : info.state === "unreachable" ? "无法连接" : "检查中…";
+  return info.state === "ok" ? t("ver.label", { v: info.version ?? "?", l: info.level ?? "?" }) : info.state === "legacy" ? t("ver.legacyLong")
+    : info.state === "unreachable" ? t("ver.cannotConnect") : t("common.checking");
 }

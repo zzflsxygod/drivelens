@@ -1,6 +1,7 @@
-// 旅程第二期 (api_level 11): cover image, share card, weather per drive, energy by speed band.
+// Journeys phase 2 (api_level 11): cover image, share card, weather per drive, energy by speed band.
 import { api, fmtMoney } from "./api";
 import type { DriveMap } from "./map";
+import { t, currentLang, fmtDateTime } from "./i18n";
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const n = (v: number | null | undefined, d = 1) => v == null ? "—" : v.toFixed(d);
@@ -33,7 +34,7 @@ export async function mapSnapshot(m: DriveMap | null, maxW = 1080, q = 0.82): Pr
 export async function photoToCover(file: File, maxEdge = 1600, maxBytes = 500_000): Promise<string> {
   let bmp: ImageBitmap;
   try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); }
-  catch { throw new Error("无法读取这张图片（支持 JPEG / PNG / WebP 等常见格式）"); }
+  catch { throw new Error(t("j2.badImage")); }
   const sc = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
   let w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
   const enc = (q: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -59,7 +60,7 @@ export const weatherChip = (w: DWeather | undefined) => !w || w.temp_c == null ?
 export function weatherTable(drives: { id: number; start_date: string; distance_km: number | null; efficiency_wh_km: number | null }[], ws: DWeather[]) {
   const byId = new Map(ws.map(w => [w.drive_id, w]));
   const rows = drives.filter(d => (d.distance_km ?? 0) >= 1);
-  if (!rows.length) return `<div class="muted small-note">没有可分析的行程</div>`;
+  if (!rows.length) return `<div class="muted small-note">${t("j2.noDrives")}</div>`;
   const max = Math.max(...rows.map(d => d.efficiency_wh_km ?? 0), 1);
   const temps = rows.map(d => byId.get(d.id)?.temp_c).filter((t): t is number => t != null);
   // simple read-out: efficiency in the colder vs warmer half
@@ -69,30 +70,32 @@ export function weatherTable(drives: { id: number; start_date: string; distance_
     const avg = (f: (t: number) => boolean) => { const a = rows.filter(d => { const t = byId.get(d.id)?.temp_c; return t != null && f(t); });
       const km = a.reduce((s, d) => s + (d.distance_km ?? 0), 0); return km ? a.reduce((s, d) => s + (d.efficiency_wh_km ?? 0) * (d.distance_km ?? 0), 0) / km : null; };
     const lo = avg(t => t < med), hi = avg(t => t >= med);
-    if (lo != null && hi != null) insight = `<div class="muted small-note">低于 ${n(med, 0)}°C 的行程平均 ${n(lo, 0)} Wh/km，其余 ${n(hi, 0)} Wh/km</div>`;
+    if (lo != null && hi != null) insight = `<div class="muted small-note">${t("j2.wxInsight", { t: n(med, 0), lo: n(lo, 0), hi: n(hi, 0) })}</div>`;
   }
   return `<div class="wx-table">${rows.map(d => { const w = byId.get(d.id); const e = d.efficiency_wh_km;
     const rain = w?.precip_mm != null && w.precip_mm >= 0.1;
-    return `<div class="wx-row"><span class="wx-t">${new Date(d.start_date).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+    return `<div class="wx-row"><span class="wx-t">${fmtDateTime(d.start_date)}</span>
       <span class="wx-w">${w?.temp_c != null ? `${rain ? "🌧" : "🌤"} ${n(w.temp_c, 0)}°C${rain ? ` ${n(w.precip_mm, 1)}mm` : ""}` : "—"}</span>
       <span class="wx-bar"><i style="width:${e != null && e > 0 ? Math.max(4, e / max * 100) : 0}%"></i></span><b>${n(e, 0)}</b></div>`; }).join("")}</div>${insight}
-    <div class="muted small-note">天气：行程出发时刻、出发地附近（Open-Meteo）。单位 Wh/km</div>`;
+    <div class="muted small-note">${t("j2.wxNote")}</div>`;
 }
 
 // ---------------- speed bands ----------------
 export async function loadBands(id: number) { return api<{ bands: Band[]; method: string }>(`/api/journeys/${id}/speed-bands`); }
 const BAND_COLOR: Record<string, string> = { city: "#fc8d59", suburb: "#e0b400", highway: "#1a9850" };
+/** Localized from the band key (the server's Chinese label is only a fallback for unknown keys). */
+const bandLabel = (b: Band) => b.key in BAND_COLOR ? t(`band.${b.key}` as "band.city") : b.label;
 export function bandsHTML(r: { bands: Band[]; method: string }) {
   const tot = r.bands.reduce((a, b) => a + b.distance_km, 0);
-  if (tot < 0.5) return `<div class="muted small-note">没有足够的轨迹数据</div>`;
+  if (tot < 0.5) return `<div class="muted small-note">${t("j2.noTrack")}</div>`;
   const maxE = Math.max(...r.bands.map(b => b.wh_km ?? 0), 1);
-  const share = `<div class="band-share">${r.bands.filter(b => b.share > 0).map(b => `<i style="width:${b.share}%;background:${BAND_COLOR[b.key]}" title="${b.label} ${b.share}%"></i>`).join("")}</div>`;
+  const share = `<div class="band-share">${r.bands.filter(b => b.share > 0).map(b => `<i style="width:${b.share}%;background:${BAND_COLOR[b.key]}" title="${bandLabel(b)} ${b.share}%"></i>`).join("")}</div>`;
   return share + r.bands.map(b => `<div class="band-row">
-      <span class="band-l"><i style="background:${BAND_COLOR[b.key]}"></i>${b.label}<small>${b.key === "city" ? "&lt;40" : b.key === "suburb" ? "40–80" : "&gt;80"} km/h</small></span>
+      <span class="band-l"><i style="background:${BAND_COLOR[b.key]}"></i>${bandLabel(b)}<small>${b.key === "city" ? "&lt;40" : b.key === "suburb" ? "40–80" : "&gt;80"} km/h</small></span>
       <span class="band-d">${n(b.distance_km, 0)} km<small>${n(b.share, 0)}% · ${n(b.energy_kwh, 1)} kWh</small></span>
       <span class="band-e"><span class="band-bar"><i style="width:${b.wh_km ? b.wh_km / maxE * 100 : 0}%;background:${BAND_COLOR[b.key]}"></i></span><b>${b.wh_km ?? "—"}</b><small>Wh/km</small></span>
     </div>`).join("") +
-    `<div class="muted small-note">按相邻轨迹点的平均车速分档；${r.method === "power" ? "能耗按功率积分" : r.method === "mixed" ? "能耗按功率积分（缺失部分按里程估算）" : "没有功率数据，能耗按里程估算"}，并校准到每段行程的总耗电。</div>`;
+    `<div class="muted small-note">${t("j2.bandNote", { m: r.method === "power" ? t("j2.mPower") : r.method === "mixed" ? t("j2.mMixed") : t("j2.mDist") })}</div>`;
 }
 
 // ---------------- share card ----------------
@@ -133,14 +136,15 @@ export async function renderCard(d: CardData, dark: boolean): Promise<HTMLCanvas
     }
   }
   const grd = g.createLinearGradient(0, MH - 140, 0, MH); grd.addColorStop(0, bg + "00"); grd.addColorStop(1, bg); g.fillStyle = grd; g.fillRect(0, MH - 140, W, 140);
-  const font = (sz: number, w = 400) => `${w} ${sz}px -apple-system, "PingFang SC", "Microsoft YaHei", "Yu Gothic UI", "Noto Sans CJK SC", sans-serif`;
-  const fit = (t: string, max: number) => { let s = t; while (g.measureText(s).width > max && s.length > 1) s = s.slice(0, -2) + "…"; return s; };
+  const fam = currentLang() === "ja" ? `"Hiragino Sans", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", "PingFang SC", sans-serif` : `"PingFang SC", "Microsoft YaHei", "Yu Gothic UI", "Noto Sans CJK SC", sans-serif`;
+  const font = (sz: number, w = 400) => `${w} ${sz}px -apple-system, ${fam}`;
+  const fit = (str: string, max: number) => { let s = str; while (g.measureText(s).width > max && s.length > 1) s = s.slice(0, -2) + "…"; return s; };
   g.textBaseline = "alphabetic";
   g.fillStyle = fg; g.font = font(64, 700); g.fillText(fit(d.title, W - 120), 60, MH + 50);
-  g.fillStyle = mu; g.font = font(32); g.fillText(fit(`${d.dateText} · ${d.days} 天 · ${d.drives} 段行程${d.charges ? ` · 充电 ${d.charges} 次` : ""}`, W - 120), 60, MH + 106);
+  g.fillStyle = mu; g.font = font(32); g.fillText(fit(t("card.meta", { date: d.dateText, days: d.days, drives: d.drives }) + (d.charges ? t("card.metaCharges", { n: d.charges }) : ""), W - 120), 60, MH + 106);
   g.fillText(fit(`${d.from} → ${d.to}`, W - 120), 60, MH + 152);
   const cost = d.costs.length ? d.costs.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—";
-  const cells: [string, string, string][] = [["里程", n(d.distance_km, 0), "km"], ["耗电", n(d.energy_kwh, 1), "kWh"], ["能耗", n(d.wh_km, 0), "Wh/km"], ["充电费用", cost, ""]];
+  const cells: [string, string, string][] = [[t("card.distance"), n(d.distance_km, 0), "km"], [t("card.used"), n(d.energy_kwh, 1), "kWh"], [t("card.eff"), n(d.wh_km, 0), "Wh/km"], [t("card.cost"), cost, ""]];
   const cw = (W - 120) / 4, top = MH + 210;
   cells.forEach(([k, v, u], i) => {
     const x = 60 + i * cw;
@@ -159,12 +163,12 @@ export function shareDialog(canvas: HTMLCanvasElement, fileName: string) {
   const dlg = document.createElement("div"); dlg.className = "modal";
   const url = canvas.toDataURL("image/png");
   const canShare = typeof navigator.canShare === "function";
-  dlg.innerHTML = `<div class="sheet share-sheet"><h3>分享卡片</h3><img class="share-img" src="${url}" alt="分享卡片">
+  dlg.innerHTML = `<div class="sheet share-sheet"><h3>${t("share.title")}</h3><img class="share-img" src="${url}" alt="${t("share.title")}">
     <div id="shmsg" class="muted"></div>
-    <div class="btns"><button id="sh-close" class="ghost">关闭</button><button id="sh-copy" class="ghost">复制图片</button>
-      ${canShare ? `<button id="sh-share" class="ghost">分享…</button>` : ""}<button id="sh-save" class="primary small">保存图片</button></div></div>`;
+    <div class="btns"><button id="sh-close" class="ghost">${t("common.close")}</button><button id="sh-copy" class="ghost">${t("share.copy")}</button>
+      ${canShare ? `<button id="sh-share" class="ghost">${t("share.share")}</button>` : ""}<button id="sh-save" class="primary small">${t("share.save")}</button></div></div>`;
   document.body.appendChild(dlg);
-  const msg = (t: string) => { dlg.querySelector("#shmsg")!.textContent = t; };
+  const msg = (s: string) => { dlg.querySelector("#shmsg")!.textContent = s; };
   const blob = () => new Promise<Blob>((ok, no) => canvas.toBlob(b => b ? ok(b) : no(new Error("toBlob failed")), "image/png"));
   const close = () => dlg.remove();
   dlg.onclick = e => { if (e.target === dlg) close(); };
@@ -172,17 +176,17 @@ export function shareDialog(canvas: HTMLCanvasElement, fileName: string) {
   (dlg.querySelector("#sh-save") as HTMLElement).onclick = async () => {
     const b = await blob(); const u = URL.createObjectURL(b);
     const a = document.createElement("a"); a.href = u; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(u), 10000); msg(`已保存为 ${fileName}（下载文件夹）`);
+    setTimeout(() => URL.revokeObjectURL(u), 10000); msg(t("share.saved", { f: fileName }));
   };
   (dlg.querySelector("#sh-copy") as HTMLElement).onclick = async () => {
-    try { await navigator.clipboard.write([new ClipboardItem({ "image/png": blob() })]); msg("已复制到剪贴板，可以直接粘贴到聊天软件"); }
-    catch (e) { msg(`复制失败：${(e as Error).message}`); }
+    try { await navigator.clipboard.write([new ClipboardItem({ "image/png": blob() })]); msg(t("share.copied")); }
+    catch (e) { msg(t("share.copyFail", { e: (e as Error).message })); }
   };
   const sh = dlg.querySelector<HTMLElement>("#sh-share");
   if (sh) sh.onclick = async () => {
     try { const f = new File([await blob()], fileName, { type: "image/png" });
-      if (!navigator.canShare({ files: [f] })) return msg("此设备不支持直接分享图片，请用「保存图片」或「复制图片」");
+      if (!navigator.canShare({ files: [f] })) return msg(t("share.noShare"));
       await navigator.share({ files: [f], title: fileName }); }
-    catch (e) { if ((e as Error).name !== "AbortError") msg(`分享失败：${(e as Error).message}`); }
+    catch (e) { if ((e as Error).name !== "AbortError") msg(t("share.fail", { e: (e as Error).message })); }
   };
 }

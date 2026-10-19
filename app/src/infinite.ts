@@ -2,6 +2,8 @@ import { setJumpedPeek, setJumpedReset } from "./totop";
 // Infinite list with keyset paging (api_level ≥ 10), sticky month headers, month jump, first-page cache
 // and scroll restore. Older servers: one request with limit=100 (no paging).
 import { api } from "./api";
+import { t, monthLabel } from "./i18n";
+export { monthLabel };
 
 export interface MonthRow { month: string; drive_count: number; distance_km: number; duration_min: number; charge_count: number; energy_added_kwh: number }
 interface Page<T> { items: T[]; next_cursor: string | null }
@@ -32,7 +34,6 @@ export interface InfOpts<T> {
 
 const PAGE = 50;
 const ym = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-export const monthLabel = (m: string) => `${m.slice(0, 4)}年${Number(m.slice(5))}月`;
 const skRows = () => Array.from({ length: 3 }, () => `<div class="card sk-card"><span class="sk" style="width:70%;height:16px"></span><br><span class="sk" style="width:45%;height:14px"></span><br><span class="sk" style="width:85%;height:14px"></span></div>`).join("");
 const cacheKey = (k: string) => `drivelens-list-${k}`;
 
@@ -45,7 +46,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
   }
   const S = st;
   const root = o.container;
-  root.innerHTML = `<div class="list-head"><select id="mjump" class="mjump" aria-label="跳到月份"><option value="">最新</option></select></div>
+  root.innerHTML = `<div class="list-head"><select id="mjump" class="mjump" aria-label="${t("list.jump")}"><option value="">${t("list.latest")}</option></select></div>
     <div id="newer"></div><div id="items"></div><div id="sentinel"></div><div id="list-end"></div>`;
   const itemsEl = root.querySelector<HTMLElement>("#items")!, endEl = root.querySelector<HTMLElement>("#list-end")!;
   const sentinel = root.querySelector<HTMLElement>("#sentinel")!, jump = root.querySelector<HTMLSelectElement>("#mjump")!;
@@ -71,9 +72,9 @@ export function infiniteList<T>(o: InfOpts<T>) {
     const m = h.dataset.month!; h.innerHTML = o.header(m, monthOf(m), S.items.filter(x => ym(o.dateOf(x)) === m));
   });
   const renderEnd = () => {
-    endEl.innerHTML = S.done ? (S.items.length ? `<div class="list-end">没有更早的记录了</div>` : `<div class="muted">${o.empty}</div>`) : skRows();
+    endEl.innerHTML = S.done ? (S.items.length ? `<div class="list-end">${t("list.end")}</div>` : `<div class="muted">${o.empty}</div>`) : skRows();
     root.querySelector<HTMLElement>("#newer")!.innerHTML = S.jumpedTo
-      ? `<button class="ghost small newer-btn">↑ 显示 ${monthLabel(S.jumpedTo)} 之后的记录</button>` : "";
+      ? `<button class="ghost small newer-btn">${t("list.newer", { m: monthLabel(S.jumpedTo) })}</button>` : "";
     const nb = root.querySelector<HTMLElement>(".newer-btn"); if (nb) nb.onclick = () => reset(null);
   };
 
@@ -100,7 +101,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
       if (!S.months) refreshHeaders();
       renderEnd();
     } catch (e) {
-      endEl.innerHTML = `<div class="error card-error">⚠️ ${String((e as Error).message).replace(/[<>&]/g, "")} <button class="retry">重试</button></div>`;
+      endEl.innerHTML = `<div class="error card-error">⚠️ ${String((e as Error).message).replace(/[<>&]/g, "")} <button class="retry">${t("common.retry")}</button></div>`;
       (endEl.querySelector(".retry") as HTMLElement).onclick = () => { endEl.innerHTML = skRows(); loadMore(); };
     } finally { loading = false; }
     // keep filling if the sentinel is still visible
@@ -118,7 +119,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
   // month picker + totals
   const fillJump = () => {
     const ms = S.months?.map(m => m.month) ?? [...new Set(S.items.map(x => ym(o.dateOf(x))))];
-    jump.innerHTML = `<option value="">最新</option>` + ms.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join("");
+    jump.innerHTML = `<option value="">${t("list.latest")}</option>` + ms.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join("");
     jump.value = S.jumpedTo ?? "";
   };
   jump.onchange = () => reset(jump.value || null);

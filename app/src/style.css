@@ -328,3 +328,7 @@ body.setup-mode main { padding-bottom: 24px; }
 .setup-card .chk-row input { display: inline; width: auto; margin: 0 6px 0 0; }
 .setup-card .small { font-size: 12px; margin-top: 14px; }
 .warn { background: #f5a62322; color: #b7791f; padding: 10px 12px; border-radius: 14px; margin-top: 8px; font-size: 13px; }
+.setup-card { position: relative; }
+.su-lang { position: absolute; top: 18px; right: 18px; width: auto; padding: 6px 8px; border-radius: 10px; border: 1px solid #8884; background: var(--card); color: var(--text); font-size: 13px; }
+/* v0.11.0: Japanese glyph shapes when the UI is Japanese */
+:root:lang(ja) { font-family: -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", sans-serif; }

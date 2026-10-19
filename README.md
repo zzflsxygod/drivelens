@@ -367,3 +367,10 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 列表处于「跳到月份」状态时，按钮会回到最新记录。
 - 再次点击当前底部标签也会回到顶部。
 - 无 API 变更，服务器仍为 0.6.2；`scripts/release.sh` 在 `api/` 无改动时自动跳过 /health 等待。
+
+## v0.11.0 — 多语言（中文 / English / 日本語）
+
+- 设置 →「语言 / Language」：跟随系统 / 中文 / English / 日本語；新安装默认跟随系统，已有安装保持中文。地图文字语言默认跟随界面语言。
+- 文案在 `app/src/locales/{zh,en,ja}.ts`（中文为源），格式化（日期、时长、相对时间、月份）在 `app/src/i18n.ts`。
+- `npm run check:i18n`（`npm run build` 会先执行）：缺少 key、占位符不一致、源码里残留硬编码中文时失败。
+- 安装指南：[中文](docs/install.md) · [English](docs/install.en.md) · [日本語](docs/install.ja.md)。服务器无需更新（API 未变）。

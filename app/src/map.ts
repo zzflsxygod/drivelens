@@ -2,6 +2,7 @@ import maplibregl from "maplibre-gl";
 import type { StyleSpecification, ExpressionSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { loadSettings, defaultLabelLang, type LabelLang } from "./api";
+import { t } from "./i18n";
 
 const STYLE_URL = { light: "https://tiles.openfreemap.org/styles/liberty", dark: "https://tiles.openfreemap.org/styles/dark" };
 
@@ -87,7 +88,7 @@ export class DriveMap {
     this.map.setStyle(OSM_FALLBACK);
     const note = document.createElement("div");
     note.className = "map-note";
-    note.textContent = "矢量地图加载失败，已切换为 OSM 标准地图";
+    note.textContent = t("map.fallback");
     this.el.appendChild(note);
   }
 
@@ -153,8 +154,8 @@ export class DriveMap {
     this.markers.forEach(m => m.remove());
     const pts: [[number, number], string, string][] = [];
     const ends = lines && lines.length ? [lines[0].coords[0], lines[lines.length - 1].coords[lines[lines.length - 1].coords.length - 1]] : r && r.length ? [r[0], r[r.length - 1]] : null;
-    if (ends && ends[0] && ends[1] && !this.overlay.noPins) pts.push([ends[0], "#2a9d3a", "起点"], [ends[1], "#e31937", "终点"]);
-    if (this.overlay.point) pts.push([this.overlay.point, "#e31937", "充电地点"]);
+    if (ends && ends[0] && ends[1] && !this.overlay.noPins) pts.push([ends[0], "#2a9d3a", t("map.start")], [ends[1], "#e31937", t("map.end")]);
+    if (this.overlay.point) pts.push([this.overlay.point, "#e31937", t("map.chargeSpot")]);
     this.markers = pts.map(([p, color, title]) => {
       const e = document.createElement("div");
       e.className = "pin"; e.style.background = color; e.title = title;

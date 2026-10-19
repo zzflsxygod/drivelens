@@ -1,8 +1,9 @@
-// 行程 tab (drive list with multi-select) + 旅程 (journeys): list, suggestions, detail, editing.
+// Drives tab (drive list with multi-select) + journeys: list, suggestions, detail, editing.
 import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } from "./api";
 import { DriveMap, SPEED_STOPS } from "./map";
 import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
+import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { effectiveTheme } from "./map";
 
 export interface Ctx {
@@ -35,19 +36,20 @@ interface Suggestion { drive_ids: number[]; name: string; start_date: string; en
 interface JPoint { drive_id: number; lat: number; lng: number; speed: number | null; elevation: number | null; km: number }
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
-const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-const fmtDur = (m: number | null) => m == null ? "—" : m >= 60 ? `${Math.floor(m / 60)}小时${m % 60}分` : `${Math.round(m)}分钟`;
+const fmtDate = (iso: string | null) => fmtDateTime(iso);
+const fmtTime = (iso: string) => fmtT(iso);
+/** Server suggestion names end in "（往返）" for round trips: localize that suffix. */
+const sgName = (name: string) => name.endsWith("（往返）") ? name.slice(0, -4) + t("sg.round") : name;
 const n = (v: number | null | undefined, d = 1) => v == null ? "—" : v.toFixed(d);
 const costTxt = (l: Money[]) => l.length ? l.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—";
 const badge = (d: Drive) => d.journey_id ? `<span class="jbadge" title="${esc(d.journey_name)}">🧭 ${esc(d.journey_name)}</span>` : "";
-const err = (e: unknown) => `<div class="error card-error">⚠️ ${esc((e as Error).message)} <button class="retry">重试</button></div>`;
+const err = (e: unknown) => `<div class="error card-error">⚠️ ${esc((e as Error).message)} <button class="retry">${t("common.retry")}</button></div>`;
 const bindRetry = (root: HTMLElement, f: () => void) => root.querySelectorAll<HTMLElement>(".retry").forEach(b => b.onclick = f);
 
-// ---------------- 行程 | 旅程 segment ----------------
+// ---------------- drives | journeys segment ----------------
 function segHTML(active: "drives" | "journeys", ctx: Ctx) {
   if (!ctx.journeysAvailable()) return "";
-  return `<div class="seg-tabs"><button data-seg="drives" class="${active === "drives" ? "on" : ""}">行程</button><button data-seg="journeys" class="${active === "journeys" ? "on" : ""}">旅程</button></div>`;
+  return `<div class="seg-tabs"><button data-seg="drives" class="${active === "drives" ? "on" : ""}">${t("seg.drives")}</button><button data-seg="journeys" class="${active === "journeys" ? "on" : ""}">${t("seg.journeys")}</button></div>`;
 }
 function bindSeg(ctx: Ctx) {
   ctx.view.querySelectorAll<HTMLElement>("[data-seg]").forEach(b => b.onclick = () =>
@@ -79,27 +81,27 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
     </div></div>`; };
   const bar = () => {
     const tip = v.querySelector("#seltip"), btn = v.querySelector("#selmode");
-    if (tip) tip.textContent = selectMode ? "选择要合并的行程（已属于旅程的不能选）" : "";
-    if (btn) btn.textContent = selectMode ? "取消" : "选择";
+    if (tip) tip.textContent = selectMode ? t("sel.tip") : "";
+    if (btn) btn.textContent = selectMode ? t("common.cancel") : t("sel.select");
     const picked = [...sel].map(i => byId.get(i)).filter(Boolean) as Drive[];
-    v.querySelector("#abar")!.innerHTML = selectMode ? `<div style="height:70px"></div><div class="actionbar"><span>已选 <b>${sel.size}</b> 段${sel.size ? ` · ${n(picked.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km` : ""}</span>
-      <button id="merge" class="primary small" ${sel.size < 1 ? "disabled" : ""}>合并为旅程</button></div>` : "";
+    v.querySelector("#abar")!.innerHTML = selectMode ? `<div style="height:70px"></div><div class="actionbar"><span>${t("sel.picked", { n: sel.size })}${sel.size ? ` · ${n(picked.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km` : ""}</span>
+      <button id="merge" class="primary small" ${sel.size < 1 ? "disabled" : ""}>${t("sel.merge")}</button></div>` : "";
     const mb = v.querySelector<HTMLElement>("#merge");
     if (mb) mb.onclick = () => {
       const ps = ([...sel].map(i => byId.get(i)).filter(Boolean) as Drive[]).sort((a, b) => a.start_date.localeCompare(b.start_date));
       const f = ps[0], l = ps[ps.length - 1];
-      nameDialog({ title: "合并为旅程", name: f && l ? `${f.start_address ?? "?"} → ${l.end_address ?? "?"}` : "新旅程", note: "",
-        hint: `${sel.size} 段行程${f && l ? ` · ${fmtDate(f.start_date)} – ${fmtDate(l.end_date)}` : ""}。只在 DriveLens 里分组，不修改 TeslaMate 的行程。`,
-        ok: "创建旅程",
+      nameDialog({ title: t("sel.merge"), name: f && l ? `${f.start_address ?? "?"} → ${l.end_address ?? "?"}` : t("j.new"), note: "",
+        hint: t("j.mergeHint", { n: sel.size, range: f && l ? ` · ${fmtDate(f.start_date)} – ${fmtDate(l.end_date)}` : "" }),
+        ok: t("j.create"),
         save: async (name, note) => { const j = await api<Journey>("/api/journeys", "POST", { name, note, drive_ids: [...sel] }); selectMode = false; sel.clear(); showJourney(ctx, j.id); } });
     };
   };
   const list = infiniteList<Drive>({
     container: v.querySelector<HTMLElement>("#dlist")!, key: `drives:${car ?? "all"}`, path: `/api/drives?x=1${ctx.carQ()}`,
     paging: ctx.pagingAvailable(), carId: car, monthsSupported: ctx.pagingAvailable(), restore,
-    dateOf: d => d.start_date, card: cardHTML, empty: "暂无行程",
-    header: (m, t, loaded) => `<b>${monthLabel(m)}</b><span>${t ? `${t.drive_count} 段 · ${n(t.distance_km, 0)} km · ${fmtDur(t.duration_min)}`
-      : `${loaded.length} 段 · ${n(loaded.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km`}</span>`,
+    dateOf: d => d.start_date, card: cardHTML, empty: t("home.noDrives"),
+    header: (m, tot, loaded) => `<b>${monthLabel(m)}</b><span>${tot ? `${t("drives.monthHead", { n: tot.drive_count, km: n(tot.distance_km, 0) })} · ${fmtDur(tot.duration_min)}`
+      : t("drives.monthHead", { n: loaded.length, km: n(loaded.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0) })}</span>`,
     bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
       const id = Number(el.dataset.id), d = byId.get(id);
       if (!selectMode) { list.leave(); window.scrollTo(0, 0); return ctx.showDrive(id, () => showDriveList(ctx, undefined, [], true)); }
@@ -126,25 +128,25 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
 function nameDialog(o: { title: string; name: string; note: string; hint?: string; ok: string; save: (name: string, note: string | null) => Promise<void>; del?: () => Promise<void> }) {
   const dlg = document.createElement("div"); dlg.className = "modal";
   dlg.innerHTML = `<div class="sheet"><h3>${esc(o.title)}</h3>
-    <input id="jname" maxlength="200" placeholder="旅程名称" value="${esc(o.name).replace(/^—$/, "")}">
-    <textarea id="jnote" maxlength="2000" rows="3" placeholder="备注（可选）" style="width:100%;margin-top:8px">${esc(o.note).replace(/^—$/, "")}</textarea>
+    <input id="jname" maxlength="200" placeholder="${t("j.namePh")}" value="${esc(o.name).replace(/^—$/, "")}">
+    <textarea id="jnote" maxlength="2000" rows="3" placeholder="${t("common.noteOptional")}" style="width:100%;margin-top:8px">${esc(o.note).replace(/^—$/, "")}</textarea>
     ${o.hint ? `<p class="muted">${esc(o.hint)}</p>` : ""}<div id="dlgmsg"></div>
-    <div class="btns">${o.del ? `<button id="del" class="ghost" style="color:var(--red)">删除旅程</button>` : ""}
-      <button id="cancel" class="ghost">取消</button><button id="ok" class="primary small">${esc(o.ok)}</button></div></div>`;
+    <div class="btns">${o.del ? `<button id="del" class="ghost" style="color:var(--red)">${t("j.delete")}</button>` : ""}
+      <button id="cancel" class="ghost">${t("common.cancel")}</button><button id="ok" class="primary small">${esc(o.ok)}</button></div></div>`;
   document.body.appendChild(dlg);
   const name = dlg.querySelector("#jname") as HTMLInputElement; name.focus(); name.select();
   const close = () => dlg.remove();
-  const msg = (t: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(t)}</div>`; };
+  const msg = (s: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(s)}</div>`; };
   dlg.onclick = e => { if (e.target === dlg) close(); };
   (dlg.querySelector("#cancel") as HTMLElement).onclick = close;
   (dlg.querySelector("#ok") as HTMLElement).onclick = async () => {
-    const v = name.value.trim(); if (!v) return msg("名称不能为空");
+    const v = name.value.trim(); if (!v) return msg(t("common.nameEmpty"));
     const note = (dlg.querySelector("#jnote") as HTMLTextAreaElement).value.trim();
     try { await o.save(v, note || null); close(); } catch (e) { msg((e as Error).message); }
   };
   const del = dlg.querySelector<HTMLElement>("#del");
   if (del && o.del) del.onclick = async () => {
-    if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = "确认删除？（行程本身不受影响）"; return; }
+    if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = t("j.confirmDel"); return; }
     try { await o.del!(); close(); } catch (e) { msg((e as Error).message); }
   };
 }
@@ -154,18 +156,18 @@ export async function showJourneys(ctx: Ctx) {
   lastSeg = "journeys"; ctx.setMap(null);
   const v = ctx.view;
   if (!ctx.journeysAvailable()) { v.innerHTML = `<div class="error card-error">⚠️ ${esc(ctx.journeysMessage())}</div>`; return; }
-  v.innerHTML = `${segHTML("journeys", ctx)}<div id="j-sugg"></div><div id="j-list"><div class="muted">加载中…</div></div>`; bindSeg(ctx);
+  v.innerHTML = `${segHTML("journeys", ctx)}<div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
   const car = await ctx.carId();
   const gap = loadSettings().journeyGap ?? 60;
   const loadList = () => api<JourneyRow[]>(`/api/journeys?limit=200${ctx.carQ()}`).then(list => {
     const el = v.querySelector("#j-list"); if (!el) return;
-    el.innerHTML = `<div class="section-title">我的旅程 <span class="muted">${list.length} 个</span></div>` + (list.length ? list.map(j => `
+    el.innerHTML = `<div class="section-title">${t("j.mine")} <span class="muted">${t("j.count", { n: list.length })}</span></div>` + (list.length ? list.map(j => `
       <div class="card" data-j="${j.id}">
-        <div class="row"><b>🧭 ${esc(j.name)}</b><span class="muted">${j.drive_count} 段</span></div>
+        <div class="row"><b>🧭 ${esc(j.name)}</b><span class="muted">${t("j.drivesN", { n: j.drive_count })}</span></div>
         <div class="row muted">${fmtDate(j.start_date)} – ${fmtDate(j.end_date)}</div>
         <div class="stats"><span>📍 ${esc(j.start_address)} → ${esc(j.end_address)}</span></div>
         <div class="stats"><span>📏 ${n(j.distance_km, 0)} km</span><span>⏱ ${fmtDur(j.duration_min)}</span><span>🔋 ${n(j.energy_kwh, 1)} kWh</span></div>
-      </div>`).join("") : `<div class="muted">还没有旅程。在「行程」里点「选择」，选几段行程合并；或者用上面的建议一键创建。</div>`);
+      </div>`).join("") : `<div class="muted">${t("j.emptyList")}</div>`);
     el.querySelectorAll<HTMLElement>("[data-j]").forEach(c => c.onclick = () => showJourney(ctx, Number(c.dataset.j)));
   }).catch(e => { const el = v.querySelector<HTMLElement>("#j-list"); if (el) { el.innerHTML = err(e); bindRetry(el, loadList); } });
   const loadSugg = () => {
@@ -178,22 +180,22 @@ export async function showJourneys(ctx: Ctx) {
       if (!sg.length) { el.innerHTML = ""; return; }
       const collapsed = loadSettings().suggestionsCollapsed ?? false;
       if (collapsed) {
-        el.innerHTML = `<div class="sugg-head collapsed" id="sg-toggle"><span>💡 ${sg.length} 条合并建议</span><span>›</span></div>`;
+        el.innerHTML = `<div class="sugg-head collapsed" id="sg-toggle"><span>${t("sg.collapsed", { n: sg.length })}</span><span>›</span></div>`;
       } else {
-        el.innerHTML = `<div class="section-title">建议合并 <span class="muted">间隔 &lt; ${gap} 分钟或中途充电 · <a class="link" id="sg-toggle">收起</a></span></div>` + sg.map((s, i) => `
+        el.innerHTML = `<div class="section-title">${t("sg.title")} <span class="muted">${t("sg.rule", { gap })} · <a class="link" id="sg-toggle">${t("sg.collapse")}</a></span></div>` + sg.map((s, i) => `
         <div class="card sugg" data-s="${i}">
-          <div class="row"><b>${esc(s.name)}</b><button class="ghost small sg-x" data-dismiss="${i}" title="不再建议这些行程">忽略</button></div>
+          <div class="row"><b>${esc(sgName(s.name))}</b><button class="ghost small sg-x" data-dismiss="${i}" title="${t("sg.dismissTitle")}">${t("sg.dismiss")}</button></div>
           <div class="row muted">${fmtDate(s.start_date)} – ${fmtDate(s.end_date)}</div>
-          <div class="row"><span class="stats" style="margin:0"><span>🚗 ${s.drive_ids.length} 段</span><span>📏 ${n(s.distance_km, 0)} km</span>${s.charge_count ? `<span>⚡ 充电 ${s.charge_count} 次</span>` : ""}</span>
-            <button class="primary small" data-create="${i}">一键创建</button></div>
+          <div class="row"><span class="stats" style="margin:0"><span>🚗 ${t("j.drivesN", { n: s.drive_ids.length })}</span><span>📏 ${n(s.distance_km, 0)} km</span>${s.charge_count ? `<span>${t("sg.charges", { n: s.charge_count })}</span>` : ""}</span>
+            <button class="primary small" data-create="${i}">${t("sg.create")}</button></div>
         </div>`).join("");
       }
       (el.querySelector("#sg-toggle") as HTMLElement).onclick = () => { saveSettings({ ...loadSettings(), suggestionsCollapsed: !collapsed }); loadSugg(); };
       el.querySelectorAll<HTMLElement>("[data-create]").forEach(b => b.onclick = async ev => {
-        ev.stopPropagation(); b.textContent = "创建中…";
+        ev.stopPropagation(); b.textContent = t("sg.creating");
         const s = sg[Number(b.dataset.create)];
-        try { const j = await api<Journey>("/api/journeys", "POST", { name: s.name, drive_ids: s.drive_ids }); showJourney(ctx, j.id); }
-        catch (e) { b.textContent = "失败，重试"; alert((e as Error).message); }
+        try { const j = await api<Journey>("/api/journeys", "POST", { name: sgName(s.name), drive_ids: s.drive_ids }); showJourney(ctx, j.id); }
+        catch (e) { b.textContent = t("sg.failed"); alert((e as Error).message); }
       });
       el.querySelectorAll<HTMLElement>("[data-dismiss]").forEach(b => b.onclick = async ev => {
         ev.stopPropagation(); b.textContent = "…";
@@ -212,7 +214,7 @@ export async function showJourneys(ctx: Ctx) {
 // ---------------- Journey detail ----------------
 function elevationChart(pts: JPoint[], stopsKm: { km: number; charge: boolean }[]) {
   const e = pts.filter(p => p.elevation != null);
-  if (e.length < 2) return `<div class="muted small-note">没有海拔数据</div>`;
+  if (e.length < 2) return `<div class="muted small-note">${t("j.noElev")}</div>`;
   const W = 392, H = 150, L = 34, R = 8, T = 10, B = 22, iw = W - L - R, ih = H - T - B;
   const maxKm = Math.max(e[e.length - 1].km, 0.1);
   let lo = Math.min(...e.map(p => p.elevation!)), hi = Math.max(...e.map(p => p.elevation!));
@@ -225,18 +227,18 @@ function elevationChart(pts: JPoint[], stopsKm: { km: number; charge: boolean }[
   [0, .5, 1].forEach(f => { const m = lo + (hi - lo) * f; g += `<line x1="${L}" x2="${W - R}" y1="${y(m)}" y2="${y(m)}" class="cg"/><text x="${L - 4}" y="${y(m) + 3}" text-anchor="end" class="ax">${Math.round(m)}</text>`; });
   [0, .25, .5, .75, 1].forEach(f => g += `<text x="${x(maxKm * f)}" y="${H - 6}" text-anchor="middle" class="ax">${Math.round(maxKm * f)}${f === 1 ? " km" : ""}</text>`);
   const sm = stopsKm.map(s => `<line x1="${x(s.km)}" x2="${x(s.km)}" y1="${T}" y2="${T + ih}" stroke="${s.charge ? "#e31937" : "#999"}" stroke-dasharray="3 3"/>${s.charge ? `<text x="${x(s.km)}" y="${T + 9}" text-anchor="middle" font-size="10">⚡</text>` : ""}`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="海拔剖面">${g}<path d="${area}" class="elev-a"/>${sm}
-    <circle cx="${x(peak.km)}" cy="${y(peak.elevation!)}" r="3" fill="#1a73e8"/><text x="${Math.min(x(peak.km), W - 40)}" y="${y(peak.elevation!) - 6}" text-anchor="middle" class="ax">最高 ${peak.elevation} m</text></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("j.elevAria")}">${g}<path d="${area}" class="elev-a"/>${sm}
+    <circle cx="${x(peak.km)}" cy="${y(peak.elevation!)}" r="3" fill="#1a73e8"/><text x="${Math.min(x(peak.km), W - 40)}" y="${y(peak.elevation!) - 6}" text-anchor="middle" class="ax">${t("j.peak", { v: peak.elevation ?? "" })}</text></svg>`;
 }
 
 export async function showJourney(ctx: Ctx, id: number) {
   ctx.setMap(null);
   const v = ctx.view;
-  v.innerHTML = `<button class="back">← 返回</button><div class="muted">加载中…</div>`;
+  v.innerHTML = `<button class="back">${t("common.back")}</button><div class="muted">${t("common.loading")}</div>`;
   (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx);
   let j: Journey;
   try { j = await api<Journey>(`/api/journeys/${id}`); }
-  catch (e) { v.innerHTML = `<button class="back">← 返回</button>${err(e)}`; (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx); bindRetry(v, () => showJourney(ctx, id)); return; }
+  catch (e) { v.innerHTML = `<button class="back">${t("common.back")}</button>${err(e)}`; (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx); bindRetry(v, () => showJourney(ctx, id)); return; }
   const s = j.summary, self = () => showJourney(ctx, id);
   const speedOn = loadSettings().speedColor ?? true;
   const p2 = ctx.journey2Available();
@@ -255,53 +257,53 @@ export async function showJourney(ctx: Ctx, id: number) {
       chs.forEach(c => used.add(c.id));
       tl.push(chs.length ? chs.map(c => `<div class="tl charge"><div class="card" data-charge="${c.id}">
           <div class="row"><b>⚡ ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
-          <div class="row muted">${fmtTime(c.start_date)} – ${fmtTime(c.end_date)} · ${fmtDur(c.duration_min)} · 停留 ${fmtDur(st.duration_min)}</div>
+          <div class="row muted">${fmtTime(c.start_date)} – ${fmtTime(c.end_date)} · ${fmtDur(c.duration_min)} · ${t("j.stay", { d: fmtDur(st.duration_min) })}</div>
           <div class="stats"><span>+${n(c.charge_energy_added, 1)} kWh</span><span>🔋 ${c.start_battery_level ?? "—"}% → ${c.end_battery_level ?? "—"}%</span></div></div></div>`).join("")
-        : `<div class="tl stop">⏸ 停留 ${fmtDur(st.duration_min)} · ${esc(st.address)}</div>`);
+        : `<div class="tl stop">⏸ ${t("j.stayCap", { d: fmtDur(st.duration_min) })} · ${esc(st.address)}</div>`);
     }
   });
   const extra = j.charges.filter(c => !used.has(c.id)); // e.g. charge at the very end
   extra.forEach(c => tl.push(`<div class="tl charge"><div class="card" data-charge="${c.id}"><div class="row"><b>⚡ ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
     <div class="row muted">${fmtTime(c.start_date)} · +${n(c.charge_energy_added, 1)} kWh</div></div></div>`));
   const grad = `linear-gradient(90deg, ${SPEED_STOPS.map(([k, c]) => `${c} ${k / 1.2}%`).join(", ")})`;
-  const meta = `${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${j.drives.length} 段行程${s.charge_count ? ` · 充电 ${s.charge_count} 次` : ""}`;
-  const pen = `<span class="pen" id="jedit" title="编辑标题和备注">✎</span>`;
+  const meta = `${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${t("j.meta", { n: j.drives.length })}${s.charge_count ? t("card.metaCharges", { n: s.charge_count }) : ""}`;
+  const pen = `<span class="pen" id="jedit" title="${t("j.editTitle")}">✎</span>`;
   const heroOn = p2 && !!j.has_cover;
-  v.innerHTML = `<div class="jtop"><button class="back">← 返回</button>${p2 ? `<div class="jtop-r">
-      <button id="j-share" class="icon-btn" title="分享卡片" aria-label="分享卡片">📤</button>
-      <button id="j-more" class="icon-btn" title="更多" aria-label="更多">⋯</button>
-      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">📷 上传照片作为封面</button><button data-act="setcover">🖼 当前地图设为封面</button>${j.has_cover ? `<button data-act="rmcover">↺ 恢复默认封面</button>` : ""}</div></div>` : ""}</div>
+  v.innerHTML = `<div class="jtop"><button class="back">${t("common.back")}</button>${p2 ? `<div class="jtop-r">
+      <button id="j-share" class="icon-btn" title="${t("share.title")}" aria-label="${t("share.title")}">📤</button>
+      <button id="j-more" class="icon-btn" title="${t("j.more")}" aria-label="${t("j.more")}">⋯</button>
+      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">${t("j.photoCover")}</button><button data-act="setcover">${t("j.mapCover")}</button>${j.has_cover ? `<button data-act="rmcover">${t("j.rmCover")}</button>` : ""}</div></div>` : ""}</div>
     ${heroOn ? `<div class="jhero sk" id="j-hero"><div class="jhero-in">
         <h2>${esc(j.name)} ${pen}</h2><div class="jhero-meta">${meta}</div>
         <div class="jhero-stats"><span>${n(s.distance_km, 0)} km</span><span>${n(s.energy_used_kwh, 1)} kWh</span><span>${n(s.efficiency_wh_km, 0)} Wh/km</span>${s.costs.length ? `<span>${costTxt(s.costs)}</span>` : ""}</div></div></div>`
       : `<h2 class="jtitle">🧭 ${esc(j.name)} ${pen}</h2><div class="muted">${meta}</div>`}
     <div id="j-msg" class="muted"></div>
     ${j.note ? `<div class="jnote">${esc(j.note)}</div>` : ""}
-    ${p2 ? "" : `<div class="muted small-note">ℹ️ 封面、分享卡片、天气和速度分档能耗：${esc(ctx.journey2Message())}</div>`}
-    <div class="map-tools"><div class="seg" id="j-color"><span data-v="speed" class="${speedOn ? "on" : ""}">速度着色</span><span data-v="plain" class="${speedOn ? "" : "on"}">单色</span></div>
-      <div class="speed-legend" ${speedOn ? "" : "hidden"}><span>慢</span><i style="background:${grad}"></i><span>快 (km/h 0–120)</span></div></div>
+    ${p2 ? "" : `<div class="muted small-note">${esc(t("j.p2Missing", { m: ctx.journey2Message() }))}</div>`}
+    <div class="map-tools"><div class="seg" id="j-color"><span data-v="speed" class="${speedOn ? "on" : ""}">${t("j.speedColor")}</span><span data-v="plain" class="${speedOn ? "" : "on"}">${t("j.plain")}</span></div>
+      <div class="speed-legend" ${speedOn ? "" : "hidden"}><span>${t("j.slow")}</span><i style="background:${grad}"></i><span>${t("j.fast")}</span></div></div>
     <div id="map"><div class="map-ph sk"></div></div>
-    <div class="section-title">海拔</div><div class="elev-box" id="j-elev"><span class="sk" style="width:100%;height:120px"></span></div>
+    <div class="section-title">${t("j.elev")}</div><div class="elev-box" id="j-elev"><span class="sk" style="width:100%;height:120px"></span></div>
     <div class="grid">
-      <div><small>总里程</small><b>${n(s.distance_km)} km</b></div>
-      <div><small>驾驶时间</small><b>${fmtDur(s.driving_min)}</b></div>
-      <div><small>停留时间</small><b>${fmtDur(s.stop_min)}</b></div>
-      <div><small>总耗时</small><b>${fmtDur(s.elapsed_min)}</b></div>
-      <div><small>耗电</small><b>${n(s.energy_used_kwh)} kWh</b></div>
-      <div><small>平均能耗</small><b>${n(s.efficiency_wh_km, 0)} Wh/km</b></div>
-      <div><small>途中充电</small><b>${n(s.charged_kwh)} kWh</b></div>
-      <div><small>充电费用</small><b>${costTxt(s.costs)}</b></div>
-      <div><small>最高速度</small><b>${s.speed_max ?? "—"} km/h</b></div>
+      <div><small>${t("j.totalDist")}</small><b>${n(s.distance_km)} km</b></div>
+      <div><small>${t("j.driving")}</small><b>${fmtDur(s.driving_min)}</b></div>
+      <div><small>${t("j.stopped")}</small><b>${fmtDur(s.stop_min)}</b></div>
+      <div><small>${t("j.elapsed")}</small><b>${fmtDur(s.elapsed_min)}</b></div>
+      <div><small>${t("j.used")}</small><b>${n(s.energy_used_kwh)} kWh</b></div>
+      <div><small>${t("j.avgEff")}</small><b>${n(s.efficiency_wh_km, 0)} Wh/km</b></div>
+      <div><small>${t("j.charged")}</small><b>${n(s.charged_kwh)} kWh</b></div>
+      <div><small>${t("j.cost")}</small><b>${costTxt(s.costs)}</b></div>
+      <div><small>${t("f.maxSpeed")}</small><b>${s.speed_max ?? "—"} km/h</b></div>
     </div>
-    ${p2 ? `<div class="section-title">按车速分档的能耗</div><div id="j-bands"><span class="sk" style="width:100%;height:120px;display:block"></span></div>
-    <div class="section-title">天气与能耗</div><div id="j-wx"><span class="sk" style="width:100%;height:100px;display:block"></span></div>` : ""}
-    <div class="section-title">时间线</div>
+    ${p2 ? `<div class="section-title">${t("j.bands")}</div><div id="j-bands"><span class="sk" style="width:100%;height:120px;display:block"></span></div>
+    <div class="section-title">${t("j.wx")}</div><div id="j-wx"><span class="sk" style="width:100%;height:100px;display:block"></span></div>` : ""}
+    <div class="section-title">${t("j.timeline")}</div>
     <div class="timeline">${tl.join("")}</div>
-    <div class="btn-row"><button id="jdrives" class="ghost">添加 / 移除行程</button><button id="jdel" class="ghost" style="color:var(--red)">删除旅程</button></div>`;
+    <div class="btn-row"><button id="jdrives" class="ghost">${t("j.editDrives")}</button><button id="jdel" class="ghost" style="color:var(--red)">${t("j.delete")}</button></div>`;
   (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx);
   v.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => ctx.showDrive(Number(el.dataset.drive), self));
   v.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => ctx.showCharge(Number(el.dataset.charge), self));
-  const edit = () => nameDialog({ title: "编辑旅程", name: j.name, note: j.note ?? "", ok: "保存",
+  const edit = () => nameDialog({ title: t("j.edit"), name: j.name, note: j.note ?? "", ok: t("common.save"),
     save: async (name, note) => { await api(`/api/journeys/${id}`, "PATCH", { name, note }); self(); },
     del: async () => { await api(`/api/journeys/${id}`, "DELETE"); showJourneys(ctx); } });
   (v.querySelector("#jedit") as HTMLElement).onclick = edit;
@@ -327,14 +329,14 @@ export async function showJourney(ctx: Ctx, id: number) {
     const lines = j.drives.map(d => byDrive.get(d.id) ?? []).filter(a => a.length > 1)
       .map(a => ({ coords: a.map(p => [p.lng, p.lat] as [number, number]), speeds: a.map(p => p.speed) }));
     const stops = j.stops.filter(st => st.lat != null && st.lng != null).map(st => ({ p: [st.lng!, st.lat!] as [number, number],
-      kind: (st.charge_ids.length ? "charge" : "stop") as "charge" | "stop", title: `${st.address ?? ""} · 停留 ${fmtDur(st.duration_min)}` }));
+      kind: (st.charge_ids.length ? "charge" : "stop") as "charge" | "stop", title: `${st.address ?? ""} · ${t("j.stay", { d: fmtDur(st.duration_min) })}` }));
     route = lines.flatMap(l => l.coords);
     const mapEl = v.querySelector<HTMLElement>("#map")!; mapEl.innerHTML = "";
     if (lines.length) { map = new DriveMap(mapEl, { lines, stops, speedColor: speedOn }); ctx.setMap(map); }
-    else mapEl.innerHTML = `<div class="muted" style="padding:20px;text-align:center">没有轨迹数据</div>`;
+    else mapEl.innerHTML = `<div class="muted" style="padding:20px;text-align:center">${t("j.noTrack")}</div>`;
     // stop positions on the distance axis = km at the last point of the drive before the stop
     const stopsKm = j.stops.map(st => { const a = byDrive.get(st.after_drive_id); return { km: a?.length ? a[a.length - 1].km : -1, charge: st.charge_ids.length > 0 }; }).filter(x => x.km >= 0);
-    v.querySelector("#j-elev")!.innerHTML = elevationChart(path.points, stopsKm) + (path.downsampled ? `<div class="muted small-note">轨迹点较多，已抽样显示（${path.points.length}/${path.total_points}）</div>` : "");
+    v.querySelector("#j-elev")!.innerHTML = elevationChart(path.points, stopsKm) + (path.downsampled ? `<div class="muted small-note">${t("j.sampled", { a: path.points.length, b: path.total_points })}</div>` : "");
   } catch (e) {
     const el = v.querySelector<HTMLElement>("#j-elev"); if (el) { el.innerHTML = err(e); bindRetry(el, self); }
   }
@@ -347,14 +349,14 @@ function editDrives(ctx: Ctx, j: Journey) {
   const all = [...j.drives.map(d => ({ ...d, journey_id: null as number | null })), ...j.candidates].sort((a, b) => a.start_date.localeCompare(b.start_date));
   const sel = new Set(j.drives.map(d => d.id));
   const render = () => {
-    v.innerHTML = `<button class="back">← 返回</button><h2>添加 / 移除行程</h2>
-      <div class="muted">「${esc(j.name)}」前后 24 小时内的行程。已属于其他旅程的不能选。</div><div style="height:8px"></div>
+    v.innerHTML = `<button class="back">${t("common.back")}</button><h2>${t("j.editDrives")}</h2>
+      <div class="muted">${esc(t("j.editHint", { name: j.name }))}</div><div style="height:8px"></div>
       ${all.map(d => { const dis = !!d.journey_id;
         return `<div class="card sel-mode${sel.has(d.id) ? " selected" : ""}${dis ? " disabled" : ""}" data-id="${d.id}"><div class="chk">${sel.has(d.id) ? "✓" : ""}</div><div class="cbody">
           <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
           <div class="row muted"><span>${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)} · ${n(d.distance_km)} km</span>${badge(d)}</div></div></div>`; }).join("")}
-      <div style="height:70px"></div><div class="actionbar"><span>已选 <b>${sel.size}</b> 段</span><div id="dmsg"></div>
-        <button id="dsave" class="primary small" ${sel.size ? "" : "disabled"}>保存</button></div>`;
+      <div style="height:70px"></div><div class="actionbar"><span>${t("sel.picked", { n: sel.size })}</span><div id="dmsg"></div>
+        <button id="dsave" class="primary small" ${sel.size ? "" : "disabled"}>${t("common.save")}</button></div>`;
     (v.querySelector(".back") as HTMLElement).onclick = () => showJourney(ctx, j.id);
     v.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
       const id = Number(el.dataset.id); if (all.find(d => d.id === id)?.journey_id) return;
@@ -378,16 +380,16 @@ async function dismissSuggestion(ctx: Ctx, ids: number[]) {
   saveSettings({ ...st, dismissedDrives: [...new Set([...(st.dismissedDrives ?? []), ...ids])].slice(-2000) });
 }
 
-/** 设置 → 恢复已忽略的建议 */
+/** Settings → restore dismissed suggestions */
 export async function restoreDismissed(ctx: Ctx): Promise<string> {
   const st = loadSettings(); const local = st.dismissedDrives?.length ?? 0;
   saveSettings({ ...st, dismissedDrives: [] });
-  if (!ctx.dismissAvailable()) return local ? "已恢复（本机）" : "没有已忽略的建议";
-  try { const r = await api<{ restored: number }>("/api/journeys/suggestions/dismissed", "DELETE"); return `已恢复 ${r.restored + local} 条记录`; }
-  catch { return local ? "已恢复本机记录（服务器未启用同步）" : "服务器未启用忽略同步，本机没有已忽略的建议"; }
+  if (!ctx.dismissAvailable()) return local ? t("rs.local") : t("rs.none");
+  try { const r = await api<{ restored: number }>("/api/journeys/suggestions/dismissed", "DELETE"); return t("rs.done", { n: r.restored + local }); }
+  catch { return local ? t("rs.localOnly") : t("rs.noSync"); }
 }
 
-// ---------------- 旅程第二期 (v0.7.0) ----------------
+// ---------------- journeys phase 2 (v0.7.0) ----------------
 function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | null, getRoute: () => [number, number][], self: () => void) {
   const alive = () => document.body.contains(v.querySelector("#j-bands"));
   const msg = (t: string) => { const m = v.querySelector("#j-msg"); if (m) m.textContent = t; };
@@ -400,17 +402,17 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
   const closeMenu = (e: Event) => { if (!(e.target as HTMLElement).closest("#j-more")) { menu.hidden = true; document.removeEventListener("click", closeMenu); } };
   (v.querySelector("#j-more") as HTMLElement).onclick = () => { menu.hidden = !menu.hidden; if (!menu.hidden) document.addEventListener("click", closeMenu); };
   (menu.querySelector('[data-act="setcover"]') as HTMLElement).onclick = async () => {
-    msg("正在截取地图…");
+    msg(t("cv.capturing"));
     const img = await J2.mapSnapshot(getMap());
-    if (!img) return msg("地图还没加载好，稍后再试");
+    if (!img) return msg(t("cv.notReady"));
     try { await J2.saveCover(j.id, img); self(); } catch (e) { msg((e as Error).message); }
   };
   (menu.querySelector('[data-act="photo"]') as HTMLElement).onclick = () => {
     const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
     inp.onchange = async () => {
       const f = inp.files?.[0]; if (!f) return;
-      msg("正在处理照片…");
-      try { const img = await J2.photoToCover(f); msg("正在上传…"); await J2.saveCover(j.id, img); self(); }
+      msg(t("cv.processing"));
+      try { const img = await J2.photoToCover(f); msg(t("cv.uploading")); await J2.saveCover(j.id, img); self(); }
       catch (e) { msg((e as Error).message); }
     };
     inp.click();
@@ -418,7 +420,7 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
   const rm = menu.querySelector<HTMLElement>('[data-act="rmcover"]');
   if (rm) rm.onclick = async () => { try { await J2.resetCover(j.id); self(); } catch (e) { msg((e as Error).message); } };
   (v.querySelector("#j-share") as HTMLElement).onclick = async () => {
-    msg("正在生成…");
+    msg(t("cv.generating"));
     await coverReady;
     const s = j.summary;
     // fresh snapshot of the live map (current route rendering); a saved cover only as fallback
@@ -426,7 +428,7 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
     const d0 = s.start_date ? new Date(s.start_date) : null, d1 = s.end_date ? new Date(s.end_date) : null;
     const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const days = d0 && d1 ? Math.round((day(d1) - day(d0)) / 864e5) + 1 : 1;
-    const f = (d: Date | null) => d ? d.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" }) : "—";
+    const f = (d: Date | null) => d ? fmtDay(d) : "—";
     const canvas = await J2.renderCard({ title: j.name, dateText: days > 1 ? `${f(d0)} – ${f(d1)}` : f(d0), days, distance_km: s.distance_km,
       energy_kwh: s.energy_used_kwh, wh_km: s.efficiency_wh_km, costs: s.costs, drives: j.drives.length, charges: s.charge_count,
       from: s.start_address ?? "?", to: s.end_address ?? "?", image: img, route: getRoute() }, effectiveTheme() === "dark");
@@ -439,6 +441,6 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
     if (!alive()) return;
     const by = new Map(r.drives.map(w => [w.drive_id, w]));
     v.querySelectorAll<HTMLElement>("[data-wx]").forEach(el => el.innerHTML = J2.weatherChip(by.get(Number(el.dataset.wx))));
-    v.querySelector("#j-wx")!.innerHTML = J2.weatherTable(j.drives, r.drives) + (r.partial ? `<div class="muted small-note">部分天气数据暂时获取失败，下次打开会重试</div>` : "");
+    v.querySelector("#j-wx")!.innerHTML = J2.weatherTable(j.drives, r.drives) + (r.partial ? `<div class="muted small-note">${t("j.wxPartial")}</div>` : "");
   }).catch(e => { const el = v.querySelector<HTMLElement>("#j-wx"); if (el) { el.innerHTML = err(e); bindRetry(el, self); } });
 }

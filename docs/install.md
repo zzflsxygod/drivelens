@@ -1,5 +1,7 @@
 # DriveLens 安装指南（自建 TeslaMate 用户）
 
+**中文** · [English](install.en.md) · [日本語](install.ja.md)
+
 DriveLens 由两部分组成：
 
 - **drivelens-api**：一个运行在你的 TeslaMate 服务器上的小服务（Docker 容器），用只读账号读取 TeslaMate 数据库。
@@ -119,7 +121,7 @@ cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up
 ## 6. 安装并配置 App
 
 1. 安装 App（Windows 安装包 / Android APK，由提供者分发）。
-2. 首次打开会显示「欢迎使用 DriveLens」：
+2. 首次打开会显示「欢迎使用 DriveLens」（界面语言跟随系统，右上角可切换）：
    - **服务器地址**：第 5 步的地址，例如 `https://drivelens.example.com`；
    - **API Token**：`.env` 里的 `DRIVELENS_API_TOKEN`。
 3. 点「测试连接并开始」。App 会先检查 `/health`，再用 Token 读取车辆，失败时会提示具体原因：
@@ -132,7 +134,7 @@ cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up
 | 服务器版本过旧 | 按「更新」步骤更新 drivelens-api |
 | 错误次数太多（429） | 等 10 分钟后再试 |
 
-之后可以随时在「设置」中修改服务器地址和 Token（新设置测试成功才会保存）。地图文字语言和默认货币按手机语言自动选择，也可以在「设置」中修改。
+之后可以随时在「设置」中修改服务器地址和 Token（新设置测试成功才会保存）。界面语言（中文 / English / 日本語）、地图文字语言和默认货币按手机语言自动选择，也可以在「设置」中修改。
 
 ## 常见问题
 

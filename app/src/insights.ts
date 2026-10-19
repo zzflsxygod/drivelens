@@ -1,9 +1,10 @@
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
 import { DriveMap } from "./map";
+import { t, monthLabel, fmtNum } from "./i18n";
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
-const n = (v: number | null | undefined, d = 0) => v == null ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const n = (v: number | null | undefined, d = 0) => fmtNum(v, d);
 
 // ---------------- battery ----------------
 interface BPoint { date: string; odometer_km: number | null; range100_km: number; end_level: number; capacity_kwh: number | null }
@@ -17,12 +18,12 @@ export interface Battery { points: BPoint[]; months: BMonth[]; n_points: number;
  *  Other markets' cars may report a different constant (e.g. some Japanese/Chinese cars show more), hence:
  *  baseline = user override ?? max(factory value, highest estimate seen in TeslaMate). */
 const FACTORY: { re: RegExp; km: number; label: string }[] = [
-  { re: /model\s*3.*(performance|\bp\b)/i, km: 507, label: "Model 3 Performance（EPA 315 mi）" },
-  { re: /model\s*3.*(long range|\blr\b|awd)/i, km: 576, label: "Model 3 Long Range（EPA 358 mi）" },
-  { re: /model\s*3/i, km: 438, label: "Model 3 RWD（EPA 272 mi）" },
-  { re: /model\s*y.*(performance|\bp\b)/i, km: 488, label: "Model Y Performance（EPA 303 mi）" },
-  { re: /model\s*y.*(long range|\blr\b|awd)/i, km: 531, label: "Model Y Long Range（EPA 330 mi）" },
-  { re: /model\s*y/i, km: 418, label: "Model Y RWD（EPA 260 mi）" },
+  { re: /model\s*3.*(performance|\bp\b)/i, km: 507, label: "Model 3 Performance (EPA 315 mi)" },
+  { re: /model\s*3.*(long range|\blr\b|awd)/i, km: 576, label: "Model 3 Long Range (EPA 358 mi)" },
+  { re: /model\s*3/i, km: 438, label: "Model 3 RWD (EPA 272 mi)" },
+  { re: /model\s*y.*(performance|\bp\b)/i, km: 488, label: "Model Y Performance (EPA 303 mi)" },
+  { re: /model\s*y.*(long range|\blr\b|awd)/i, km: 531, label: "Model Y Long Range (EPA 330 mi)" },
+  { re: /model\s*y/i, km: 418, label: "Model Y RWD (EPA 260 mi)" },
 ];
 const OV_KEY = "drivelens-battery-baseline";
 export function baselineOverride(carId: number): number | null {
@@ -40,22 +41,22 @@ export function baseline(b: Battery, car: Car | null, carId: number): Baseline |
   const ov = baselineOverride(carId);
   const seen = Math.max(b.initial_range100_km ?? 0, b.current_range100_km ?? 0);
   let km: number, source: string;
-  if (ov) { km = ov; source = `手动设置 ${ov} km`; }
-  else if (seen > f.km) { km = seen; source = `出厂值 ${f.km} km 低于记录到的最高值，按最高值 ${Math.round(seen)} km`; }
-  else { km = f.km; source = `出厂值 ${f.label} ${f.km} km`; }
+  if (ov) { km = ov; source = t("bat.srcManual", { km: ov }); }
+  else if (seen > f.km) { km = seen; source = t("bat.srcSeen", { f: f.km, km: Math.round(seen) }); }
+  else { km = f.km; source = t("bat.srcFactory", { label: f.label, km: f.km }); }
   const raw = b.current_range100_km != null ? b.current_range100_km / km * 100 : null;
   return { km, source, raw_pct: raw == null ? null : Math.round(raw * 10) / 10, pct: raw == null ? null : Math.min(100, Math.round(raw * 10) / 10), factory: f };
 }
 
 export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
   const bl = baseline(b, car, carId);
-  if (!b.n_points || !bl || bl.pct == null) return `<div class="section-title">🔋 电池健康</div><div class="card" data-battery><div class="muted">充电记录还不够（需要充到 50% 以上的记录）</div></div>`;
-  return `<div class="section-title">🔋 电池健康 <a class="link" data-battery>查看衰减曲线 ›</a></div>
+  if (!b.n_points || !bl || bl.pct == null) return `<div class="section-title">${t("bat.title")}</div><div class="card" data-battery><div class="muted">${t("bat.notEnough")}</div></div>`;
+  return `<div class="section-title">${t("bat.title")} <a class="link" data-battery>${t("bat.openCurve")}</a></div>
     <div class="card bat-card" data-battery>
       <div class="bat-ring" style="--p:${bl.pct}"><b>${n(bl.pct, 1)}<small>%</small></b></div>
-      <div class="bat-info"><div><small>满电续航（估算）</small><b>${n(b.current_range100_km)} km</b><span class="muted"> / 基准 ${n(bl.km)} km</span></div>
-        <div><small>可用容量（估算）</small><b>${n(b.capacity_from_range_kwh, 1)} kWh</b></div>
-        <div class="muted small-note">${b.first_date ? `数据自 ${b.first_date.slice(0, 7)} 起记录 · ` : ""}${b.n_points} 次充电<br>基准：${esc(bl.source)}</div></div>
+      <div class="bat-info"><div><small>${t("bat.range100")}</small><b>${n(b.current_range100_km)} km</b><span class="muted">${t("bat.vsBase", { km: n(bl.km) })}</span></div>
+        <div><small>${t("bat.capacity")}</small><b>${n(b.capacity_from_range_kwh, 1)} kWh</b></div>
+        <div class="muted small-note">${b.first_date ? t("bat.since", { m: monthLabel(b.first_date) }) : ""}${t("bat.nCharges", { n: b.n_points })}<br>${esc(t("bat.baselineIs", { s: bl.source }))}</div></div>
     </div>`;
 }
 
@@ -68,7 +69,7 @@ function fit(xs: number[], ys: number[]) {
 }
 
 function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[], o: { xLabel: (x: number) => string; yUnit: string; ref?: number }) {
-  if (pts.length < 2) return `<div class="chart-empty">数据不足</div>`;
+  if (pts.length < 2) return `<div class="chart-empty">${t("chart.notEnough")}</div>`;
   const W = 392, H = 200, L = 40, R = 10, T = 12, B = 24, iw = W - L - R, ih = H - T - B;
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
@@ -83,51 +84,51 @@ function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[
   const mline = med.length > 1 ? `<path d="${med.map((m, i) => `${i ? "L" : "M"}${X(m.x).toFixed(1)},${Y(m.y).toFixed(1)}`).join("")}" class="bmed"/>` : "";
   const f = fit(xs, ys);
   const tl = f ? `<line x1="${X(x0)}" y1="${Y(f.a + f.b * x0)}" x2="${X(x1)}" y2="${Y(f.a + f.b * x1)}" class="btrend"/>` : "";
-  const rl = o.ref != null ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" class="bref"/><text x="${W - R}" y="${Y(o.ref) - 4}" text-anchor="end" class="ct">基准 ${Math.round(o.ref)}</text>` : "";
+  const rl = o.ref != null ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" class="bref"/><text x="${W - R}" y="${Y(o.ref) - 4}" text-anchor="end" class="ct">${t("bat.ref", { v: Math.round(o.ref) })}</text>` : "";
   return `<div class="chart-box"><svg viewBox="0 0 ${W} ${H}" width="100%">${g}${rl}${dots}${mline}${tl}</svg>
-    <div class="legend"><span><i class="lg-dot"></i>单次充电</span><span><i class="lg-med"></i>月中位数</span><span><i class="lg-trend"></i>趋势线</span>${o.yUnit ? `<span>${o.yUnit}</span>` : ""}</div></div>`;
+    <div class="legend"><span><i class="lg-dot"></i>${t("bat.lgPoint")}</span><span><i class="lg-med"></i>${t("bat.lgMedian")}</span><span><i class="lg-trend"></i>${t("bat.lgTrend")}</span>${o.yUnit ? `<span>${o.yUnit}</span>` : ""}</div></div>`;
 }
 
 export async function showBattery(view: HTMLElement, carId: number, back: () => void, car: Car | null = null) {
-  view.innerHTML = `<button class="back">← 返回</button><h2>🔋 电池衰减</h2><div class="muted">加载中…</div>`;
+  view.innerHTML = `<button class="back">${t("common.back")}</button><h2>${t("bat.pageTitle")}</h2><div class="muted">${t("common.loading")}</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   let b: Battery;
   try { b = await api<Battery>(`/api/cars/${carId}/battery`); }
   catch (e) { view.insertAdjacentHTML("beforeend", `<div class="error">⚠️ ${esc((e as Error).message)}</div>`); return; }
   const bl = baseline(b, car, carId)!;
-  const t = (d: string) => new Date(d).getTime(), day = 864e5;
-  const pts = b.points.map(p => ({ x: t(p.date), y: p.range100_km }));
-  const med = b.months.map(m => ({ x: t(m.month + "-15T00:00:00Z"), y: m.range100_km }));
+  const tms = (d: string) => new Date(d).getTime(), day = 864e5;
+  const pts = b.points.map(p => ({ x: tms(p.date), y: p.range100_km }));
+  const med = b.months.map(m => ({ x: tms(m.month + "-15T00:00:00Z"), y: m.range100_km }));
   const f = fit(pts.map(p => p.x / day / 365), pts.map(p => p.y));
   const perYear = f ? f.b / bl.km * 100 : null;
   const odo = b.points.filter(p => p.odometer_km != null).map(p => ({ x: p.odometer_km!, y: p.range100_km }));
   const odoMed = b.months.filter(m => m.odometer_km != null).map(m => ({ x: m.odometer_km!, y: m.range100_km }));
-  const capPts = b.points.filter(p => p.capacity_kwh != null && p.capacity_kwh > 20 && p.capacity_kwh < 150).map(p => ({ x: t(p.date), y: p.capacity_kwh! }));
-  const capMed = b.months.filter(m => m.capacity_kwh != null).map(m => ({ x: t(m.month + "-15T00:00:00Z"), y: m.capacity_kwh! }));
+  const capPts = b.points.filter(p => p.capacity_kwh != null && p.capacity_kwh > 20 && p.capacity_kwh < 150).map(p => ({ x: tms(p.date), y: p.capacity_kwh! }));
+  const capMed = b.months.filter(m => m.capacity_kwh != null).map(m => ({ x: tms(m.month + "-15T00:00:00Z"), y: m.capacity_kwh! }));
   const ym = (x: number) => { const d = new Date(x); return `${d.getFullYear()}/${d.getMonth() + 1}`; };
   const odoSpan = odo.length ? Math.max(...odo.map(p => p.x)) - Math.min(...odo.map(p => p.x)) : 0;
-  view.innerHTML = `<button class="back">← 返回</button><h2>🔋 电池衰减</h2>
+  view.innerHTML = `<button class="back">${t("common.back")}</button><h2>${t("bat.pageTitle")}</h2>
     <div class="ov">
-      <div><small>保持率</small><b>${n(bl.pct, 1)}<i>%</i></b><div class="d neu">当前 / 基准 ${n(bl.km)} km${bl.raw_pct != null && bl.raw_pct > 100 ? `（实算 ${n(bl.raw_pct, 1)}%）` : ""}</div></div>
-      <div><small>满电续航（估算）</small><b>${n(b.current_range100_km)}<i>km</i></b><div class="d neu">记录初期 ${n(b.initial_range100_km)} km</div></div>
-      <div><small>可用容量（续航 × 能耗系数）</small><b>${n(b.capacity_from_range_kwh, 1)}<i>kWh</i></b></div>
-      <div><small>每年变化（趋势）</small><b class="${perYear != null && perYear < 0 ? "dn" : ""}">${perYear == null ? "—" : `${perYear > 0 ? "+" : ""}${n(perYear, 1)}`}<i>%/年</i></b></div>
+      <div><small>${t("bat.retention")}</small><b>${n(bl.pct, 1)}<i>%</i></b><div class="d neu">${t("bat.curVsBase", { km: n(bl.km) })}${bl.raw_pct != null && bl.raw_pct > 100 ? t("bat.rawPct", { v: n(bl.raw_pct, 1) }) : ""}</div></div>
+      <div><small>${t("bat.range100")}</small><b>${n(b.current_range100_km)}<i>km</i></b><div class="d neu">${t("bat.initial", { km: n(b.initial_range100_km) })}</div></div>
+      <div><small>${t("bat.capRange")}</small><b>${n(b.capacity_from_range_kwh, 1)}<i>kWh</i></b></div>
+      <div><small>${t("bat.perYear")}</small><b class="${perYear != null && perYear < 0 ? "dn" : ""}">${perYear == null ? "—" : `${perYear > 0 ? "+" : ""}${n(perYear, 1)}`}<i>${t("bat.perYearUnit")}</i></b></div>
     </div>
-    <div class="pane bl-box"><div class="pane-t">100% 基准</div>
-      <div class="muted">${esc(bl.source)}${b.first_date ? ` · TeslaMate 数据自 ${b.first_date.slice(0, 7)} 起` : ""}</div>
-      <div class="bl-row"><input id="bl-km" type="number" min="100" max="1000" step="1" placeholder="新车时 100% 显示的续航（km）" value="${baselineOverride(carId) ?? ""}">
-        <button id="bl-save" class="primary small">保存</button>${baselineOverride(carId) ? `<button id="bl-reset" class="ghost small">恢复默认</button>` : ""}</div>
-      <div class="muted small-note">默认用出厂额定值（${esc(bl.factory.label)} ${bl.factory.km} km，EPA 口径）；若记录到的值更高则用记录值。知道新车时充满显示的续航，可以在这里填写（只保存在本机）。</div></div>
-    <div class="section-title">满电续航 · 随时间</div>${scatter(pts, med, { xLabel: ym, yUnit: "km", ref: bl.km })}
-    <div class="section-title">满电续航 · 随里程</div>${odoSpan > 100 ? scatter(odo, odoMed, { xLabel: x => `${n(x / 1000, 0)}k km`, yUnit: "km" }) : `<div class="chart-empty">里程数据不足</div>`}
-    <div class="section-title">容量估算（充入电量 ÷ 充电百分比）</div>${capPts.length > 2 ? scatter(capPts, capMed, { xLabel: ym, yUnit: "kWh" }) : `<div class="chart-empty">需要单次充电 ≥ 30% 的记录</div>`}
-    <div class="muted small-note">满电续航 = 充电结束时的额定续航 ÷ 电量百分比 × 100，只用结束电量 ≥ 50% 的充电；初始 / 当前 = 最早 / 最近 10 次的中位数。
-      容量估算包含充电损耗，通常偏高几个 kWh${b.capacity_from_energy_kwh ? `（最近：${n(b.capacity_from_energy_kwh, 1)} kWh）` : ""}。温度、BMS 校准都会让数值波动，看趋势比看单点更有意义。</div>`;
+    <div class="pane bl-box"><div class="pane-t">${t("bat.base100")}</div>
+      <div class="muted">${esc(bl.source)}${b.first_date ? t("bat.tmSince", { m: monthLabel(b.first_date) }) : ""}</div>
+      <div class="bl-row"><input id="bl-km" type="number" min="100" max="1000" step="1" placeholder="${t("bat.basePh")}" value="${baselineOverride(carId) ?? ""}">
+        <button id="bl-save" class="primary small">${t("common.save")}</button>${baselineOverride(carId) ? `<button id="bl-reset" class="ghost small">${t("bat.reset")}</button>` : ""}</div>
+      <div class="muted small-note">${esc(t("bat.baseHint", { label: bl.factory.label, km: bl.factory.km }))}</div></div>
+    <div class="section-title">${t("bat.overTime")}</div>${scatter(pts, med, { xLabel: ym, yUnit: "km", ref: bl.km })}
+    <div class="section-title">${t("bat.overOdo")}</div>${odoSpan > 100 ? scatter(odo, odoMed, { xLabel: x => `${n(x / 1000, 0)}k km`, yUnit: "km" }) : `<div class="chart-empty">${t("bat.noOdo")}</div>`}
+    <div class="section-title">${t("bat.capEst")}</div>${capPts.length > 2 ? scatter(capPts, capMed, { xLabel: ym, yUnit: "kWh" }) : `<div class="chart-empty">${t("bat.needBig")}</div>`}
+    <div class="muted small-note">${t("bat.method")}
+      ${t("bat.method2", { recent: b.capacity_from_energy_kwh ? t("bat.recent", { v: n(b.capacity_from_energy_kwh, 1) }) : "" })}</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   const again = () => showBattery(view, carId, back, car);
   (view.querySelector("#bl-save") as HTMLElement).onclick = () => {
     const v = Number((view.querySelector("#bl-km") as HTMLInputElement).value);
-    if (!(v >= 100 && v <= 1000)) return alert("请输入 100–1000 之间的公里数");
+    if (!(v >= 100 && v <= 1000)) return alert(t("bat.invalid"));
     setBaselineOverride(carId, Math.round(v)); again();
   };
   const rs = view.querySelector<HTMLElement>("#bl-reset"); if (rs) rs.onclick = () => { setBaselineOverride(carId, null); again(); };
@@ -152,7 +153,7 @@ function lineChart(ms: TM[], val: (m: TM) => number | null, cur: string, unit: s
   const W = 392, H = 150, L = 34, R = 10, T = 16, B = 20, iw = W - L - R, ih = H - T - B;
   const pts = ms.map((m, i) => ({ i, v: val(m), m }));
   const vs = pts.filter(p => p.v != null).map(p => p.v!);
-  if (vs.length < 2) return `<div class="chart-empty">数据不足</div>`;
+  if (vs.length < 2) return `<div class="chart-empty">${t("chart.notEnough")}</div>`;
   let lo = Math.min(...vs), hi = Math.max(...vs); const pad = Math.max(5, (hi - lo) * 0.2); lo = Math.floor(lo - pad); hi = Math.ceil(hi + pad);
   const X = (i: number) => L + iw * (i + 0.5) / ms.length, Y = (v: number) => T + ih * (1 - (v - lo) / (hi - lo));
   const path = pts.filter(p => p.v != null).map((p, k) => `${k ? "L" : "M"}${X(p.i).toFixed(1)},${Y(p.v!).toFixed(1)}`).join("");
@@ -172,7 +173,7 @@ function mixChart(ms: TM[], cur: string) {
     else out = `<rect x="${x.toFixed(1)}" y="${T + ih - 2}" width="${w.toFixed(1)}" height="2" fill="#8884"/>`;
     return out + `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" class="ct${m.month === cur ? " on" : ""}">${Number(m.month.slice(5))}</text>`; }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%">${bars}</svg>
-    <div class="lg"><span><i style="background:${C.home}"></i>家充</span><span><i style="background:${C.supercharger}"></i>超充</span><span><i style="background:${C.other}"></i>其他</span><span>按充入电量占比</span></div>`;
+    <div class="lg"><span><i style="background:${C.home}"></i>${t("mix.home")}</span><span><i style="background:${C.supercharger}"></i>${t("mix.supercharger")}</span><span><i style="background:${C.other}"></i>${t("mix.other")}</span><span>${t("mix.byEnergy")}</span></div>`;
 }
 
 export function trendsHTML(ms: TM[], cur: string) {
@@ -181,33 +182,33 @@ export function trendsHTML(ms: TM[], cur: string) {
   const costOf = (m: TM, c: string) => m.costs.find(x => x.currency === c)?.amount ?? 0;
   const sum = (f: (m: TM) => number) => ms.reduce((a, m) => a + f(m), 0);
   const km = sum(m => m.distance_km), kwh = sum(m => m.energy_used_kwh);
-  return `<div class="section-title">近 12 个月趋势</div>
-    <div class="pane"><div class="kpi"><div><small>12 个月里程</small><b>${n(km)} km</b></div><div><small>耗电</small><b>${n(kwh)} kWh</b></div>
-      <div><small>平均能耗</small><b>${km > 0 ? n(kwh * 1000 / km) : "—"} Wh/km</b></div></div></div>
-    <div class="pane"><div class="pane-t">里程</div>${barChart(ms, m => m.distance_km, cur, "km", "#7b5cff")}</div>
-    <div class="pane"><div class="pane-t">耗电</div>${barChart(ms, m => m.energy_used_kwh, cur, "kWh", "#5c9dff")}</div>
-    <div class="pane"><div class="pane-t">平均能耗</div>${lineChart(ms, m => m.efficiency_wh_km, cur, "Wh/km")}</div>
-    ${curs.length ? curs.map(c => `<div class="pane"><div class="pane-t">充电费用 · ${esc(c)} <span class="muted">合计 ${fmtMoney(sum(m => costOf(m, c)), c)}</span></div>${barChart(ms, m => costOf(m, c), cur, c, c === main ? "#ff5c8a" : "#f7b733")}</div>`).join("")
-      : `<div class="pane"><div class="pane-t">充电费用</div><div class="chart-empty">没有费用记录</div></div>`}
-    <div class="pane"><div class="pane-t">充电类型占比</div>${mixChart(ms, cur)}</div>`;
+  return `<div class="section-title">${t("tr.title")}</div>
+    <div class="pane"><div class="kpi"><div><small>${t("tr.km12")}</small><b>${n(km)} km</b></div><div><small>${t("tr.used")}</small><b>${n(kwh)} kWh</b></div>
+      <div><small>${t("tr.avgEff")}</small><b>${km > 0 ? n(kwh * 1000 / km) : "—"} Wh/km</b></div></div></div>
+    <div class="pane"><div class="pane-t">${t("tr.distance")}</div>${barChart(ms, m => m.distance_km, cur, "km", "#7b5cff")}</div>
+    <div class="pane"><div class="pane-t">${t("tr.used")}</div>${barChart(ms, m => m.energy_used_kwh, cur, "kWh", "#5c9dff")}</div>
+    <div class="pane"><div class="pane-t">${t("tr.avgEff")}</div>${lineChart(ms, m => m.efficiency_wh_km, cur, "Wh/km")}</div>
+    ${curs.length ? curs.map(c => `<div class="pane"><div class="pane-t">${t("tr.cost")} · ${esc(c)} <span class="muted">${t("tr.total", { v: fmtMoney(sum(m => costOf(m, c)), c) })}</span></div>${barChart(ms, m => costOf(m, c), cur, c, c === main ? "#ff5c8a" : "#f7b733")}</div>`).join("")
+      : `<div class="pane"><div class="pane-t">${t("tr.cost")}</div><div class="chart-empty">${t("tr.noCost")}</div></div>`}
+    <div class="pane"><div class="pane-t">${t("tr.mix")}</div>${mixChart(ms, cur)}</div>`;
 }
 
 /** Appends 足迹 + 趋势 to the report body. Returns the created map (for cleanup by the caller). */
 export async function loadReportExtras(body: HTMLElement, carId: number, month: string, setMap: (m: DriveMap | null) => void) {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  body.insertAdjacentHTML("beforeend", `<div id="rp-foot"><div class="section-title">本月足迹</div><div id="fmap" class="foot-map"><div class="map-ph sk" style="height:100%"></div></div><div class="muted small-note" id="fnote"></div></div>
-    <div id="rp-trends"><div class="section-title">近 12 个月趋势</div><div class="pane"><span class="sk" style="width:100%;height:140px;display:block"></span></div></div>`);
+  body.insertAdjacentHTML("beforeend", `<div id="rp-foot"><div class="section-title">${t("fp.title")}</div><div id="fmap" class="foot-map"><div class="map-ph sk" style="height:100%"></div></div><div class="muted small-note" id="fnote"></div></div>
+    <div id="rp-trends"><div class="section-title">${t("tr.title")}</div><div class="pane"><span class="sk" style="width:100%;height:140px;display:block"></span></div></div>`);
   const alive = () => document.body.contains(body) && body.querySelector("#rp-foot") != null;
   api<{ lines: [number, number][][]; points: number; raw_points: number }>(`/api/cars/${carId}/footprint?month=${month}&tz=${encodeURIComponent(tz)}`).then(f => {
     if (!alive()) return;
     const el = body.querySelector<HTMLElement>("#fmap")!;
-    if (!f.lines.length) { el.outerHTML = `<div class="chart-empty">本月没有轨迹</div>`; return; }
+    if (!f.lines.length) { el.outerHTML = `<div class="chart-empty">${t("fp.none")}</div>`; return; }
     el.innerHTML = "";
     const m = new DriveMap(el, { lines: f.lines.map(l => ({ coords: l, speeds: l.map(() => null) })), speedColor: false, noPins: true });
     setMap(m);
-    body.querySelector("#fnote")!.textContent = `${f.lines.length} 段行程${f.raw_points > f.points ? ` · 已简化显示（${n(f.points)}/${n(f.raw_points)} 点）` : ""}`;
-  }).catch(e => { const el = body.querySelector("#fmap"); if (el) el.outerHTML = `<div class="error">足迹加载失败：${esc((e as Error).message)}</div>`; });
+    body.querySelector("#fnote")!.textContent = t("fp.note", { n: f.lines.length }) + (f.raw_points > f.points ? t("fp.simplified", { a: n(f.points), b: n(f.raw_points) }) : "");
+  }).catch(e => { const el = body.querySelector("#fmap"); if (el) el.outerHTML = `<div class="error">${esc(t("fp.err", { e: (e as Error).message }))}</div>`; });
   api<{ months: TM[] }>(`/api/cars/${carId}/trends?month=${month}&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(t => {
     if (!alive()) return; body.querySelector("#rp-trends")!.innerHTML = trendsHTML(t.months, month);
-  }).catch(e => { const el = body.querySelector("#rp-trends"); if (el) el.innerHTML = `<div class="error">趋势加载失败：${esc((e as Error).message)}</div>`; });
+  }).catch(e => { const el = body.querySelector("#rp-trends"); if (el) el.innerHTML = `<div class="error">${esc(t("tr.err", { e: (e as Error).message }))}</div>`; });
 }

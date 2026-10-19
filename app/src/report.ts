@@ -3,6 +3,7 @@ import { api, fmtMoney, defaultCurrency } from "./api";
 import { featureText } from "./version";
 import type { DriveMap } from "./map";
 import { loadReportExtras } from "./insights";
+import { t, currentLang, fmtDur, fmtMonthDay, monthLabel, weekdays, fmtNum } from "./i18n";
 
 interface Money { currency: string; amount: number }
 interface Overview { distance_km: number; drive_duration_min: number; drive_count: number; energy_used_kwh: number;
@@ -21,11 +22,11 @@ export interface ReportNav { back: () => void; drive: (id: number) => void; char
   extras?: { setMap: (m: DriveMap | null) => void } }
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
-const num = (v: number, d = 0) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-const md = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}`; };
-const durHM = (m: number | null) => m == null ? "—" : m >= 60 ? `${Math.floor(m / 60)}小时${m % 60}分` : `${m}分钟`;
+const num = (v: number, d = 0) => fmtNum(v, d);
+const md = (iso: string) => fmtMonthDay(iso);
+const durHM = (m: number | null) => fmtDur(m);
 const COLORS = { home: "#2a9d4a", supercharger: "#e31937", other: "#f0a020" };
-const LABEL = { home: "家充", supercharger: "超充", other: "其他" };
+const LABEL = (k: "home" | "supercharger" | "other") => t(`mix.${k}`);
 const ICON = { home: "🏠", supercharger: "⚡", other: "🔌" };
 
 export function shiftMonth(m: string, by: number) {
@@ -39,10 +40,10 @@ function mainCur(list: Money[]) { const d = defaultCurrency(); return list.find(
 const costTxt = (list: Money[]) => list.length ? list.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—";
 
 function delta(cur: number | null, prev: number | null, goodUp: boolean) {
-  if (cur == null || prev == null || prev === 0) return `<div class="d neu">– <span>较上月</span></div>`;
+  if (cur == null || prev == null || prev === 0) return `<div class="d neu">– <span>${t("rp.vsPrev")}</span></div>`;
   const p = Math.round((cur - prev) / prev * 100);
   const cls = p === 0 ? "neu" : (p > 0) === goodUp ? "up" : "dn";
-  return `<div class="d ${cls}">${p > 0 ? "↑" : p < 0 ? "↓" : "–"} ${Math.abs(p)}% <span class="neu">较上月</span></div>`;
+  return `<div class="d ${cls}">${p > 0 ? "↑" : p < 0 ? "↓" : "–"} ${Math.abs(p)}% <span class="neu">${t("rp.vsPrev")}</span></div>`;
 }
 
 function donut(parts: [number, string][], center: string, sub: string) {
@@ -65,8 +66,8 @@ function bars(r: Report) {
     if (d.energy_added_kwh > 0) g += `<rect x="${x + bw / 2}" y="${T + ih * (1 - d.energy_added_kwh / mc)}" width="${Math.max(bw / 2 - 1, 1)}" height="${ih * d.energy_added_kwh / mc}" rx="1.5" fill="#2a9d4a" opacity=".85"><title>${d.date} ${d.energy_added_kwh} kWh</title></rect>`;
     if (fut) g += `<rect x="${x}" y="${T}" width="${bw}" height="${ih}" fill="#8881"/>`;
     if ([0, 4, 9, 14, 19, 24, 29].includes(i)) g += `<text class="ax" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${i + 1}</text>`; });
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="每日里程和充电量">${g}</svg>
-    <div class="lg"><span><i style="background:var(--red)"></i>里程 km（左轴）</span><span><i style="background:#2a9d4a"></i>充电 kWh（最高 ${mc}）</span></div>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("rp.dailyAria")}">${g}</svg>
+    <div class="lg"><span><i style="background:var(--red)"></i>${t("rp.lgKm")}</span><span><i style="background:#2a9d4a"></i>${t("rp.lgKwh", { v: mc })}</span></div>`;
 }
 
 function calendar(r: Report) {
@@ -77,13 +78,13 @@ function calendar(r: Report) {
     const fut = r.is_current && i >= r.days_elapsed, a = d.distance_km / max;
     const bg = d.distance_km > 0 ? `background:rgba(227,25,55,${(0.15 + 0.75 * a).toFixed(2)});${a > .55 ? "color:#fff;" : ""}` : "";
     return `<div class="cal-d${fut ? " fut" : ""}" style="${bg}" title="${d.date}"><b>${i + 1}</b><span>${d.distance_km > 0 ? Math.round(d.distance_km) : ""}</span>${d.energy_added_kwh > 0 ? `<i title="${d.energy_added_kwh} kWh">⚡</i>` : ""}</div>`; }));
-  return `<div class="cal">${"一二三四五六日".split("").map(w => `<div class="cal-h">${w}</div>`).join("")}${cells.join("")}</div>
-    <div class="lg"><span><i style="background:rgba(227,25,55,.5)"></i>颜色越深里程越多（数字为 km）</span><span>⚡ 有充电</span></div>`;
+  return `<div class="cal">${weekdays().map(w => `<div class="cal-h">${w}</div>`).join("")}${cells.join("")}</div>
+    <div class="lg"><span><i style="background:rgba(227,25,55,.5)"></i>${t("rp.calLegend")}</span><span>${t("rp.calCharge")}</span></div>`;
 }
 
 export function reportSkeleton(month: string) {
   const sk = (w: string, h = "14px") => `<span class="sk" style="width:${w};height:${h}"></span>`;
-  return `<button class="back">← 返回</button>${switcher(month, null)}
+  return `<button class="back">${t("common.back")}</button>${switcher(month, null)}
     <div id="rp-body"><div class="ov">${Array.from({ length: 6 }, () => `<div>${sk("50%", "10px")}<br>${sk("70%", "22px")}<br>${sk("40%", "10px")}</div>`).join("")}</div>
     <div class="section-title">${sk("25%")}</div><div class="pane">${sk("100%", "150px")}</div>
     <div class="section-title">${sk("20%")}</div><div class="pane">${sk("100%", "150px")}</div></div>`;
@@ -92,10 +93,11 @@ export function reportSkeleton(month: string) {
 function switcher(month: string, r: Report | null) {
   const [y, m] = month.split("-").map(Number);
   const canNext = month < nowMonth(), canPrev = !r?.first_month || month > r.first_month;
-  const sub = r ? (r.is_current ? `${m}月1日 – ${r.days_elapsed}日 · 本月进行中` : `${m}月1日 – ${r.days_in_month}日`) : "&nbsp;";
-  return `<div class="msw"><button data-m="${shiftMonth(month, -1)}" ${canPrev ? "" : "disabled"} aria-label="上个月">‹</button>
-    <div style="text-align:center"><b>${y}年${m}月</b><div class="muted">${sub}</div></div>
-    <button data-m="${shiftMonth(month, 1)}" ${canNext ? "" : "disabled"} aria-label="下个月">›</button></div>`;
+  const mn = currentLang() === "en" ? new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, 1))) : String(m);
+  const sub = r ? (r.is_current ? t("rp.rangeCur", { m: mn, d: r.days_elapsed }) : t("rp.range", { m: mn, d: r.days_in_month })) : "&nbsp;";
+  return `<div class="msw"><button data-m="${shiftMonth(month, -1)}" ${canPrev ? "" : "disabled"} aria-label="${t("rp.prevMonth")}">‹</button>
+    <div style="text-align:center"><b>${monthLabel(month)}</b><div class="muted">${sub}</div></div>
+    <button data-m="${shiftMonth(month, 1)}" ${canNext ? "" : "disabled"} aria-label="${t("rp.nextMonth")}">›</button></div>`;
 }
 
 export function reportHTML(r: Report) {
@@ -114,41 +116,41 @@ export function reportHTML(r: Report) {
     `<div class="card best" ${attr}><div class="ic">${icon}</div><div class="t"><small>${label}</small><b>${title}</b></div><div class="v">${val}${sub ? `<div class="muted">${sub}</div>` : ""}</div><div class="chev">›</div></div>`;
   const empty = o.drive_count === 0 && o.charge_count === 0;
   return `<div class="ov">
-      <div><small>🚗 里程</small><b>${num(o.distance_km)}<i>km</i></b>${delta(o.distance_km, p.distance_km, true)}</div>
-      <div><small>⏱ 驾驶时长</small><b>${Math.floor(o.drive_duration_min / 60)}<i>小时</i>${o.drive_duration_min % 60}<i>分</i></b>${delta(o.drive_duration_min, p.drive_duration_min, true)}</div>
-      <div><small>🧭 行程次数</small><b>${o.drive_count}<i>次</i></b>${delta(o.drive_count, p.drive_count, true)}</div>
-      <div><small>🔋 耗电量</small><b>${num(o.energy_used_kwh)}<i>kWh</i></b>${delta(o.energy_used_kwh, p.energy_used_kwh, false)}</div>
-      <div><small>⚡ 充电量</small><b>${num(o.energy_added_kwh)}<i>kWh</i></b>${delta(o.energy_added_kwh, p.energy_added_kwh, false)}</div>
-      <div><small>💴 充电费用</small><b class="${o.costs.length > 1 ? "multi" : ""}">${costTxt(o.costs)}</b>${delta(oc?.amount ?? null, pc?.amount ?? null, false)}</div>
+      <div><small>${t("rp.distance")}</small><b>${num(o.distance_km)}<i>km</i></b>${delta(o.distance_km, p.distance_km, true)}</div>
+      <div><small>${t("rp.driveTime")}</small><b>${Math.floor(o.drive_duration_min / 60)}<i>${t("rp.unitH")}</i>${o.drive_duration_min % 60}<i>${t("rp.unitM")}</i></b>${delta(o.drive_duration_min, p.drive_duration_min, true)}</div>
+      <div><small>${t("rp.driveCount")}</small><b>${o.drive_count}<i>${t("rp.unitTimes")}</i></b>${delta(o.drive_count, p.drive_count, true)}</div>
+      <div><small>${t("rp.used")}</small><b>${num(o.energy_used_kwh)}<i>kWh</i></b>${delta(o.energy_used_kwh, p.energy_used_kwh, false)}</div>
+      <div><small>${t("rp.charged")}</small><b>${num(o.energy_added_kwh)}<i>kWh</i></b>${delta(o.energy_added_kwh, p.energy_added_kwh, false)}</div>
+      <div><small>${t("rp.cost")}</small><b class="${o.costs.length > 1 ? "multi" : ""}">${costTxt(o.costs)}</b>${delta(oc?.amount ?? null, pc?.amount ?? null, false)}</div>
     </div>
-    ${r.is_current ? `<div class="muted small-note">本月进行中：与上月全月比较</div>` : ""}
-    ${empty ? `<div class="pane muted" style="text-align:center;margin-top:10px">这个月没有行程和充电记录</div>` : `
-    <div class="section-title">能耗与费用</div>
+    ${r.is_current ? `<div class="muted small-note">${t("rp.curNote")}</div>` : ""}
+    ${empty ? `<div class="pane muted" style="text-align:center;margin-top:10px">${t("rp.empty")}</div>` : `
+    <div class="section-title">${t("rp.effCost")}</div>
     <div class="pane">
       <div class="kpi">
-        <div><small>平均能耗</small><b>${o.efficiency_wh_km != null ? num(o.efficiency_wh_km) : "—"} <span class="muted">Wh/km</span></b>${delta(o.efficiency_wh_km, p.efficiency_wh_km, false)}</div>
-        <div><small>每公里费用</small><b>${perKm != null ? fmtMoney(perKm, mc, true) : "—"} <span class="muted">/km</span></b>${delta(perKm, perKmPrev, false)}</div>
-        <div><small>平均电价</small><b>${perKwh != null ? fmtMoney(perKwh, mc, true) : "—"} <span class="muted">/kWh</span></b>${delta(perKwh, perKwhPrev, false)}</div>
+        <div><small>${t("rp.avgEff")}</small><b>${o.efficiency_wh_km != null ? num(o.efficiency_wh_km) : "—"} <span class="muted">Wh/km</span></b>${delta(o.efficiency_wh_km, p.efficiency_wh_km, false)}</div>
+        <div><small>${t("rp.perKm")}</small><b>${perKm != null ? fmtMoney(perKm, mc, true) : "—"} <span class="muted">/km</span></b>${delta(perKm, perKmPrev, false)}</div>
+        <div><small>${t("rp.perKwh")}</small><b>${perKwh != null ? fmtMoney(perKwh, mc, true) : "—"} <span class="muted">/kWh</span></b>${delta(perKwh, perKwhPrev, false)}</div>
       </div>
       <div class="donuts">
-        <div class="donut">${donut(r.split.map(b => [b.energy_kwh, COLORS[b.kind]]), num(o.energy_added_kwh), "kWh")}<div>按电量</div></div>
-        <div class="donut">${donut(r.split.map(b => [bucketCost(b), COLORS[b.kind]]), oc ? fmtMoney(oc.amount, mc) : "—", "费用")}<div>按费用</div></div>
+        <div class="donut">${donut(r.split.map(b => [b.energy_kwh, COLORS[b.kind]]), num(o.energy_added_kwh), "kWh")}<div>${t("rp.byEnergy")}</div></div>
+        <div class="donut">${donut(r.split.map(b => [bucketCost(b), COLORS[b.kind]]), oc ? fmtMoney(oc.amount, mc) : "—", t("rp.costUnit"))}<div>${t("rp.byCost")}</div></div>
       </div>
-      <div class="lg">${r.split.map(b => `<span><i style="background:${COLORS[b.kind]}"></i>${LABEL[b.kind]}</span>`).join("")}</div>
-      <table class="split"><tr><td></td><td>电量</td><td>费用</td><td>单价/kWh</td></tr>
-        ${r.split.map(b => `<tr><td>${ICON[b.kind]} ${LABEL[b.kind]} ×${b.count}</td><td>${num(b.energy_kwh)} kWh</td><td>${costTxt(b.costs)}</td>
+      <div class="lg">${r.split.map(b => `<span><i style="background:${COLORS[b.kind]}"></i>${LABEL(b.kind)}</span>`).join("")}</div>
+      <table class="split"><tr><td></td><td>${t("rp.colEnergy")}</td><td>${t("rp.colCost")}</td><td>${t("rp.colUnit")}</td></tr>
+        ${r.split.map(b => `<tr><td>${ICON[b.kind]} ${LABEL(b.kind)} ×${b.count}</td><td>${num(b.energy_kwh)} kWh</td><td>${costTxt(b.costs)}</td>
           <td>${b.energy_kwh > 0 && bucketCost(b) > 0 ? fmtMoney(bucketCost(b) / b.energy_kwh, mc, true) : "—"}</td></tr>`).join("")}
       </table>
     </div>
-    <div class="section-title">每日 <div class="seg" id="rp-seg"><span data-v="bar" class="on">柱状图</span><span data-v="cal">日历</span></div></div>
+    <div class="section-title">${t("rp.daily")} <div class="seg" id="rp-seg"><span data-v="bar" class="on">${t("rp.bar")}</span><span data-v="cal">${t("rp.cal")}</span></div></div>
     <div class="pane"><div id="rp-daily">${bars(r)}</div>
-      <div class="muted" style="text-align:center;margin-top:4px">行驶 ${days.length} 天 · 日均 ${num(o.distance_km / elapsed)} km${top && top.distance_km > 0 ? ` · 最多 ${Number(top.date.slice(5, 7))}/${Number(top.date.slice(8))} ${num(top.distance_km)} km` : ""}</div></div>
-    <div class="section-title">月度之最</div>
-    ${ld ? recCard(`data-drive="${ld.id}"`, "🛣️", `最长行程 · ${md(ld.start_date)}`, `${esc(ld.start_address)} → ${esc(ld.end_address)}`, `${num(ld.distance_km ?? 0, 1)} km`, durHM(ld.duration_min)) : ""}
-    ${ts ? recCard(`data-drive="${ts.id}"`, "🏎️", `最高车速 · ${md(ts.start_date)}`, `${esc(ts.start_address)} → ${esc(ts.end_address)}`, `${ts.speed_max} km/h`) : ""}
-    ${ec ? recCard(`data-charge="${ec.id}"`, "💴", `最贵一次充电 · ${md(ec.start_date)}`, esc(ec.address), fmtMoney(ec.cost, ec.currency), `${num(ec.energy_kwh ?? 0, 1)} kWh`) : ""}
-    ${fc ? recCard(`data-charge="${fc.id}"`, "⚡", `最快充电峰值 · ${md(fc.start_date)}`, esc(fc.address), `${num(fc.peak_kw ?? 0)} kW`, `${fc.start_battery_level ?? "—"}%→${fc.end_battery_level ?? "—"}% ${durHM(fc.duration_min)}`) : ""}
-    ${!ld && !ts && !ec && !fc ? `<div class="muted">暂无</div>` : ""}`}`;
+      <div class="muted" style="text-align:center;margin-top:4px">${t("rp.dailySummary", { n: days.length, avg: num(o.distance_km / elapsed) })}${top && top.distance_km > 0 ? t("rp.dailyTop", { d: md(top.date), km: num(top.distance_km) }) : ""}</div></div>
+    <div class="section-title">${t("rp.records")}</div>
+    ${ld ? recCard(`data-drive="${ld.id}"`, "🛣️", t("rp.longest", { d: md(ld.start_date) }), `${esc(ld.start_address)} → ${esc(ld.end_address)}`, `${num(ld.distance_km ?? 0, 1)} km`, durHM(ld.duration_min)) : ""}
+    ${ts ? recCard(`data-drive="${ts.id}"`, "🏎️", t("rp.topSpeed", { d: md(ts.start_date) }), `${esc(ts.start_address)} → ${esc(ts.end_address)}`, `${ts.speed_max} km/h`) : ""}
+    ${ec ? recCard(`data-charge="${ec.id}"`, "💴", t("rp.priciest", { d: md(ec.start_date) }), esc(ec.address), fmtMoney(ec.cost, ec.currency), `${num(ec.energy_kwh ?? 0, 1)} kWh`) : ""}
+    ${fc ? recCard(`data-charge="${fc.id}"`, "⚡", t("rp.fastest", { d: md(fc.start_date) }), esc(fc.address), `${num(fc.peak_kw ?? 0)} kW`, `${fc.start_battery_level ?? "—"}%→${fc.end_battery_level ?? "—"}% ${durHM(fc.duration_min)}`) : ""}
+    ${!ld && !ts && !ec && !fc ? `<div class="muted">${t("common.none")}</div>` : ""}`}`;
 }
 
 let gen = 0;
@@ -166,7 +168,7 @@ export async function showReport(view: HTMLElement, carId: number, month: string
       view.querySelector("#rp-daily")!.innerHTML = s.dataset.v === "cal" ? calendar(r) : bars(r);
     });
   };
-  const paint = (r: Report) => { view.innerHTML = `<button class="back">← 返回</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r);
+  const paint = (r: Report) => { view.innerHTML = `<button class="back">${t("common.back")}</button>${switcher(month, r)}<div id="rp-body">${reportHTML(r)}</div>`; bind(r);
     if (nav.extras) loadReportExtras(view.querySelector<HTMLElement>("#rp-body")!, carId, month, nav.extras.setMap); };
   const hit = cache.get(key);
   if (hit) paint(hit); else { view.innerHTML = reportSkeleton(month); bind(null); }
@@ -178,8 +180,8 @@ export async function showReport(view: HTMLElement, carId: number, month: string
       const body = view.querySelector("#rp-body")!;
       body.querySelector(".card-error")?.remove();
       if (!cache.has(key)) body.innerHTML = "";
-      body.insertAdjacentHTML("afterbegin", `<div class="error card-error">⚠️ ${(e as { status?: number }).status === 404 ? esc(featureText("report")) : `月度报告加载失败：${esc((e as Error).message)}`} <button class="retry">重试</button></div>`);
-      (body.querySelector(".retry") as HTMLElement).onclick = () => { body.querySelector(".card-error")!.innerHTML = "加载中…"; load(); };
+      body.insertAdjacentHTML("afterbegin", `<div class="error card-error">⚠️ ${(e as { status?: number }).status === 404 ? esc(featureText("report")) : esc(t("rp.loadErr", { e: (e as Error).message }))} <button class="retry">${t("common.retry")}</button></div>`);
+      (body.querySelector(".retry") as HTMLElement).onclick = () => { body.querySelector(".card-error")!.innerHTML = t("common.loading"); load(); };
     });
   load();
 }

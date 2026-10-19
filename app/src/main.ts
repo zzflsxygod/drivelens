@@ -1,13 +1,14 @@
 import "./style.css";
+import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { batteryCardHTML, showBattery, type Battery } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
-import { infiniteList, monthLabel } from "./infinite";
+import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
-import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, defaultLabelLang, migrateDefaults, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
@@ -18,8 +19,6 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { do
 document.documentElement.dataset.theme = effectiveTheme();
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
-const fmtDate = (iso: string) => new Date(iso).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-const fmtDur = (m: number | null) => m == null ? "—" : m >= 60 ? `${Math.floor(m / 60)}小时${m % 60}分` : `${m}分钟`;
 const n = (v: number | null, d = 1) => v == null ? "—" : v.toFixed(d);
 const carQ = () => carSel.value ? `&car_id=${carSel.value}` : "";
 
@@ -34,14 +33,14 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
   dlg.className = "modal";
   dlg.innerHTML = `
     <div class="sheet">
-      <h3>修改地点名称</h3>
+      <h3>${t("alias.title")}</h3>
       <input id="alias" maxlength="200" value="${esc(current)}">
-      <p class="muted">名称按地点保存：所有在这个地点的行程和充电记录都会显示新名称。不会修改 TeslaMate 原始数据。</p>
+      <p class="muted">${t("alias.hint")}</p>
       <div id="dlgmsg"></div>
       <div class="btns">
-        ${hasAlias ? `<button id="reset" class="ghost">恢复默认名称</button>` : ""}
-        <button id="cancel" class="ghost">取消</button>
-        <button id="ok" class="primary small">保存</button>
+        ${hasAlias ? `<button id="reset" class="ghost">${t("alias.reset")}</button>` : ""}
+        <button id="cancel" class="ghost">${t("common.cancel")}</button>
+        <button id="ok" class="primary small">${t("common.save")}</button>
       </div>
     </div>`;
   document.body.appendChild(dlg);
@@ -56,7 +55,7 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
   (dlg.querySelector("#cancel") as HTMLElement).onclick = close;
   (dlg.querySelector("#ok") as HTMLElement).onclick = () => {
     const v = input.value.trim();
-    if (!v) { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">名称不能为空</div>`; return; }
+    if (!v) { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${t("common.nameEmpty")}</div>`; return; }
     run(() => setAlias(addressId, v));
   };
   input.onkeydown = e => { if (e.key === "Enter") (dlg.querySelector("#ok") as HTMLElement).click(); };
@@ -77,20 +76,20 @@ function costDialog(c: Charge, onDone: () => void) {
   dlg.className = "modal";
   dlg.innerHTML = `
     <div class="sheet">
-      <h3>充电费用</h3>
+      <h3>${t("cost.title")}</h3>
       <div class="muted">${esc(c.address)} · ${fmtDate(c.start_date)} · ${kwh != null ? `${kwh.toFixed(2)} kWh` : ""}</div>
       <div class="cost-row">
-        <input id="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="金额" value="${manual && c.cost != null ? c.cost : ""}">
+        <input id="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="${t("cost.amount")}" value="${manual && c.cost != null ? c.cost : ""}">
         <select id="cur">${opts.map(o => `<option${o === cur0 ? " selected" : ""}>${o}</option>`).join("")}</select>
       </div>
       <div id="unit" class="muted"></div>
-      <input id="note" maxlength="500" placeholder="备注（可选）" value="${esc(manual ? c.cost_note ?? "" : "").replace(/^—$/, "")}">
-      <p class="muted">${c.teslamate_cost != null ? `TeslaMate 记录的费用：${fmtMoney(c.teslamate_cost, c.default_currency)}。` : "TeslaMate 没有记录这次充电的费用。"}手动录入的费用优先显示，不会修改 TeslaMate 原始数据。</p>
+      <input id="note" maxlength="500" placeholder="${t("common.noteOptional")}" value="${esc(manual ? c.cost_note ?? "" : "").replace(/^—$/, "")}">
+      <p class="muted">${c.teslamate_cost != null ? t("cost.tmRecorded", { c: fmtMoney(c.teslamate_cost, c.default_currency) }) : t("cost.tmNone")}${t("cost.manualNote")}</p>
       <div id="dlgmsg"></div>
       <div class="btns">
-        ${manual ? `<button id="reset" class="ghost">删除手动费用</button>` : ""}
-        <button id="cancel" class="ghost">取消</button>
-        <button id="ok" class="primary small">保存</button>
+        ${manual ? `<button id="reset" class="ghost">${t("cost.delete")}</button>` : ""}
+        <button id="cancel" class="ghost">${t("common.cancel")}</button>
+        <button id="ok" class="primary small">${t("common.save")}</button>
       </div>
     </div>`;
   document.body.appendChild(dlg);
@@ -98,18 +97,18 @@ function costDialog(c: Charge, onDone: () => void) {
   const cur = dlg.querySelector("#cur") as HTMLSelectElement;
   const unit = () => {
     const v = parseFloat(amount.value);
-    dlg.querySelector("#unit")!.textContent = v >= 0 && kwh ? `单价 ${fmtMoney(v / kwh, cur.value, true)}/kWh` : "";
+    dlg.querySelector("#unit")!.textContent = v >= 0 && kwh ? t("common.unitPrice", { p: fmtMoney(v / kwh, cur.value, true) }) : "";
   };
   amount.oninput = unit; cur.onchange = unit; unit();
   amount.focus();
   const close = () => dlg.remove();
-  const msg = (t: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(t)}</div>`; };
+  const msg = (s: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(s)}</div>`; };
   const run = async (fn: () => Promise<unknown>) => { try { await fn(); close(); onDone(); } catch (e) { msg((e as Error).message); } };
   dlg.onclick = e => { if (e.target === dlg) close(); };
   (dlg.querySelector("#cancel") as HTMLElement).onclick = close;
   (dlg.querySelector("#ok") as HTMLElement).onclick = () => {
     const v = parseFloat(amount.value);
-    if (!(v >= 0) || v >= 1e9) return msg("请输入有效金额");
+    if (!(v >= 0) || v >= 1e9) return msg(t("cost.invalid"));
     const note = (dlg.querySelector("#note") as HTMLInputElement).value.trim();
     run(() => setCost(c.id, v, cur.value, note || null));
   };
@@ -126,7 +125,7 @@ function bindPlaces(refresh: () => void) {
 
 function destroyMap() { map?.destroy(); map = null; }
 function showError(e: unknown) { view.innerHTML = `<div class="error">${esc((e as Error).message)}</div>`; }
-function loading() { destroyMap(); view.innerHTML = `<div class="muted">加载中…</div>`; }
+function loading() { destroyMap(); view.innerHTML = `<div class="muted">${t("common.loading")}</div>`; }
 
 async function loadCars() {
   try {
@@ -143,17 +142,17 @@ async function showDrive(id: number, back: () => void = showDrives) {
   try {
     const [d, pts] = await Promise.all([api<Drive>(`/api/drives/${id}`), api<PathPoint[]>(`/api/drives/${id}/path`)]);
     view.innerHTML = `
-      <button class="back">← 返回</button>
+      <button class="back">${t("common.back")}</button>
       <h2>${place(d.start_address, d.start_address_id, d.start_alias)} → ${place(d.end_address, d.end_address_id, d.end_alias)}</h2>
-      <div class="muted">${fmtDate(d.start_date)} – ${fmtDate(d.end_date)} · 点击地点名称可修改</div>
+      <div class="muted">${fmtDate(d.start_date)} – ${fmtDate(d.end_date)} · ${t("common.tapPlace")}</div>
       <div id="map"></div>
       <div class="grid">
-        <div><small>距离</small><b>${n(d.distance_km)} km</b></div>
-        <div><small>时长</small><b>${fmtDur(d.duration_min)}</b></div>
-        <div><small>能耗</small><b>${n(d.energy_kwh, 2)} kWh</b></div>
-        <div><small>效率</small><b>${n(d.efficiency_wh_km, 0)} Wh/km</b></div>
-        <div><small>最高速度</small><b>${d.speed_max ?? "—"} km/h</b></div>
-        <div><small>电量</small><b>${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</b></div>
+        <div><small>${t("f.distance")}</small><b>${n(d.distance_km)} km</b></div>
+        <div><small>${t("f.duration")}</small><b>${fmtDur(d.duration_min)}</b></div>
+        <div><small>${t("f.energy")}</small><b>${n(d.energy_kwh, 2)} kWh</b></div>
+        <div><small>${t("f.efficiency")}</small><b>${n(d.efficiency_wh_km, 0)} Wh/km</b></div>
+        <div><small>${t("f.maxSpeed")}</small><b>${d.speed_max ?? "—"} km/h</b></div>
+        <div><small>${t("f.battery")}</small><b>${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</b></div>
       </div>`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
     bindPlaces(() => showDrive(id, back));
@@ -168,12 +167,12 @@ async function showCharges(restore = false) {
   const list = infiniteList<Charge>({
     container: document.getElementById("clist")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ()}`,
     paging: !lacks("paging"), carId: car, monthsSupported: !lacks("paging"), restore,
-    dateOf: c => c.start_date, empty: "暂无充电记录",
-    header: (m, t, loaded) => {
+    dateOf: c => c.start_date, empty: t("charges.empty"),
+    header: (m, tot, loaded) => {
       const byCur = new Map<string, number>();
       for (const c of loaded) if (c.cost != null) { const k = c.currency || defaultCurrency(); byCur.set(k, (byCur.get(k) ?? 0) + c.cost); }
       const cost = byCur.size ? " · " + [...byCur].map(([k, v]) => fmtMoney(v, k)).join(" + ") : "";
-      return `<b>${monthLabel(m)}</b><span>${t ? `${t.charge_count} 次 · ${n(t.energy_added_kwh, 0)} kWh` : `${loaded.length} 次 · ${n(loaded.reduce((a, c) => a + (c.charge_energy_added ?? 0), 0), 0)} kWh`}${cost}</span>`;
+      return `<b>${monthLabel(m)}</b><span>${tot ? t("charges.monthHead", { n: tot.charge_count, kwh: n(tot.energy_added_kwh, 0) }) : t("charges.monthHead", { n: loaded.length, kwh: n(loaded.reduce((a, c) => a + (c.charge_energy_added ?? 0), 0), 0) })}${cost}</span>`;
     },
     card: c => `
       <div class="card" data-id="${c.id}">
@@ -197,7 +196,7 @@ function chargeChart(points: ChargePoint[]): string {
     .map(p => ({ t: Date.parse(p.date), kw: p.power_kw ?? (p.charger_power != null && p.charger_power > 0 ? p.charger_power : null), soc: p.battery_level, src: p.power_source }))
     .filter(p => !Number.isNaN(p.t));
   const hasPower = pts.some(p => (p.kw ?? 0) > 0), hasSoc = pts.some(p => p.soc != null);
-  if (pts.length < 2 || (!hasPower && !hasSoc)) return `<div class="chart-empty">没有充电曲线数据</div>`;
+  if (pts.length < 2 || (!hasPower && !hasSoc)) return `<div class="chart-empty">${t("chart.noCurve")}</div>`;
   const W = 360, H = 150, L = 34, R = 30, T = 10, B = 22, iw = W - L - R, ih = H - T - B;
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1, span = Math.max(1, t1 - t0);
   const maxKw = Math.max(5, ...pts.map(p => p.kw ?? 0));
@@ -209,22 +208,22 @@ function chargeChart(points: ChargePoint[]): string {
   const area = hasPower ? `M${x(kwPts[0].t).toFixed(1)},${yKw(0)} ` + kwPts.map(p => `L${x(p.t).toFixed(1)},${yKw(p.kw!).toFixed(1)}`).join(" ") + ` L${x(kwPts[kwPts.length - 1].t).toFixed(1)},${yKw(0)} Z` : "";
   const socPts = pts.filter(p => p.soc != null);
   const socLine = hasSoc ? socPts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${ySoc(p.soc!).toFixed(1)}`).join(" ") : "";
-  const time = (t: number) => new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const time = (v: number) => fmtTime(v);
   const grid = [0, 0.5, 1].map(f => `<line x1="${L}" x2="${W - R}" y1="${T + ih * (1 - f)}" y2="${T + ih * (1 - f)}" class="cg"/>
       <text x="${L - 4}" y="${T + ih * (1 - f) + 4}" text-anchor="end" class="ct">${Math.round(niceMax * f)}</text>
       <text x="${W - R + 4}" y="${T + ih * (1 - f) + 4}" class="ct soc">${Math.round(100 * f)}%</text>`).join("");
   const derived = pts.some(p => p.src === "energy_delta" || p.src === "voltage_current");
   const peak = hasPower ? Math.max(...kwPts.map(p => p.kw!)) : null;
   return `<div class="chart-box">
-    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="充电功率和电量曲线">
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("chart.curveAria")}">
       ${grid}
       ${hasPower ? `<path d="${area}" class="ca"/>` : ""}
       ${hasSoc ? `<path d="${socLine}" class="cl"/>` : ""}
       <text x="${L}" y="${H - 6}" class="ct">${time(t0)}</text>
       <text x="${W - R}" y="${H - 6}" text-anchor="end" class="ct">${time(t1)}</text>
     </svg>
-    <div class="legend"><span><i class="lg-kw"></i>功率 kW${peak != null ? `（峰值 ${peak.toFixed(0)}）` : ""}</span><span><i class="lg-soc"></i>电量 %</span></div>
-    ${!hasPower ? `<div class="muted small-note">没有功率数据，仅显示电量变化</div>` : derived ? `<div class="muted small-note">车辆未上报充电功率，功率由电压×电流或充入电量变化推算</div>` : ""}
+    <div class="legend"><span><i class="lg-kw"></i>${t("chart.power")}${peak != null ? t("chart.peak", { v: peak.toFixed(0) }) : ""}</span><span><i class="lg-soc"></i>${t("chart.soc")}</span></div>
+    ${!hasPower ? `<div class="muted small-note">${t("chart.noPower")}</div>` : derived ? `<div class="muted small-note">${t("chart.derived")}</div>` : ""}
   </div>`;
 }
 
@@ -233,21 +232,21 @@ async function showCharge(id: number, back: () => void = () => showCharges(true)
   try {
     const c = await api<Charge & { points: ChargePoint[] }>(`/api/charges/${id}`);
     view.innerHTML = `
-      <button class="back">← 返回</button>
+      <button class="back">${t("common.back")}</button>
       <h2>${place(c.address, c.address_id, c.alias)}</h2>
-      <div class="muted">${fmtDate(c.start_date)} – ${fmtDate(c.end_date)} · 点击地点名称可修改</div>
+      <div class="muted">${fmtDate(c.start_date)} – ${fmtDate(c.end_date)} · ${t("common.tapPlace")}</div>
       <div class="grid">
-        <div><small>充入电量</small><b>${n(c.charge_energy_added, 2)} kWh</b></div>
-        <div><small>消耗电量</small><b>${n(c.charge_energy_used, 2)} kWh</b></div>
-        <div class="cost-cell" id="costcell" title="点击录入 / 修改费用"><small>费用${c.cost_source === "manual" ? " · 手动" : c.cost_source === "teslamate" ? " · TeslaMate" : ""}</small>
+        <div><small>${t("charge.added")}</small><b>${n(c.charge_energy_added, 2)} kWh</b></div>
+        <div><small>${t("charge.used")}</small><b>${n(c.charge_energy_used, 2)} kWh</b></div>
+        <div class="cost-cell" id="costcell" title="${t("charge.costEdit")}"><small>${t("charge.cost")}${c.cost_source === "manual" ? t("charge.manual") : c.cost_source === "teslamate" ? " · TeslaMate" : ""}</small>
           <b>${fmtMoney(c.cost, c.currency)} <span class="pen">✎</span></b>
-          ${c.cost != null && c.charge_energy_added ? `<span class="muted unit">单价 ${fmtMoney(c.cost / c.charge_energy_added, c.currency, true)}/kWh</span>` : ""}
+          ${c.cost != null && c.charge_energy_added ? `<span class="muted unit">${t("common.unitPrice", { p: fmtMoney(c.cost / c.charge_energy_added, c.currency, true) })}</span>` : ""}
           ${c.cost_note ? `<span class="muted unit">${esc(c.cost_note)}</span>` : ""}</div>
-        <div><small>时长</small><b>${fmtDur(c.duration_min)}</b></div>
-        <div><small>电量</small><b>${c.start_battery_level}% → ${c.end_battery_level}%</b></div>
-        <div><small>气温</small><b>${n(c.outside_temp_avg)} °C</b></div>
+        <div><small>${t("f.duration")}</small><b>${fmtDur(c.duration_min)}</b></div>
+        <div><small>${t("f.battery")}</small><b>${c.start_battery_level}% → ${c.end_battery_level}%</b></div>
+        <div><small>${t("charge.temp")}</small><b>${n(c.outside_temp_avg)} °C</b></div>
       </div>
-      <h3>充电曲线</h3>
+      <h3>${t("charge.curve")}</h3>
       ${chargeChart(c.points)}
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
@@ -264,30 +263,39 @@ function showSettings() {
   destroyMap();
   const s = loadSettings();
   view.innerHTML = `
-    <h2>设置</h2>
-    <div class="version-box muted">App v${esc(APP_VERSION)} · 服务器 <span id="srv-ver">${esc(serverLabel())}</span> <button id="srv-check" class="ghost small">检查</button></div>
-    <label>API 地址<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
+    <h2>${t("set.title")}</h2>
+    <div class="version-box muted">App v${esc(APP_VERSION)} · ${t("set.server")} <span id="srv-ver">${esc(serverLabel())}</span> <button id="srv-check" class="ghost small">${t("set.check")}</button></div>
+    <label>${t("set.apiUrl")}<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
     <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
-    <button id="save" class="primary">保存并测试连接</button>
+    <button id="save" class="primary">${t("set.saveTest")}</button>
     <div id="msg"></div>
-    <h2>显示</h2>
-    <label>地图主题<select id="theme">
-      <option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色（夜间）</option>
+    <h2>${t("set.display")}</h2>
+    <label>${t("set.language")}<select id="uilang">
+      <option value="auto">${t("set.langAuto")}</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option>
     </select></label>
-    <label>地图文字语言<select id="lang">
-      <option value="ja">日本語</option><option value="zh">中文</option><option value="en">English</option><option value="local">本地（当地语言）</option>
+    <label>${t("set.theme")}<select id="theme">
+      <option value="auto">${t("set.themeAuto")}</option><option value="light">${t("set.themeLight")}</option><option value="dark">${t("set.themeDark")}</option>
     </select></label>
-    <label>默认货币<select id="currency">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select></label>
-    <p class="muted">录入费用时默认按充电地点所在国家选择货币（如日本 → JPY）；无法判断地点时使用这里的默认货币。</p>
-    <label>旅程建议：相邻行程间隔小于<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${m} 分钟</option>`).join("")}</select></label>
-    <p class="muted">中途有充电时（如超充）间隔可到 2 小时。</p>
-    <label class="chk-row"><input type="checkbox" id="sgon"> 显示旅程合并建议</label>
-    <button id="sgrestore" class="ghost small">恢复已忽略的建议</button> <span id="sgmsg" class="muted"></span>
-    <p class="muted">地图：OpenFreeMap（OpenStreetMap 数据）</p>`;
-  (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = "检查中…"; checkServer(); };
+    <label>${t("set.mapLang")}<select id="lang">
+      <option value="">${t("set.mapLangAuto")}</option><option value="ja">日本語</option><option value="zh">中文</option><option value="en">English</option><option value="local">${t("set.mapLangLocal")}</option>
+    </select></label>
+    <label>${t("set.currency")}<select id="currency">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select></label>
+    <p class="muted">${t("set.currencyHint")}</p>
+    <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
+    <p class="muted">${t("set.gapHint")}</p>
+    <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
+    <button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span>
+    <p class="muted">${t("set.mapCredit")}</p>`;
+  (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
-  themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? defaultLabelLang();
+  themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "";
+  const uiSel = document.getElementById("uilang") as HTMLSelectElement;
+  uiSel.value = langSetting();
+  uiSel.onchange = () => {
+    saveSettings({ ...loadSettings(), uiLang: uiSel.value as LangSetting });   // "auto" is stored too (absent = pre-v0.11 install)
+    location.reload();   // every view re-renders in the new language
+  };
   themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
   const gapSel = document.getElementById("jgap") as HTMLSelectElement;
   gapSel.value = String(s.journeyGap ?? 60);
@@ -302,11 +310,15 @@ function showSettings() {
   const curSel = document.getElementById("currency") as HTMLSelectElement;
   curSel.value = defaultCurrency();
   curSel.onchange = () => saveSettings({ ...loadSettings(), currency: curSel.value });
-  langSel.onchange = () => saveSettings({ ...loadSettings(), labelLang: langSel.value as LabelLang });
+  langSel.onchange = () => {
+    const ns = { ...loadSettings() };
+    if (langSel.value) ns.labelLang = langSel.value as LabelLang; else delete ns.labelLang;
+    saveSettings(ns);
+  };
   (document.getElementById("save") as HTMLElement).onclick = async () => {
     const msg = document.getElementById("msg")!;
     const urlIn = document.getElementById("url") as HTMLInputElement, tokIn = document.getElementById("token") as HTMLInputElement;
-    msg.innerHTML = `<div class="muted">正在测试…</div>`;
+    msg.innerHTML = `<div class="muted">${t("set.testing")}</div>`;
     const r = await testConnection(urlIn.value, tokIn.value.trim());
     msg.innerHTML = renderResult(r);
     if (!r.ok) return;   // keep the old working settings when the new ones fail
@@ -341,20 +353,11 @@ interface CurAmt { currency: string; amount: number; count: number }
 const costSum = (list: CurAmt[] | undefined, legacy: number | null) =>
   list ? (list.length ? list.map(x => fmtMoney(x.amount, x.currency)).join("<br>") : "—") : fmtMoney(legacy);
 
-const STATE_LABEL: Record<string, [string, string]> = {
-  online: ["在线", "st-online"], asleep: ["休眠", "st-asleep"], offline: ["离线", "st-offline"], driving: ["行驶中", "st-online"] };
-const COLOR_LABEL: Record<string, string> = {
-  PearlWhite: "珍珠白", SolidBlack: "纯黑", MidnightSilver: "午夜银", DeepBlue: "深海蓝", RedMulticoat: "中国红",
-  Red: "红", StealthGrey: "冷光银", QuicksilverGrey: "快银", UltraRed: "烈焰红", Black: "黑", White: "白", Silver: "银", Blue: "蓝" };
+const STATE_CLS: Record<string, string> = { online: "st-online", asleep: "st-asleep", offline: "st-offline", driving: "st-online" };
+const COLORS = ["PearlWhite", "SolidBlack", "MidnightSilver", "DeepBlue", "RedMulticoat", "Red", "StealthGrey", "QuicksilverGrey", "UltraRed", "Black", "White", "Silver", "Blue"] as const;
+const colorLabel = (c: string) => (COLORS as readonly string[]).includes(c) ? t(`color.${c}` as `color.${typeof COLORS[number]}`) : c;
 
-function ago(iso: string | null) {
-  if (!iso) return "";
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return "刚刚";
-  if (m < 60) return `${m} 分钟前`;
-  if (m < 60 * 24) return `${Math.floor(m / 60)} 小时前`;
-  return `${Math.floor(m / 1440)} 天前`;
-}
+function ago(iso: string | null) { return iso ? agoIso(iso) : ""; }
 
 type Status = Pick<Summary, "car" | "state" | "position" | "software">;
 type Activity = Pick<Summary, "location" | "last_drive" | "last_charge">;
@@ -386,30 +389,31 @@ const skGrid = (n: number) => `<div class="grid">${Array.from({ length: n }, () 
 function heroHTML(s: Status) {
   const p = s.position, c = s.car;
   const driving = s.state?.state === "online" && (p?.speed ?? 0) > 0;
-  const [stLabel, stCls] = STATE_LABEL[driving ? "driving" : s.state?.state ?? ""] ?? ["未知", "st-offline"];
+  const stKey = driving ? "driving" : s.state?.state ?? "";
+  const [stLabel, stCls] = STATE_CLS[stKey] ? [t(`state.${stKey}` as "state.online"), STATE_CLS[stKey]] : [t("state.unknown"), "st-offline"];
   const lvl = p?.battery_level ?? null;
   const lvlCls = lvl == null ? "" : lvl < 20 ? "low" : lvl < 50 ? "mid" : "";
   const model = c.marketing_name || (c.model ? `Model ${c.model}` : "");
-  const extras = [c.exterior_color ? (COLOR_LABEL[c.exterior_color] ?? c.exterior_color) : null, c.wheel_type].filter(Boolean).join(" · ");
+  const extras = [c.exterior_color ? colorLabel(c.exterior_color) : null, c.wheel_type].filter(Boolean).join(" · ");
   return `
     <div class="row"><div>
       <div class="car-name">${esc(c.name || `Car ${c.id}`)}</div>
       <div class="muted">${esc(model)}${extras ? ` · ${esc(extras)}` : ""}</div>
-    </div><button class="icon-btn" data-refresh title="刷新">⟳</button></div>
-    <div class="badge ${stCls}">${stLabel}${s.state?.since ? ` · ${ago(s.state.since)}起` : ""}</div>
+    </div><button class="icon-btn" data-refresh title="${t("common.refresh")}">⟳</button></div>
+    <div class="badge ${stCls}">${stLabel}${s.state?.since ? t("hero.since", { t: ago(s.state.since) }) : ""}</div>
     <div class="gauge-row">
       <div class="pct">${lvl ?? "—"}<small>%</small></div>
-      <div class="range"><b>${n(p?.rated_battery_range_km ?? null, 0)}</b> km<div class="muted">预估 ${n(p?.est_battery_range_km ?? null, 0)} km</div></div>
+      <div class="range"><b>${n(p?.rated_battery_range_km ?? null, 0)}</b> km<div class="muted">${t("hero.est", { v: n(p?.est_battery_range_km ?? null, 0) })}</div></div>
     </div>
     <div class="gauge"><div class="${lvlCls}" style="width:${lvl ?? 0}%"></div></div>
     <div class="kv">
-      <div><small>总里程</small><b>${p?.odometer_km != null ? Math.round(p.odometer_km).toLocaleString() : "—"} km</b></div>
-      <div><small>软件版本</small><b>${esc(s.software?.version?.split(" ")[0] ?? "—")}</b></div>
-      <div><small>车外 / 车内</small><b>${n(p?.outside_temp ?? null)}° / ${n(p?.inside_temp ?? null)}°</b></div>
+      <div><small>${t("hero.odo")}</small><b>${p?.odometer_km != null ? fmtNum(Math.round(p.odometer_km)) : "—"} km</b></div>
+      <div><small>${t("hero.sw")}</small><b>${esc(s.software?.version?.split(" ")[0] ?? "—")}</b></div>
+      <div><small>${t("hero.temps")}</small><b>${n(p?.outside_temp ?? null)}° / ${n(p?.inside_temp ?? null)}°</b></div>
     </div>`;
 }
 const heroSkeleton = () => `
-    <div class="row"><div style="flex:1">${sk("40%", "24px")}<br>${sk("55%")}</div><button class="icon-btn" data-refresh title="刷新">⟳</button></div>
+    <div class="row"><div style="flex:1">${sk("40%", "24px")}<br>${sk("55%")}</div><button class="icon-btn" data-refresh title="${t("common.refresh")}">⟳</button></div>
     <div style="margin:10px 0">${sk("90px", "20px")}</div>
     <div class="gauge-row">${sk("110px", "46px")}${sk("90px", "30px")}</div>
     <div class="gauge"></div>
@@ -417,30 +421,30 @@ const heroSkeleton = () => `
 
 function monthHTML(d: StatsData) {
   const m = d.this_month;
-  return `<div class="section-title">本月 ${esc(m.month ?? "")} <a class="link" data-report="${esc(m.month ?? "")}">查看月度报告 ›</a></div>
+  return `<div class="section-title">${t("home.thisMonth", { m: m.month ? monthLabel(m.month) : "" })} <a class="link" data-report="${esc(m.month ?? "")}">${t("home.openReport")}</a></div>
     <div class="grid month-card" data-report="${esc(m.month ?? "")}">
-      <div><small>行驶</small><b>${n(m.distance_km, 0)} km</b></div>
-      <div><small>耗电</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
-      <div><small>充电</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
-      <div><small>充电费用</small><b>${costSum(m.charge_costs, m.charge_cost)}</b></div>
-      <div><small>行程数</small><b>${m.drive_count ?? 0}</b></div>
-      <div><small>充电次数</small><b>${m.charge_count ?? 0}</b></div>
+      <div><small>${t("home.driven")}</small><b>${n(m.distance_km, 0)} km</b></div>
+      <div><small>${t("home.used")}</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
+      <div><small>${t("home.charged")}</small><b>${n(m.charge_energy_added_kwh, 1)} kWh</b></div>
+      <div><small>${t("home.chargeCost")}</small><b>${costSum(m.charge_costs, m.charge_cost)}</b></div>
+      <div><small>${t("home.drives")}</small><b>${m.drive_count ?? 0}</b></div>
+      <div><small>${t("home.charges")}</small><b>${m.charge_count ?? 0}</b></div>
     </div>`;
 }
 function totalsHTML(d: StatsData) {
   const st = d.stats;
-  return `<div class="section-title">累计</div>
+  return `<div class="section-title">${t("home.totals")}</div>
     <div class="grid">
-      <div><small>总行驶</small><b>${n(st.total_distance_km, 0)} km</b></div>
-      <div><small>行程 / 充电</small><b>${st.drive_count ?? 0} / ${st.charge_count ?? 0}</b></div>
-      <div><small>总充电</small><b>${n(st.total_energy_added_kwh, 0)} kWh</b></div>
-      <div><small>总充电费用</small><b>${costSum(st.costs, st.total_cost)}</b></div>
+      <div><small>${t("home.totalDist")}</small><b>${n(st.total_distance_km, 0)} km</b></div>
+      <div><small>${t("home.drivesCharges")}</small><b>${st.drive_count ?? 0} / ${st.charge_count ?? 0}</b></div>
+      <div><small>${t("home.totalCharged")}</small><b>${n(st.total_energy_added_kwh, 0)} kWh</b></div>
+      <div><small>${t("home.totalCost")}</small><b>${costSum(st.costs, st.total_cost)}</b></div>
     </div>`;
 }
 function lastDriveHTML(a: Activity) {
   const d = a.last_drive;
-  if (!d) return `<div class="section-title">最近行程</div><div class="muted">暂无行程</div>`;
-  return `<div class="section-title">最近行程</div>
+  if (!d) return `<div class="section-title">${t("home.lastDrive")}</div><div class="muted">${t("home.noDrives")}</div>`;
+  return `<div class="section-title">${t("home.lastDrive")}</div>
     <div class="card" data-drive="${d.id}">
       <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
       <div class="row muted">${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</div>
@@ -449,8 +453,8 @@ function lastDriveHTML(a: Activity) {
 }
 function lastChargeHTML(a: Activity) {
   const ch = a.last_charge;
-  if (!ch) return `<div class="section-title">最近充电</div><div class="muted">暂无充电记录</div>`;
-  return `<div class="section-title">最近充电</div>
+  if (!ch) return `<div class="section-title">${t("home.lastCharge")}</div><div class="muted">${t("charges.empty")}</div>`;
+  return `<div class="section-title">${t("home.lastCharge")}</div>
     <div class="card" data-charge="${ch.id}">
       <div class="row"><b>${esc(ch.address)}</b>${costBadge(ch)}</div>
       <div class="row muted">${fmtDate(ch.start_date)} · ${fmtDur(ch.duration_min)}</div>
@@ -466,7 +470,7 @@ async function showHome() {
   const alive = () => gen === homeGen && document.getElementById("home") != null;
   view.innerHTML = `
     <div id="home">
-      <div class="pull-hint" id="pull">下拉刷新</div>
+      <div class="pull-hint" id="pull">${t("home.pull")}</div>
       <div id="stale" class="stale" hidden></div>
       <div class="hero" id="sec-hero">${heroSkeleton()}</div>
       <div id="sec-map"><div class="section-title">${sk("40%")}</div><div class="map-ph sk"></div></div>
@@ -480,7 +484,7 @@ async function showHome() {
 
   const id = await currentCarId().catch(() => null);
   if (!alive()) return;
-  if (id == null) { view.innerHTML = `<div class="error">没有找到车辆（请检查设置）</div>`; return; }
+  if (id == null) { view.innerHTML = `<div class="error">${t("home.noCar")}</div>`; return; }
   localStorage.setItem(LAST_CAR_KEY, String(id));
 
   const data: HomeCache = { ...readHomeCache(id) };
@@ -491,11 +495,11 @@ async function showHome() {
     const el = document.getElementById("stale"); if (!el) return;
     const pending = Object.values(fresh).some(v => !v);
     el.hidden = !(pending && data.savedAt);
-    el.textContent = `显示 ${ago(new Date(data.savedAt ?? 0).toISOString())} 的缓存数据 · 更新中…`;
+    el.textContent = t("home.cached", { t: ago(new Date(data.savedAt ?? 0).toISOString()) });
   };
 
   const errorBox = (k: string, msg: string, retry: () => void) => {
-    const el = sec(k), html = `<div class="error card-error">⚠️ ${esc(msg)} <button class="retry">重试</button></div>`;
+    const el = sec(k), html = `<div class="error card-error">⚠️ ${esc(msg)} <button class="retry">${t("common.retry")}</button></div>`;
     const old = el.querySelector(".card-error"); if (old) old.remove();
     el.insertAdjacentHTML(fresh[k as keyof typeof fresh] || !hasCache(k) ? "beforeend" : "afterbegin", html);
     if (!hasCache(k)) el.querySelectorAll(".sk, .sk-card, .grid, .map-ph, .section-title").forEach(e => e.remove());
@@ -513,7 +517,7 @@ async function showHome() {
     const p = data.status?.position;
     if (!data.status) return;
     if (p?.latitude == null || p.longitude == null) { sec("map").innerHTML = ""; return; }
-    const title = `<div class="section-title">📍 ${esc(data.activity?.location?.name ?? "最后位置")} <span class="muted">${p.date ? ago(p.date) : ""}</span></div>`;
+    const title = `<div class="section-title">📍 ${esc(data.activity?.location?.name ?? t("home.lastPos"))} <span class="muted">${p.date ? ago(p.date) : ""}</span></div>`;
     const existing = document.getElementById("map");
     if (existing) { sec("map").querySelector(".section-title")!.outerHTML = title; return; }
     sec("map").innerHTML = `${title}<div id="map" class="small"><div class="map-ph sk"></div></div>`;
@@ -552,15 +556,15 @@ async function showHome() {
   const loadStatus = () => api<Status>(`/api/cars/${id}/status`).then(r => {
     if (!alive()) return; data.status = r; fresh.status = true; writeHomeCache(id, { status: r });
     paintHero(); paintMap(); updateStale();
-  }).catch(e => { if (alive()) { fresh.status = true; updateStale(); errorBox("hero", `车辆状态加载失败：${(e as Error).message}`, loadStatus); } });
+  }).catch(e => { if (alive()) { fresh.status = true; updateStale(); errorBox("hero", t("home.errStatus", { e: (e as Error).message }), loadStatus); } });
   const loadActivity = () => api<Activity>(`/api/cars/${id}/last-activity`).then(r => {
     if (!alive()) return; data.activity = r; fresh.activity = true; writeHomeCache(id, { activity: r });
     paintActivity(); updateStale();
-  }).catch(e => { if (alive()) { fresh.activity = true; updateStale(); errorBox("drive", `最近行程/充电加载失败：${(e as Error).message}`, loadActivity); } });
+  }).catch(e => { if (alive()) { fresh.activity = true; updateStale(); errorBox("drive", t("home.errActivity", { e: (e as Error).message }), loadActivity); } });
   const loadStats = () => api<StatsData>(`/api/cars/${id}/stats?tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(r => {
     if (!alive()) return; data.stats = r; fresh.stats = true; writeHomeCache(id, { stats: r });
     paintStats(); updateStale();
-  }).catch(e => { if (alive()) { fresh.stats = true; updateStale(); errorBox("month", `统计加载失败：${(e as Error).message}`, loadStats); } });
+  }).catch(e => { if (alive()) { fresh.stats = true; updateStale(); errorBox("month", t("home.errStats", { e: (e as Error).message }), loadStats); } });
   loadStatus(); loadActivity(); loadStats();
   // 电池健康 card (api_level ≥ 12)
   serverReady().then(() => {
@@ -581,9 +585,9 @@ async function openReport(month: string, carId?: number) {
   destroyMap();
   await serverReady();
   if (lacks("report")) {
-    view.innerHTML = `<button class="back">← 返回</button><div class="pane" style="margin-top:12px">
-      <div class="error card-error">⚠️ ${esc(featureText("report"))} <button class="retry">重试</button></div>
-      <div class="muted">月度报告需要更新服务器上的 drivelens-api。</div></div>`;
+    view.innerHTML = `<button class="back">${t("common.back")}</button><div class="pane" style="margin-top:12px">
+      <div class="error card-error">⚠️ ${esc(featureText("report"))} <button class="retry">${t("common.retry")}</button></div>
+      <div class="muted">${t("report.needServer")}</div></div>`;
     (view.querySelector(".back") as HTMLElement).onclick = showHome;
     (view.querySelector(".retry") as HTMLElement).onclick = async () => { await checkServer(); openReport(month, carId); };
     return;
@@ -622,9 +626,9 @@ function renderBanner() {
   const text = bannerOverride ?? globalBanner();
   banner.hidden = !text;
   if (!text) return;
-  banner.innerHTML = `<span>⚠️ ${esc(text)}</span><button class="retry">重试</button><button class="x" aria-label="关闭">×</button>`;
+  banner.innerHTML = `<span>⚠️ ${esc(text)}</span><button class="retry">${t("common.retry")}</button><button class="x" aria-label="${t("common.close")}">×</button>`;
   (banner.querySelector(".retry") as HTMLElement).onclick = async () => {
-    banner.querySelector(".retry")!.textContent = "检查中…"; bannerOverride = null;
+    banner.querySelector(".retry")!.textContent = t("common.checking"); bannerOverride = null;
     await checkServer();
     if (!globalBanner()) (document.querySelector("nav button.active") as HTMLElement | null)?.click();
   };
@@ -657,7 +661,7 @@ window.addEventListener("touchstart", e => {
 window.addEventListener("touchmove", e => {
   if (pullStartY == null) return;
   const dy = e.touches[0].clientY - pullStartY, hint = document.getElementById("pull");
-  if (hint) { hint.style.height = `${Math.min(dy, 70)}px`; hint.textContent = dy > 60 ? "松开刷新" : "下拉刷新"; }
+  if (hint) { hint.style.height = `${Math.min(dy, 70)}px`; hint.textContent = dy > 60 ? t("home.release") : t("home.pull"); }
 }, { passive: true });
 window.addEventListener("touchend", e => {
   if (pullStartY == null) return;
@@ -668,6 +672,7 @@ window.addEventListener("touchend", e => {
 
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 initBackToTop();
+document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => { b.textContent = t(`nav.${b.dataset.tab}` as "nav.home"); });
 document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = e => {
   // re-tapping the active tab (real tap, not a programmatic re-render) scrolls to top / back to newest
   if (e.isTrusted && b.classList.contains("active") && (window.scrollY > 0 || isJumped())) return backToTop();
@@ -680,7 +685,6 @@ carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (doc
 const qp = new URLSearchParams(location.search);
 if (qp.get("api")) saveSettings({ ...loadSettings(), apiUrl: qp.get("api")!, token: qp.get("token") || "" });
 const start = qp.get("view");
-migrateDefaults();
 if (!loadSettings().apiUrl) {
   showSetupWizard(view, () => { checkServer(); loadCars(); showHome(); });
 } else { checkServer(); loadCars(); }

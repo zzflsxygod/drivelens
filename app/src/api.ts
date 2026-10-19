@@ -1,6 +1,7 @@
+import { t, currentLang } from "./i18n";
 export type Theme = "auto" | "light" | "dark";
 export type LabelLang = "ja" | "zh" | "en" | "local";
-export interface Settings { apiUrl: string; token: string; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean;
+export interface Settings { apiUrl: string; token: string; uiLang?: "auto" | "zh" | "en" | "ja"; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean;
   suggestionsOff?: boolean; suggestionsCollapsed?: boolean; dismissedDrives?: number[] }
 const KEY = "drivelens-settings";
 export function loadSettings(): Settings {
@@ -32,23 +33,23 @@ export interface PathPoint { date: string; lat: number; lng: number; speed: numb
 
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const s = loadSettings();
-  if (!s.apiUrl) throw new Error("请先在「设置」中填写 API 地址和 Token");
+  if (!s.apiUrl) throw new Error(t("api.noUrl"));
   const headers: Record<string, string> = { Authorization: `Bearer ${s.token}` };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(s.apiUrl.replace(/\/+$/, "") + path,
     { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (res.status === 401) throw new Error("Token 无效（401），请在「设置」中检查");
-  if (res.status === 429) throw new Error("Token 错误次数太多，服务器暂时拒绝了请求，请 10 分钟后再试");
+  if (res.status === 401) throw new Error(t("api.401"));
+  if (res.status === 429) throw new Error(t("api.429"));
   if (!res.ok) {
     let detail = "";
     try { detail = (await res.json()).error ?? ""; } catch { /* not json */ }
     if (res.status === 503 && /charge_costs/.test(detail))
-      throw new Error("服务器还没有启用手动费用：请在服务器上执行 deploy/setup.sql 后重启 drivelens-api（见 docs/install.md）");
+      throw new Error(t("api.noCosts"));
     if (res.status === 503 && /v0\.7\.0|cover_image|weather_hourly/.test(detail))
-      throw new Error("服务器还没有启用封面 / 天气：请在服务器上执行 deploy/setup.sql 后重启 drivelens-api（见 docs/install.md）");
+      throw new Error(t("api.noCover"));
     if (res.status === 503 && /journey/.test(detail))
-      throw new Error("服务器还没有启用旅程：请在服务器上执行 deploy/setup.sql 后重启 drivelens-api（见 docs/install.md）");
-    const err = new Error(`请求失败：HTTP ${res.status}${detail ? `（${detail}）` : ""}`) as Error & { status?: number };
+      throw new Error(t("api.noJourneys"));
+    const err = new Error(t("api.failed", { s: res.status, d: detail ? t("api.detail", { d: detail }) : "" })) as Error & { status?: number };
     err.status = res.status;
     // 404 on a known route = server older than the app; 502/503 = server restarting (update)
     if ([404, 502, 503].includes(res.status)) window.dispatchEvent(new Event("drivelens-server-error"));
@@ -75,18 +76,9 @@ export function localeCurrency(lang = navigator.language || "en-US"): string {
   const region = (r || "").toUpperCase();
   return REGION_CUR[region] || (l === "zh" && /hant/i.test(lang) ? "TWD" : LANG_CUR[l.toLowerCase()]) || "USD";
 }
-/** Default map label language from the device locale. */
-export function defaultLabelLang(lang = navigator.language || "en"): LabelLang {
-  const l = lang.slice(0, 2).toLowerCase();
-  return l === "ja" ? "ja" : l === "zh" ? "zh" : l === "en" ? "en" : "local";
-}
+/** Map labels follow the app language unless set explicitly in Settings. */
+export const defaultLabelLang = (): LabelLang => currentLang();
 export const defaultCurrency = () => loadSettings().currency || localeCurrency();
-/** Before v0.10.0 the unset defaults were JPY / 日本語: keep them for existing installs so nothing changes for them. */
-export function migrateDefaults() {
-  const s = loadSettings();
-  if (!s.apiUrl || (s.currency && s.labelLang)) return;
-  saveSettings({ ...s, currency: s.currency || "JPY", labelLang: s.labelLang || "ja" });
-}
 const ZERO_DEC = new Set(["JPY", "KRW", "TWD"]);
 const SYM: Record<string, string> = { JPY: "¥", CNY: "CN¥", USD: "$", EUR: "€", GBP: "£", KRW: "₩", HKD: "HK$", TWD: "NT$", AUD: "A$", CAD: "C$", SGD: "S$" };
 /** ¥1,234 for JPY (no decimals); 2 decimals for most other currencies. */
