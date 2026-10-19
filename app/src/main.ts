@@ -1,4 +1,5 @@
 import "./style.css";
+import { isDemo, enterDemo, exitDemo, DEMO_CREDIT } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { ICON, popMenu } from "./toolbar";
@@ -11,7 +12,7 @@ import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journ
 import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
-import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
@@ -286,16 +287,39 @@ async function showCharge(id: number, back: () => void = () => showCharges(true)
   } catch (e) { showError(e); }
 }
 
+function demoSettingsCard() {
+  const real = realServer().apiUrl;
+  return `<div class="card demo-card on">
+    <b>✨ ${t("demo.title")}</b>
+    <p class="small">${t("demo.on")}</p>
+    <p class="muted small">${real ? t("demo.backTo", { u: esc(real) }) : t("demo.backWizard")}<br>${t("demo.mapNote")}</p>
+    <button id="demo-exit" class="primary">${t("demo.exitBtn")}</button>
+    <p class="muted tiny">${esc(DEMO_CREDIT)}</p></div>`;
+}
+/** Slim persistent strip under the header while demo mode is active. */
+function mountDemoBanner() {
+  if (!isDemo()) return;
+  document.body.classList.add("demo");
+  const b = document.createElement("div");
+  b.id = "demo-banner"; b.className = "demo-banner"; b.setAttribute("role", "status");
+  b.innerHTML = `<span class="demo-dot"></span><b>${t("demo.banner")}</b><span class="demo-sub">· ${t("demo.bannerSub")}</span><button type="button">${t("demo.exit")}</button>`;
+  (b.querySelector("button") as HTMLElement).onclick = () => exitDemo();
+  document.querySelector("header")!.after(b);
+}
+
 function showSettings() {
   destroyMap();
   const s = loadSettings();
   view.innerHTML = `
     <h2>${t("set.title")}</h2>
     <div class="version-box muted">App v${esc(APP_VERSION)} · ${t("set.server")} <span id="srv-ver">${esc(serverLabel())}</span> <button id="srv-check" class="ghost small">${t("set.check")}</button></div>
+    ${isDemo() ? demoSettingsCard() : `
     <label>${t("set.apiUrl")}<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
     <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
     <button id="save" class="primary">${t("set.saveTest")}</button>
     <div id="msg"></div>
+    <div class="card demo-card"><div class="demo-card-row"><div><b>✨ ${t("demo.title")}</b><p class="muted small">${t("demo.enterHint")}</p></div>
+      <button id="demo-enter" class="ghost small">${t("demo.enterBtn")}</button></div></div>`}
     <h2>${t("set.display")}</h2>
     <label>${t("set.language")}<select id="uilang">
       <option value="auto">${t("set.langAuto")}</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option>
@@ -342,6 +366,9 @@ function showSettings() {
     if (langSel.value) ns.labelLang = langSel.value as LabelLang; else delete ns.labelLang;
     saveSettings(ns);
   };
+  const demoBtn = document.getElementById("demo-enter") ?? document.getElementById("demo-exit");
+  if (demoBtn) demoBtn.onclick = () => isDemo() ? exitDemo() : enterDemo();
+  if (isDemo()) return;
   (document.getElementById("save") as HTMLElement).onclick = async () => {
     const msg = document.getElementById("msg")!;
     const urlIn = document.getElementById("url") as HTMLInputElement, tokIn = document.getElementById("token") as HTMLInputElement;
@@ -697,6 +724,7 @@ window.addEventListener("touchend", e => {
   if (dy > 60) showHome();
 });
 
+mountDemoBanner();
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 initBackToTop();
 initUI(view);

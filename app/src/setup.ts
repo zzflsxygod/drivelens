@@ -2,6 +2,7 @@
 import { loadSettings, saveSettings } from "./api";
 import { t, langSetting } from "./i18n";
 import { MIN_API_LEVEL, FEATURE_LEVEL, checkServer } from "./version";
+import { enterDemo } from "./demo";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
@@ -99,6 +100,9 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
       <label class="chk-row"><input type="checkbox" id="su-show"> ${t("su.show")}</label>
       <button id="su-go" class="primary">${t("su.go")}</button>
       <div id="su-msg"></div>
+      <div class="su-or"><span>${t("demo.or")}</span></div>
+      <button id="su-demo" class="su-demo" type="button">✨ ${t("demo.try")}</button>
+      <p class="muted small su-demo-hint">${t("demo.tryHint")}</p>
       <p class="muted small">${t("su.foot")}</p>
     </div>
   </div>`;
@@ -115,6 +119,7 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
     const dr = JSON.parse(sessionStorage.getItem("drivelens-setup-draft") || "null");
     if (dr) { $("su-url").value = dr.url || ""; $("su-token").value = dr.token || ""; sessionStorage.removeItem("drivelens-setup-draft"); }
   } catch { /* ignore */ }
+  (document.getElementById("su-demo") as HTMLElement).onclick = () => enterDemo();
   const go = $("su-go") as unknown as HTMLButtonElement;
   go.onclick = async () => {
     go.disabled = true; go.textContent = t("set.testing");

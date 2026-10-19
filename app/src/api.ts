@@ -1,14 +1,26 @@
 import { t, currentLang } from "./i18n";
+import { isDemo, DEMO_URL, DEMO_TOKEN } from "./demo";
 export type Theme = "auto" | "light" | "dark";
 export type LabelLang = "ja" | "zh" | "en" | "local";
 export interface Settings { apiUrl: string; token: string; uiLang?: "auto" | "zh" | "en" | "ja"; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean;
   suggestionsOff?: boolean; suggestionsCollapsed?: boolean; dismissedDrives?: number[] }
 const KEY = "drivelens-settings";
-export function loadSettings(): Settings {
+function stored(): Settings {
   try { return { apiUrl: "", token: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }
   catch { return { apiUrl: "", token: "" }; }
 }
-export function saveSettings(s: Settings) { localStorage.setItem(KEY, JSON.stringify(s)); }
+/** In demo mode the API points at the local demo server; the real URL/token stay stored untouched. */
+export function loadSettings(): Settings {
+  const s = stored();
+  return isDemo() ? { ...s, apiUrl: DEMO_URL, token: DEMO_TOKEN } : s;
+}
+/** The server configured by the user (ignores demo mode). */
+export const realServer = () => { const s = stored(); return { apiUrl: s.apiUrl, token: s.token }; };
+export function saveSettings(s: Settings) {
+  // never persist the demo endpoint over the real configuration
+  const v = isDemo() ? { ...s, ...realServer() } : s;
+  localStorage.setItem(KEY, JSON.stringify(v));
+}
 
 export interface Car { id: number; name: string | null; model: string | null; marketing_name: string | null; vin: string | null }
 export interface Charge {
