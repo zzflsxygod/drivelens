@@ -96,8 +96,12 @@ jobs:
           cp "$OUT/apk/universal/release/app-universal-release.apk" "dist-android/DriveLens_${VER}_android_universal.apk"
           cp "$OUT/bundle/universalRelease/app-universal-release.aab" "dist-android/DriveLens_${VER}_android.aab"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" verify --print-certs "dist-android/DriveLens_${VER}_android_universal.apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
-          jarsigner -verify "dist-android/DriveLens_${VER}_android.aab" > /dev/null && echo "AAB signature OK"
+          # apksigner output format varies by build-tools ("Signer #1 certificate DN" / "V2 Signer: certificate DN")
+          "$BT/apksigner" verify --verbose --print-certs "dist-android/DriveLens_${VER}_android_universal.apk" > apksigner.txt
+          grep -E "Verified using v2 scheme|certificate (DN|SHA-256)" apksigner.txt | sort -u
+          grep -qi "certificate SHA-256 digest: a970e58a" apksigner.txt || { echo "APK not signed with the DriveLens release key"; exit 1; }
+          rm -f apksigner.txt
+          jarsigner -verify "dist-android/DriveLens_${VER}_android.aab" | grep -q "jar verified" && echo "AAB signature OK"
           ls -la dist-android
           rm -f "$RUNNER_TEMP/release.p12" "$RUNNER_TEMP/keystore.properties"
 
