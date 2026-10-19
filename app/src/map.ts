@@ -1,7 +1,7 @@
 import maplibregl from "maplibre-gl";
 import type { StyleSpecification, ExpressionSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { loadSettings, type LabelLang } from "./api";
+import { loadSettings, defaultLabelLang, type LabelLang } from "./api";
 
 const STYLE_URL = { light: "https://tiles.openfreemap.org/styles/liberty", dark: "https://tiles.openfreemap.org/styles/dark" };
 
@@ -27,7 +27,7 @@ function labelExpr(lang: LabelLang): ExpressionSpecification {
 }
 
 function applyLabels(map: maplibregl.Map) {
-  const expr = labelExpr(loadSettings().labelLang ?? "ja");
+  const expr = labelExpr(loadSettings().labelLang ?? defaultLabelLang());
   for (const layer of map.getStyle().layers ?? []) {
     if (layer.type !== "symbol") continue;
     const tf = map.getLayoutProperty(layer.id, "text-field");

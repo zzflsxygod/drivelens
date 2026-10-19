@@ -29,6 +29,8 @@ struct AppState {
     dismiss_ok: Arc<std::sync::atomic::AtomicBool>,
     cover_ok: Arc<std::sync::atomic::AtomicBool>,
     weather_ok: Arc<std::sync::atomic::AtomicBool>,
+    /// failed auth attempts per client: (count, first failure)
+    fails: Arc<std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -489,7 +491,7 @@ async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<
 #[derive(Deserialize)]
 struct CostBody { amount: f64, currency: String, note: Option<String> }
 
-const COSTS_MISSING: &str = "manual cost table drivelens.charge_costs is missing or not writable; re-run deploy/drivelens-init.sql (see README)";
+const COSTS_MISSING: &str = "manual cost table drivelens.charge_costs is missing or not writable; run deploy/setup.sql and restart the API (see docs/install.md)";
 
 async fn charge_response(s: &AppState, id: i64) -> Result<Response, ApiError> {
     let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(s).await?));
@@ -528,23 +530,31 @@ async fn delete_cost(State(s): State<AppState>, Path(id): Path<i64>) -> Result<R
     charge_response(&s, id).await
 }
 
-/// Our own schema; TeslaMate's tables are never modified.
+const SETUP_HINT: &str = "run deploy/setup.sql once as the TeslaMate DB admin (see docs/install.md)";
+
+/// Our own schema; TeslaMate's tables are never modified. Idempotent and never fatal:
+/// - fresh install (setup.sql made the API role owner of / CREATE on schema `drivelens`): everything is created here;
+/// - older installs where an admin pre-created the tables and the API role has no CREATE right: every step sees
+///   the object already exists and does nothing; anything missing just disables that feature with a log line.
+/// (Deliberately not sqlx's migrator: its bookkeeping table would itself need CREATE rights and would conflict
+///  with schemas created by the old SQL files.)
 async fn migrate(db: &PgPool) -> anyhow::Result<()> {
-    // If an admin pre-created the table (recommended for a least-privilege DB user), do nothing:
-    // CREATE SCHEMA IF NOT EXISTS still requires CREATE privilege on the database.
-    let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.address_aliases')::text")
-        .fetch_one(db).await?;
-    if exists.is_none() {
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS drivelens").execute(db).await?;
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS drivelens.address_aliases (
-            address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
-            name text NOT NULL CHECK (length(btrim(name)) > 0),
-            updated_at timestamptz NOT NULL DEFAULT now())",
-    ).execute(db).await?;
+    let has_schema: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'drivelens')").fetch_one(db).await?;
+    if !has_schema {
+        if let Err(e) = sqlx::query("CREATE SCHEMA IF NOT EXISTS drivelens").execute(db).await {
+            tracing::error!("schema drivelens does not exist and cannot be created ({e}); {SETUP_HINT}. Read-only features still work.");
+            return Ok(());
+        }
     }
-    // Manual costs (v0.4.0). A least-privilege user cannot create it: then the feature stays
-    // disabled (PUT returns 503) until drivelens-init.sql is re-run. Never fatal.
+    let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.address_aliases')::text").fetch_one(db).await?;
+    if exists.is_none() {
+        if let Err(e) = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS drivelens.address_aliases (
+                address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
+                name text NOT NULL CHECK (length(btrim(name)) > 0),
+                updated_at timestamptz NOT NULL DEFAULT now())",
+        ).execute(db).await { tracing::warn!("place aliases disabled: cannot create drivelens.address_aliases ({e}); {SETUP_HINT}"); }
+    }
     let has: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.charge_costs')::text").fetch_one(db).await?;
     if has.is_none() {
         if let Err(e) = sqlx::query(
@@ -554,13 +564,27 @@ async fn migrate(db: &PgPool) -> anyhow::Result<()> {
                 currency char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
                 note text,
                 updated_at timestamptz NOT NULL DEFAULT now())",
-        ).execute(db).await {
-            tracing::warn!("manual charge costs disabled: cannot create drivelens.charge_costs ({e}); re-run drivelens-init.sql");
-        }
+        ).execute(db).await { tracing::warn!("manual charge costs disabled: cannot create drivelens.charge_costs ({e}); {SETUP_HINT}"); }
     }
     journey::try_create_tables(db).await;
     phase2::try_migrate(db).await;
     Ok(())
+}
+
+/// One startup line per feature so a misconfigured install is obvious in `docker compose logs drivelens-api`.
+async fn log_features(s: &AppState) {
+    let teslamate: bool = sqlx::query_scalar("SELECT to_regclass('public.drives') IS NOT NULL AND has_table_privilege('public.drives', 'SELECT')")
+        .fetch_one(&s.db).await.unwrap_or(false);
+    if !teslamate { tracing::error!("cannot read TeslaMate tables (public.drives); {SETUP_HINT}"); }
+    let aliases: bool = sqlx::query_scalar("SELECT to_regclass('drivelens.address_aliases') IS NOT NULL AND has_table_privilege('drivelens.address_aliases', 'SELECT,INSERT,UPDATE,DELETE')")
+        .fetch_one(&s.db).await.unwrap_or(false);
+    let f = [("teslamate read", teslamate), ("place aliases", aliases),
+        ("manual costs", costs_ok(s).await.unwrap_or(false)), ("journeys", journey::tables_ok(s).await.unwrap_or(false)),
+        ("suggestion dismissal", journey::dismiss_ok(s).await.unwrap_or(false)),
+        ("journey cover", phase2::cover_ok(s).await.unwrap_or(false)), ("weather cache", phase2::weather_ok(s).await.unwrap_or(false))];
+    let off: Vec<&str> = f.iter().filter(|x| !x.1).map(|x| x.0).collect();
+    if off.is_empty() { tracing::info!("all features enabled (API level {API_LEVEL})"); }
+    else { tracing::warn!("disabled features: {} — {SETUP_HINT}", off.join(", ")); }
 }
 
 async fn drive_path(State(s): State<AppState>, Path(id): Path<i64>) -> ApiResult<Vec<PathPoint>> {
@@ -572,13 +596,44 @@ async fn drive_path(State(s): State<AppState>, Path(id): Path<i64>) -> ApiResult
     Ok(Json(rows))
 }
 
+/// Client key for rate limiting: Cloudflare / reverse-proxy headers first (behind a tunnel every
+/// request comes from 127.0.0.1), else "direct".
+fn client_key(req: &Request) -> String {
+    let h = |n: &str| req.headers().get(n).and_then(|v| v.to_str().ok()).map(|v| v.split(',').next().unwrap_or("").trim().to_string());
+    h("cf-connecting-ip").or_else(|| h("x-forwarded-for")).or_else(|| h("x-real-ip")).filter(|v| !v.is_empty()).unwrap_or_else(|| "direct".into())
+}
+const FAIL_LIMIT: u32 = 10;
+const FAIL_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// CORS: any origin by default (auth is a bearer token, no cookies, so CORS adds no protection);
+/// CORS_ORIGINS=https://a.example,tauri://localhost restricts it.
+fn cors_layer() -> CorsLayer {
+    match std::env::var("CORS_ORIGINS").ok().filter(|v| !v.trim().is_empty()) {
+        Some(v) => CorsLayer::new().allow_origin(v.split(',').filter_map(|o| o.trim().parse::<axum::http::HeaderValue>().ok()).collect::<Vec<_>>()),
+        None => CorsLayer::new().allow_origin(Any),
+    }
+}
+
 async fn auth(State(s): State<AppState>, req: Request, next: Next) -> Response {
+    let key = client_key(&req);
+    let now = std::time::Instant::now();
+    {
+        let mut m = s.fails.lock().unwrap();
+        m.retain(|_, (_, t)| now.duration_since(*t) < FAIL_WINDOW);
+        if m.get(&key).map_or(false, |(n, _)| *n >= FAIL_LIMIT) {
+            return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "600")],
+                Json(serde_json::json!({"error": "too many failed authentication attempts; try again in 10 minutes"}))).into_response();
+        }
+    }
     let ok = req.headers().get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(|t| constant_time_eq(t.as_bytes(), s.token.as_bytes()))
         .unwrap_or(false);
     if ok { next.run(req).await } else {
+        let n = { let mut m = s.fails.lock().unwrap(); let e = m.entry(key.clone()).or_insert((0, now)); e.0 += 1; e.0 };
+        if n == FAIL_LIMIT { tracing::warn!("auth: {n} failed attempts from {key}; blocking for 10 minutes"); }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response()
     }
 }
@@ -594,12 +649,16 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let db_url = std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL is required"))?;
     let token = std::env::var("API_TOKEN").map_err(|_| anyhow::anyhow!("API_TOKEN is required"))?;
-    anyhow::ensure!(token.len() >= 16, "API_TOKEN must be at least 16 characters");
+    anyhow::ensure!(token.len() >= 16, "API_TOKEN must be at least 16 characters (recommended: 32+ random characters, e.g. `openssl rand -hex 24`)");
+    let classes = [token.bytes().any(|b| b.is_ascii_lowercase()), token.bytes().any(|b| b.is_ascii_uppercase()), token.bytes().any(|b| b.is_ascii_digit()), token.bytes().any(|b| !b.is_ascii_alphanumeric())].iter().filter(|x| **x).count();
+    let distinct = token.bytes().collect::<std::collections::HashSet<_>>().len();
+    if token.len() < 32 || distinct < 10 || classes < 2 { tracing::warn!("API_TOKEN looks weak (use 32+ random characters, e.g. `openssl rand -hex 24`)"); }
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
     migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()) };
+    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()), fails: Arc::new(Default::default()) };
+    log_features(&state).await;
 
     let api = Router::new()
         .route("/health", get(health_full))
@@ -636,7 +695,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .nest("/api", api)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PATCH, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS]).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
+        .layer(cors_layer().allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PATCH, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS]).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 

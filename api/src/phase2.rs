@@ -4,8 +4,8 @@ use super::*;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
-const COVER_MISSING: &str = "column drivelens.journeys.cover_image is missing; run deploy/drivelens-v0.7.0.sql";
-const WEATHER_MISSING: &str = "table drivelens.weather_hourly is missing or not writable; run deploy/drivelens-v0.7.0.sql";
+const COVER_MISSING: &str = "column drivelens.journeys.cover_image is missing; run deploy/setup.sql and restart the API";
+const WEATHER_MISSING: &str = "table drivelens.weather_hourly is missing or not writable; run deploy/setup.sql and restart the API";
 
 pub const DDL: [&str; 3] = [
     "ALTER TABLE drivelens.journeys ADD COLUMN IF NOT EXISTS cover_image text",
@@ -17,9 +17,14 @@ pub const DDL: [&str; 3] = [
         PRIMARY KEY (lat_key, lng_key, hour))",
 ];
 
-/// Best effort (works when the API user owns drivelens.journeys, e.g. a dev setup).
+/// Best effort; a no-op when everything already exists (e.g. production where an admin ran the old SQL
+/// and the API role does not own the tables — ALTER would fail there even with IF NOT EXISTS).
 pub async fn try_migrate(db: &PgPool) {
-    for q in DDL { if let Err(e) = sqlx::query(q).execute(db).await { tracing::info!("v0.7.0 schema not applied by API ({e}); run deploy/drivelens-v0.7.0.sql"); return; } }
+    let done: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'drivelens' AND table_name = 'journeys' AND column_name = 'cover_updated_at') AND to_regclass('drivelens.weather_hourly') IS NOT NULL")
+        .fetch_one(db).await.unwrap_or(false);
+    let has_journeys: bool = sqlx::query_scalar("SELECT to_regclass('drivelens.journeys') IS NOT NULL").fetch_one(db).await.unwrap_or(false);
+    if done || !has_journeys { return; }
+    for q in DDL { if let Err(e) = sqlx::query(q).execute(db).await { tracing::warn!("journey cover / weather cache schema not applied ({e}); run deploy/setup.sql and restart the API"); return; } }
 }
 
 pub async fn cover_ok(s: &AppState) -> Result<bool, ApiError> {

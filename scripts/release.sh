@@ -5,11 +5,14 @@
 #      (Watchtower on the server pulls :latest within ~5 min)
 #   3. tag vX.Y.Z → wait for the Windows build (creates a DRAFT release)
 #   4. publish the draft as a prerelease (only now can users download the new app)
-# Usage: scripts/release.sh [api-base-url] [--skip-health]   (default: $DRIVELENS_URL or https://drivelens.example.com)
+# Usage: scripts/release.sh [api-base-url] [--skip-health]
+#   api-base-url defaults to $DRIVELENS_URL, else the first line of scripts/.release.local (gitignored, per machine)
 # Steps are idempotent: re-running after a failure continues where it stopped.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-BASE="${1:-${DRIVELENS_URL:-https://drivelens.example.com}}"; BASE="${BASE%/}"
+LOCAL_URL=$( [ -f scripts/.release.local ] && head -1 scripts/.release.local | tr -d '[:space:]' || true)
+BASE="${1:-${DRIVELENS_URL:-$LOCAL_URL}}"; BASE="${BASE%/}"
+[ -n "$BASE" ] || { echo "no server URL: pass it as the first argument, set DRIVELENS_URL, or put it in scripts/.release.local"; exit 1; }
 SKIP_HEALTH="${2:-}"
 VER=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' app/package.json | head -1)
 API_VER=$(grep -m1 '^version' api/Cargo.toml | cut -d'"' -f2)

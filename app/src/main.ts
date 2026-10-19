@@ -1,4 +1,5 @@
 import "./style.css";
+import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { batteryCardHTML, showBattery, type Battery } from "./insights";
@@ -6,7 +7,7 @@ import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journ
 import { infiniteList, monthLabel } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
-import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, defaultLabelLang, migrateDefaults, CURRENCIES, loadSettings, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
@@ -286,7 +287,7 @@ function showSettings() {
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = "检查中…"; checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
-  themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "ja";
+  themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? defaultLabelLang();
   themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
   const gapSel = document.getElementById("jgap") as HTMLSelectElement;
   gapSel.value = String(s.journeyGap ?? 60);
@@ -299,16 +300,20 @@ function showSettings() {
     document.getElementById("sgmsg")!.textContent = await restoreDismissed(journeyCtx);
   };
   const curSel = document.getElementById("currency") as HTMLSelectElement;
-  curSel.value = s.currency ?? "JPY";
+  curSel.value = defaultCurrency();
   curSel.onchange = () => saveSettings({ ...loadSettings(), currency: curSel.value });
   langSel.onchange = () => saveSettings({ ...loadSettings(), labelLang: langSel.value as LabelLang });
   (document.getElementById("save") as HTMLElement).onclick = async () => {
-    saveSettings({ ...loadSettings(), apiUrl: (document.getElementById("url") as HTMLInputElement).value.trim(),
-                   token: (document.getElementById("token") as HTMLInputElement).value.trim() });
     const msg = document.getElementById("msg")!;
-    checkServer();
-    try { const cars = await api<Car[]>("/api/cars"); msg.innerHTML = `<div class="ok">✅ 连接成功，找到 ${cars.length} 辆车</div>`; loadCars(); }
-    catch (e) { msg.innerHTML = `<div class="error">${esc((e as Error).message)}</div>`; }
+    const urlIn = document.getElementById("url") as HTMLInputElement, tokIn = document.getElementById("token") as HTMLInputElement;
+    msg.innerHTML = `<div class="muted">正在测试…</div>`;
+    const r = await testConnection(urlIn.value, tokIn.value.trim());
+    msg.innerHTML = renderResult(r);
+    if (!r.ok) return;   // keep the old working settings when the new ones fail
+    urlIn.value = r.url;
+    saveSettings({ ...loadSettings(), apiUrl: r.url, token: tokIn.value.trim() });
+    checkServer().then(() => { const v = document.getElementById("srv-ver"); if (v) v.textContent = serverLabel(); });
+    loadCars();
   };
 }
 
@@ -675,9 +680,11 @@ carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (doc
 const qp = new URLSearchParams(location.search);
 if (qp.get("api")) saveSettings({ ...loadSettings(), apiUrl: qp.get("api")!, token: qp.get("token") || "" });
 const start = qp.get("view");
-checkServer();
-loadCars();
-if (!loadSettings().apiUrl) (document.querySelector('nav button[data-tab="settings"]') as HTMLElement).click();
+migrateDefaults();
+if (!loadSettings().apiUrl) {
+  showSetupWizard(view, () => { checkServer(); loadCars(); showHome(); });
+} else { checkServer(); loadCars(); }
+if (!loadSettings().apiUrl) { /* wizard shown */ }
 else if (start === "charges") (document.querySelector('nav button[data-tab="charges"]') as HTMLElement).click();
 else if (start?.startsWith("drive:")) showDrive(Number(start.slice(6)));
 else if (start?.startsWith("charge:")) showCharge(Number(start.slice(7)));

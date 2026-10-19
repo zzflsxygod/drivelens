@@ -63,6 +63,11 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 
 > 能耗按 TeslaMate Grafana 的算法估算：`(起始额定续航 - 结束额定续航) × cars.efficiency`。
 
+## 安装（v0.10.0 起）
+
+**新用户请看 [docs/install.md](docs/install.md)**：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
+下面的「部署方式一 / 二」是早期的手动步骤（旧 SQL 文件仍保留，已部署的服务器无需任何改动）。
+
 ## 部署方式一（推荐）：Docker + TeslaMate 同一个 Compose + Cloudflare Tunnel
 
 镜像 `ghcr.io/zzflsxygod/drivelens-api` 支持 **linux/arm64**（Oracle Ampere）和 linux/amd64。镜像基于 distroless，非 root 用户运行，容器内监听 `0.0.0.0:8080`。

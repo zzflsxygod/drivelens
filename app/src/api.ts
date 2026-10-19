@@ -37,16 +37,17 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(s.apiUrl.replace(/\/+$/, "") + path,
     { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (res.status === 401) throw new Error("Token 无效（401）");
+  if (res.status === 401) throw new Error("Token 无效（401），请在「设置」中检查");
+  if (res.status === 429) throw new Error("Token 错误次数太多，服务器暂时拒绝了请求，请 10 分钟后再试");
   if (!res.ok) {
     let detail = "";
     try { detail = (await res.json()).error ?? ""; } catch { /* not json */ }
     if (res.status === 503 && /charge_costs/.test(detail))
-      throw new Error("服务器还没有启用手动费用：请在服务器上重新执行 drivelens-init.sql（见 README）");
-    if (res.status === 503 && /v0\.7\.0/.test(detail))
-      throw new Error("服务器还没有启用封面 / 天气：请在服务器上执行 drivelens-v0.7.0.sql（见 README）");
+      throw new Error("服务器还没有启用手动费用：请在服务器上执行 deploy/setup.sql 后重启 drivelens-api（见 docs/install.md）");
+    if (res.status === 503 && /v0\.7\.0|cover_image|weather_hourly/.test(detail))
+      throw new Error("服务器还没有启用封面 / 天气：请在服务器上执行 deploy/setup.sql 后重启 drivelens-api（见 docs/install.md）");
     if (res.status === 503 && /journey/.test(detail))
-      throw new Error("服务器还没有启用旅程：请在服务器上执行 drivelens-v0.6.0.sql（见 README）");
+      throw new Error("服务器还没有启用旅程：请在服务器上执行 deploy/setup.sql 后重启 drivelens-api（见 docs/install.md）");
     const err = new Error(`请求失败：HTTP ${res.status}${detail ? `（${detail}）` : ""}`) as Error & { status?: number };
     err.status = res.status;
     // 404 on a known route = server older than the app; 502/503 = server restarting (update)
@@ -65,7 +66,27 @@ export const setCost = (chargeId: number, amount: number, currency: string, note
 export const resetCost = (chargeId: number) => api(`/api/charges/${chargeId}/cost`, "DELETE");
 
 export const CURRENCIES = ["JPY", "CNY", "USD", "EUR", "HKD", "TWD", "KRW", "GBP", "AUD", "CAD", "SGD", "CHF"];
-export const defaultCurrency = () => loadSettings().currency || "JPY";
+const REGION_CUR: Record<string, string> = { JP: "JPY", CN: "CNY", US: "USD", HK: "HKD", TW: "TWD", KR: "KRW", GB: "GBP", AU: "AUD", CA: "CAD", SG: "SGD", CH: "CHF",
+  DE: "EUR", FR: "EUR", IT: "EUR", ES: "EUR", NL: "EUR", BE: "EUR", AT: "EUR", IE: "EUR", FI: "EUR", PT: "EUR", GR: "EUR" };
+const LANG_CUR: Record<string, string> = { ja: "JPY", zh: "CNY", ko: "KRW", de: "EUR", fr: "EUR", it: "EUR", es: "EUR", nl: "EUR" };
+/** Default currency from the device locale (zh-TW → TWD, en-GB → GBP, ja → JPY …), USD when unknown. */
+export function localeCurrency(lang = navigator.language || "en-US"): string {
+  const [l, r] = lang.split(/[-_]/);
+  const region = (r || "").toUpperCase();
+  return REGION_CUR[region] || (l === "zh" && /hant/i.test(lang) ? "TWD" : LANG_CUR[l.toLowerCase()]) || "USD";
+}
+/** Default map label language from the device locale. */
+export function defaultLabelLang(lang = navigator.language || "en"): LabelLang {
+  const l = lang.slice(0, 2).toLowerCase();
+  return l === "ja" ? "ja" : l === "zh" ? "zh" : l === "en" ? "en" : "local";
+}
+export const defaultCurrency = () => loadSettings().currency || localeCurrency();
+/** Before v0.10.0 the unset defaults were JPY / 日本語: keep them for existing installs so nothing changes for them. */
+export function migrateDefaults() {
+  const s = loadSettings();
+  if (!s.apiUrl || (s.currency && s.labelLang)) return;
+  saveSettings({ ...s, currency: s.currency || "JPY", labelLang: s.labelLang || "ja" });
+}
 const ZERO_DEC = new Set(["JPY", "KRW", "TWD"]);
 const SYM: Record<string, string> = { JPY: "¥", CNY: "CN¥", USD: "$", EUR: "€", GBP: "£", KRW: "₩", HKD: "HK$", TWD: "NT$", AUD: "A$", CAD: "C$", SGD: "S$" };
 /** ¥1,234 for JPY (no decimals); 2 decimals for most other currencies. */

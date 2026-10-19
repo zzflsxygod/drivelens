@@ -3,7 +3,7 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
-const MISSING: &str = "journey tables drivelens.journeys / journey_drives are missing or not writable; run the v0.6.0 SQL (deploy/drivelens-init.sql)";
+const MISSING: &str = "journey tables drivelens.journeys / journey_drives are missing or not writable; run deploy/setup.sql and restart the API";
 
 const DDL: [&str; 3] = [
     "CREATE TABLE IF NOT EXISTS drivelens.journeys (
@@ -42,7 +42,7 @@ pub async fn try_create_tables(db: &PgPool) {
     if has.is_some() { return; }
     for q in DDL {
         if let Err(e) = sqlx::query(q).execute(db).await {
-            tracing::warn!("journeys disabled: cannot create tables ({e}); run deploy/drivelens-init.sql");
+            tracing::warn!("journeys disabled: cannot create tables ({e}); run deploy/setup.sql and restart the API");
             return;
         }
     }

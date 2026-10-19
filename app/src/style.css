@@ -316,3 +316,15 @@ input, select, textarea { border-radius: 12px !important; border-color: var(--li
 .lline { fill: none; stroke: #22c58b; stroke-width: 2.5; stroke-linejoin: round; } .ldot { fill: #22c58b; } .ldot.on { fill: var(--accent2); }
 .bl-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; } .bl-row input { flex: 1; margin: 0; }
 .bref { stroke: #22c58b; stroke-width: 1.5; stroke-dasharray: 2 3; }
+
+/* v0.10.0 first-run wizard */
+body.setup-mode header, body.setup-mode nav, body.setup-mode #srv-banner { display: none !important; }
+body.setup-mode main { padding-bottom: 24px; }
+.setup { min-height: calc(100vh - 24px); display: flex; align-items: center; justify-content: center; padding: 24px 0; }
+.setup-card { width: 100%; max-width: 440px; background: var(--card); border-radius: 20px; padding: 26px 22px; box-shadow: 0 10px 40px #0002; }
+.setup-card h1 { margin: 6px 0 4px; font-size: 22px; }
+.setup-logo { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; font-size: 30px; background: linear-gradient(135deg, #e31937, #ff7a59); }
+.setup-card .primary { width: 100%; margin-top: 6px; padding: 12px; font-size: 16px; }
+.setup-card .chk-row input { display: inline; width: auto; margin: 0 6px 0 0; }
+.setup-card .small { font-size: 12px; margin-top: 14px; }
+.warn { background: #f5a62322; color: #b7791f; padding: 10px 12px; border-radius: 14px; margin-top: 8px; font-size: 13px; }

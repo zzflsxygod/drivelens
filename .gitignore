@@ -6,3 +6,4 @@ dist/
 *.env
 app/src-tauri/gen/schemas/
 .DS_Store
+scripts/.release.local
