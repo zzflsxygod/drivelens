@@ -385,5 +385,6 @@ const zh = {
   "ago.hour": "{n} 小时前",
   "ago.day": "{n} 天前",
   "ver.label": "v{v}（API level {l}）",
+  "charges.title": "充电记录",
 } as const;
 export default zh;

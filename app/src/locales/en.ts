@@ -386,5 +386,6 @@ const en: Record<keyof typeof zh, string> = {
   "ago.hour": "{n} h ago",
   "ago.day": "{n} {n|day|days} ago",
   "ver.label": "v{v} (API level {l})",
+  "charges.title": "Charging",
 };
 export default en;

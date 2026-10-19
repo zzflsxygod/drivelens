@@ -3,6 +3,7 @@ import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } fr
 import { DriveMap, SPEED_STOPS } from "./map";
 import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
+import { ICON } from "./toolbar";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { effectiveTheme } from "./map";
 
@@ -67,8 +68,9 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   const v = ctx.view;
   const car = await ctx.carId();
   const canSelect = ctx.journeysAvailable();
-  v.innerHTML = `${segHTML("drives", ctx)}
-    ${canSelect ? `<div class="list-tools"><span class="muted" id="seltip"></span><button id="selmode" class="ghost small"></button></div>` : ""}
+  v.innerHTML = `<div class="list-toolbar">${segHTML("drives", ctx) || `<h2 class="tb-title">${t("seg.drives")}</h2>`}
+      <div class="tb-right" id="d-tb">${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
+    ${canSelect ? `<div class="sel-tip muted" id="seltip" hidden></div>` : ""}
     <div id="dlist"></div><div id="abar"></div>`;
   bindSeg(ctx);
   const byId = new Map<number, Drive>();
@@ -81,8 +83,12 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
     </div></div>`; };
   const bar = () => {
     const tip = v.querySelector("#seltip"), btn = v.querySelector("#selmode");
-    if (tip) tip.textContent = selectMode ? t("sel.tip") : "";
-    if (btn) btn.textContent = selectMode ? t("common.cancel") : t("sel.select");
+    if (tip) { tip.textContent = selectMode ? t("sel.tip") : ""; (tip as HTMLElement).hidden = !selectMode; }
+    if (btn) {   // round icon button; becomes a "✕ Cancel" pill while selecting
+      btn.innerHTML = selectMode ? `${ICON.close}<span>${t("common.cancel")}</span>` : ICON.select;
+      btn.classList.toggle("active", selectMode); btn.setAttribute("aria-pressed", String(selectMode));
+      (btn as HTMLElement).title = selectMode ? t("common.cancel") : t("sel.select"); btn.setAttribute("aria-label", (btn as HTMLElement).title);
+    }
     const picked = [...sel].map(i => byId.get(i)).filter(Boolean) as Drive[];
     v.querySelector("#abar")!.innerHTML = selectMode ? `<div style="height:70px"></div><div class="actionbar"><span>${t("sel.picked", { n: sel.size })}${sel.size ? ` · ${n(picked.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0)} km` : ""}</span>
       <button id="merge" class="primary small" ${sel.size < 1 ? "disabled" : ""}>${t("sel.merge")}</button></div>` : "";
@@ -97,7 +103,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
     };
   };
   const list = infiniteList<Drive>({
-    container: v.querySelector<HTMLElement>("#dlist")!, key: `drives:${car ?? "all"}`, path: `/api/drives?x=1${ctx.carQ()}`,
+    container: v.querySelector<HTMLElement>("#dlist")!, toolbar: v.querySelector<HTMLElement>("#d-tb")!, key: `drives:${car ?? "all"}`, path: `/api/drives?x=1${ctx.carQ()}`,
     paging: ctx.pagingAvailable(), carId: car, monthsSupported: ctx.pagingAvailable(), restore,
     dateOf: d => d.start_date, card: cardHTML, empty: t("home.noDrives"),
     header: (m, tot, loaded) => `<b>${monthLabel(m)}</b><span>${tot ? `${t("drives.monthHead", { n: tot.drive_count, km: n(tot.distance_km, 0) })} · ${fmtDur(tot.duration_min)}`
@@ -156,7 +162,7 @@ export async function showJourneys(ctx: Ctx) {
   lastSeg = "journeys"; ctx.setMap(null);
   const v = ctx.view;
   if (!ctx.journeysAvailable()) { v.innerHTML = `<div class="error card-error">⚠️ ${esc(ctx.journeysMessage())}</div>`; return; }
-  v.innerHTML = `${segHTML("journeys", ctx)}<div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
+  v.innerHTML = `<div class="list-toolbar">${segHTML("journeys", ctx)}<div class="tb-right"></div></div><div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
   const car = await ctx.carId();
   const gap = loadSettings().journeyGap ?? 60;
   const loadList = () => api<JourneyRow[]>(`/api/journeys?limit=200${ctx.carQ()}`).then(list => {

@@ -163,9 +163,9 @@ async function showDrive(id: number, back: () => void = showDrives) {
 async function showCharges(restore = false) {
   destroyMap();
   const car = await currentCarId().catch(() => null);
-  view.innerHTML = `<div id="clist"></div>`;
+  view.innerHTML = `<div class="list-toolbar"><h2 class="tb-title">${t("charges.title")}</h2><div class="tb-right" id="c-tb"></div></div><div id="clist"></div>`;
   const list = infiniteList<Charge>({
-    container: document.getElementById("clist")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ()}`,
+    container: document.getElementById("clist")!, toolbar: document.getElementById("c-tb")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ()}`,
     paging: !lacks("paging"), carId: car, monthsSupported: !lacks("paging"), restore,
     dateOf: c => c.start_date, empty: t("charges.empty"),
     header: (m, tot, loaded) => {

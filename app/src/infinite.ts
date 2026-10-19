@@ -3,6 +3,7 @@ import { setJumpedPeek, setJumpedReset } from "./totop";
 // and scroll restore. Older servers: one request with limit=100 (no paging).
 import { api } from "./api";
 import { t, monthLabel } from "./i18n";
+import { ICON, popMenu, closeMenus } from "./toolbar";
 export { monthLabel };
 
 export interface MonthRow { month: string; drive_count: number; distance_km: number; duration_min: number; charge_count: number; energy_added_kwh: number }
@@ -30,6 +31,8 @@ export interface InfOpts<T> {
   header(month: string, m: MonthRow | undefined, loaded: T[]): string;
   bind(root: HTMLElement): void; // attach click handlers to newly added cards
   empty: string;
+  /** toolbar row (right side) to put the month-jump button in; default: own row above the list */
+  toolbar?: HTMLElement;
 }
 
 const PAGE = 50;
@@ -46,10 +49,20 @@ export function infiniteList<T>(o: InfOpts<T>) {
   }
   const S = st;
   const root = o.container;
-  root.innerHTML = `<div class="list-head"><select id="mjump" class="mjump" aria-label="${t("list.jump")}"><option value="">${t("list.latest")}</option></select></div>
+  closeMenus();
+  root.innerHTML = `${o.toolbar ? "" : `<div class="list-toolbar"><div></div><div class="tb-right" id="tb-own"></div></div>`}
     <div id="newer"></div><div id="items"></div><div id="sentinel"></div><div id="list-end"></div>`;
   const itemsEl = root.querySelector<HTMLElement>("#items")!, endEl = root.querySelector<HTMLElement>("#list-end")!;
-  const sentinel = root.querySelector<HTMLElement>("#sentinel")!, jump = root.querySelector<HTMLSelectElement>("#mjump")!;
+  const sentinel = root.querySelector<HTMLElement>("#sentinel")!;
+  // month jump: round icon button + popover (Latest / months), checkmark on the active one
+  const host = o.toolbar ?? root.querySelector<HTMLElement>("#tb-own")!;
+  host.querySelector(".tb-jump")?.remove();
+  const jumpBtn = document.createElement("button");
+  jumpBtn.className = "tb-btn tb-jump"; jumpBtn.innerHTML = ICON.sort;
+  jumpBtn.title = t("list.jump"); jumpBtn.setAttribute("aria-label", t("list.jump")); jumpBtn.setAttribute("aria-haspopup", "menu");
+  host.prepend(jumpBtn);
+  let monthList: string[] = [];
+  const jump = { set value(v: string) { jumpBtn.classList.toggle("on", !!v); }, hidden: false };
   let lastMonth = "";
   let loading = false;
   let alive = true;
@@ -118,12 +131,13 @@ export function infiniteList<T>(o: InfOpts<T>) {
 
   // month picker + totals
   const fillJump = () => {
-    const ms = S.months?.map(m => m.month) ?? [...new Set(S.items.map(x => ym(o.dateOf(x))))];
-    jump.innerHTML = `<option value="">${t("list.latest")}</option>` + ms.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join("");
+    monthList = S.months?.map(m => m.month) ?? [...new Set(S.items.map(x => ym(o.dateOf(x))))];
     jump.value = S.jumpedTo ?? "";
   };
-  jump.onchange = () => reset(jump.value || null);
-  if (!o.paging) jump.hidden = true;
+  jumpBtn.onclick = () => { fillJump(); popMenu(jumpBtn,
+    [{ value: "", label: t("list.latest"), active: !S.jumpedTo }, ...monthList.map(m => ({ value: m, label: monthLabel(m), active: S.jumpedTo === m }))],
+    v => reset(v || null), t("list.jump")); };
+  if (!o.paging) jumpBtn.hidden = true;
   if (o.monthsSupported && o.carId != null && !S.months) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     api<MonthRow[]>(`/api/cars/${o.carId}/months?tz=${encodeURIComponent(tz)}`).then(m => { if (!alive) return; S.months = m; fillJump(); refreshHeaders(); }).catch(() => { /* totals from loaded items */ });

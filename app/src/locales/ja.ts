@@ -386,5 +386,6 @@ const ja: Record<keyof typeof zh, string> = {
   "ago.hour": "{n}時間前",
   "ago.day": "{n}日前",
   "ver.label": "v{v}（API レベル {l}）",
+  "charges.title": "充電記録",
 };
 export default ja;
