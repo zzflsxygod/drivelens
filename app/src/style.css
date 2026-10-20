@@ -749,6 +749,17 @@ html.touch * { -webkit-tap-highlight-color: transparent; }
 .srv-inner .version-box { margin: 0; background: var(--sub); }
 .srv-inner > :last-child { margin-bottom: 0; }
 
+/* Overview hero tiles: one line at any width (v0.17.4). 100cqi = tile content width; a monospace glyph is
+   ≤ .62em wide (Menlo / SF Mono / Courier) plus letter-spacing, so font-size = width / (chars × .6) fits. */
+.kv-fit > div { container-type: inline-size; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; }
+.kv.kv-fit b { display: block; white-space: nowrap; overflow: hidden; text-overflow: clip; letter-spacing: -.03em;
+  font-size: clamp(9px, calc(100cqi / (var(--n, 8) * .6)), 14px); line-height: 1.35; }
+@media (max-width: 360px) {
+  .hero { padding: 16px 14px; }
+  .kv.kv-fit { gap: 6px; }
+  .kv.kv-fit > div { padding: 8px 7px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

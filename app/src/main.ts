@@ -583,11 +583,20 @@ function heroHTML(s: Status) {
       <div class="range"><b>${n(p?.rated_battery_range_km ?? null, 0)}</b> km<div class="muted">${t("hero.est", { v: n(p?.est_battery_range_km ?? null, 0) })}</div></div>
     </div>
     <div class="gauge"><div class="${lvlCls}" style="width:${lvl ?? 0}%"></div></div>
-    <div class="kv">
-      <div><small>${t("hero.odo")}</small><b>${p?.odometer_km != null ? fmtNum(Math.round(p.odometer_km)) : "—"} km</b></div>
-      <div><small>${t("hero.sw")}</small><b>${esc(s.software?.version?.split(" ")[0] ?? "—")}</b></div>
-      <div><small>${t("hero.temps")}</small><b>${n(p?.outside_temp ?? null)}° / ${n(p?.inside_temp ?? null)}°</b></div>
-    </div>`;
+    ${heroTiles([
+      [t("hero.odo"), p?.odometer_km != null ? `${fmtNum(Math.round(p.odometer_km))} km` : "—"],
+      [t("hero.sw"), s.software?.version?.split(" ")[0] || "—"],
+      [t("hero.temps"), `${deg(p?.outside_temp)} / ${deg(p?.inside_temp)}`],
+    ])}`;
+}
+/** Whole degrees for the hero tile ("-0" → "0"); the tile is too narrow for decimals on phones. */
+const deg = (v: number | null | undefined) => v == null || !isFinite(v) ? "—" : `${Math.round(v) || 0}°`;
+/** The three hero tiles always stay on one line: --n (longest value, in characters) lets CSS size the
+ *  monospace text to the tile width (container query units), so all three shrink together when needed. */
+function heroTiles(items: [string, string][]) {
+  const len = Math.max(8, ...items.map(([, v]) => [...v].length));
+  return `<div class="kv kv-fit" style="--n:${len}">${items.map(([k, v]) =>
+    `<div><small>${k}</small><b title="${esc(v)}">${esc(v)}</b></div>`).join("")}</div>`;
 }
 const heroSkeleton = () => `
     <div class="row"><div style="flex:1">${sk("40%", "24px")}<br>${sk("55%")}</div><button class="icon-btn" data-refresh title="${t("common.refresh")}">⟳</button></div>

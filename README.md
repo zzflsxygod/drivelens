@@ -424,6 +424,10 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v0.17.4 — 首页车辆卡片三格不换行（仅网页版）
+
+- 「总里程 / 软件版本 / 车外 / 车内」三格（`heroTiles()`）：数值 `white-space: nowrap`，温度取整（`deg()`，`-0` → `0`，缺失 `—`）；按三格里最长值的字符数设 `--n`，每格 `container-type: inline-size`，字号 `clamp(10px, 100cqi / (n × .6), 14px)`，三格同步缩小。320px 下 `123,456 km` / `2026.32.7.1` / `-12° / -6°` 也是一行（Chromium + WebKit、Courier 宽等宽字体验证）。里程缺失显示 `—`（不再是 `— km`）。
+
 ## v0.17.3 — 设置页「服务器」折叠并移到下方（仅网页版）
 
 - 已保存服务器（地址 + Token）时，「服务器」折叠成一行：状态点（绿 = 已连接 / 红 = 无法连接 / 黄 = 检查中）+ 主机名 + 小号等宽版本号（App / 服务器）+ 箭头；点开（`button[aria-expanded]`，grid-rows 动画）显示版本行和「检查」、API 地址、Token、保存并测试连接。未配置或 `/health` 无法连接时自动展开（用户手动开合后不再自动改变）。收起时内部控件 `tabIndex=-1`。

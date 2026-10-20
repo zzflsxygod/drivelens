@@ -4,6 +4,10 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v0.17.4 — 2026-10-20
+- Home: the three tiles on the vehicle card (odometer, software, outside / inside temperature) always stay on one line, even on small phones; temperatures are shown in whole degrees (e.g. `20° / 22°`) and long values shrink slightly to fit.
+- No server update needed.
+
 ## v0.17.3 — 2026-10-20
 - Settings: once your server is set up, the **Server** section folds into one compact row (status dot, host name, app / server version). Tap it to change the address or token, test the connection or check the server version. It opens by itself when the server can't be reached or isn't set up.
 - Settings order: Display, Journeys and Notifications come first; Server and Demo mode moved down, just above Help & feedback.
