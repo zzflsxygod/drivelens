@@ -15,6 +15,7 @@ import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { installGuideUrl, RELEASES_URL, ISSUES_URL } from "./links";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
@@ -351,6 +352,7 @@ function showSettings() {
     <button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span>
     <p class="muted">${t("set.mapCredit")}</p>
     <div id="pwa-slot"></div>
+    ${aboutCardHTML()}
     ${supportCardHTML()}`;
   mountInstallCard();
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer(); };
@@ -409,6 +411,12 @@ function donateLabel(u: string) {
   if (/ko-fi\.com$/.test(h)) return "Ko-fi";
   if (/github\.com$/.test(h)) return "GitHub Sponsors";
   return t("don.btn");
+}
+function aboutCardHTML() {
+  const row = (href: string, ico: string, label: string) =>
+    `<a class="about-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="about-ico" aria-hidden="true">${ico}</span><span>${label}</span><span class="about-go" aria-hidden="true">›</span></a>`;
+  return `<h2>${t("about.title")}</h2><div class="card about-card">
+    ${row(installGuideUrl(), "📘", t("about.guide"))}${row(RELEASES_URL, "📦", t("about.releases"))}${row(ISSUES_URL, "💬", t("about.feedback"))}</div>`;
 }
 function supportCardHTML() {
   if (!/^https:\/\//.test(DONATE_URL)) return "";

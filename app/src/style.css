@@ -623,3 +623,20 @@ html.ime nav, html.ime .totop { display: none; }
 @media (prefers-reduced-motion: reduce) { .support-btn, .support-btn span, .pwa-toast { transition: none; } }
 /* installed PWA: no rubber-band overscroll of the whole page behind the floating bars */
 html.standalone, html.standalone body { overscroll-behavior-y: none; }
+
+/* v0.15.1: install-guide link in the wizard, Help & feedback card in Settings (public drivelens-releases repo) */
+.su-guide { display: inline-flex; align-items: center; gap: 6px; margin: -2px 0 12px; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  text-decoration: none; color: var(--accent, #7b5cff); background: #7b5cff14; border: 1px solid #7b5cff30; transition: transform .18s ease, background .18s ease; }
+.su-guide span { transition: transform .18s ease; }
+.su-guide:hover { background: #7b5cff22; }
+.su-guide:hover span { transform: translateX(3px); }
+.su-guide:active { transform: scale(.97); }
+.about-card { padding: 6px 4px; cursor: default; }
+.about-link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; color: inherit !important; text-decoration: none; transition: background .18s ease, transform .18s ease; }
+.about-link + .about-link { border-top: 1px solid #8881; }
+.about-link:hover { background: #7b5cff10; }
+.about-link:active { transform: scale(.985); }
+.about-ico { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-size: 16px; background: #7b5cff14; }
+.about-link > span:nth-child(2) { flex: 1; min-width: 0; font-size: 14.5px; }
+.about-go { flex: none; opacity: .45; font-size: 20px; transition: transform .18s ease; }
+.about-link:hover .about-go { transform: translateX(3px); }

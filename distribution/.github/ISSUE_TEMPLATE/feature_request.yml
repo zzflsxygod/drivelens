@@ -1,0 +1,31 @@
+name: Feature request / 機能の提案 / 功能建议
+description: Suggest an idea for DriveLens
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: Describe the problem or the use case first, then the solution you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / examples (optional)
+      description: How do you do it today (e.g. in TeslaMate's Grafana)? Screenshots or mockups welcome.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Home
+        - Drives
+        - Charging
+        - Journeys
+        - Monthly report
+        - Battery health
+        - Settings / setup
+        - Server (drivelens-api)
+        - Other

@@ -4,6 +4,7 @@ import { t, langSetting } from "./i18n";
 import { MIN_API_LEVEL, FEATURE_LEVEL, checkServer } from "./version";
 import { enterDemo } from "./demo";
 import { isAndroid, isTauri } from "./platform";
+import { installGuideUrl } from "./links";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
@@ -118,6 +119,7 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
       <select id="su-lang" class="su-lang" aria-label="Language"><option value="auto">🌐 Auto</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
       <h1>${t("su.welcome")}</h1>
       <p class="muted">${t("su.intro")}</p>
+      <a class="su-guide" href="${esc(installGuideUrl())}" target="_blank" rel="noopener noreferrer">📘 ${t("su.guide")} <span aria-hidden="true">→</span></a>
       ${isTauri() ? "" : `<div class="su-webnote"><b>🌐 ${t("su.webTitle")}</b><ul><li>${t("su.webHttps")}</li><li>${t("su.webCors", { origin: esc(location.origin) })}</li></ul></div>`}
       <label>${t("su.url")}<input id="su-url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
       <label>API Token<input id="su-token" type="password" autocomplete="off" placeholder="${t("su.tokenPh")}" value="${esc(s.token || "")}"></label>

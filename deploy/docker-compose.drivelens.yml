@@ -1,39 +1,40 @@
-# DriveLens API —— 加到 TeslaMate 的 docker-compose.yml 同一目录下使用：
-#   docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d --build
-# （或把 services: 下面的内容复制进 TeslaMate 的 docker-compose.yml。）
-# 和 TeslaMate 在同一个 compose 项目里，默认网络相同，用服务名 `database` 访问数据库。
-# 需要的变量写在同目录的 .env 里（详见 docs/install.md）：
-#   DRIVELENS_DB_PASS=执行 setup.sql 时设置的 drivelens_ro 密码
-#   DRIVELENS_API_TOKEN=32 位以上随机字符串（openssl rand -hex 24）
+# DriveLens API — use it next to TeslaMate's docker-compose.yml (same directory):
+#   docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
+# (or copy the services below into TeslaMate's docker-compose.yml).
+# Being in the same compose project, it shares TeslaMate's default network and reaches the database as `database`.
+# Variables go into the .env file in the same directory (see docs/install.md):
+#   DRIVELENS_DB_PASS=the drivelens_ro password you used with setup.sql
+#   DRIVELENS_API_TOKEN=a random string of 32+ characters (openssl rand -hex 24)
+# Guide: https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md
 services:
   drivelens-api:
-    # 默认从源码构建：把 DriveLens 源码放在 ./drivelens（或修改下面的路径）
-    build: ${DRIVELENS_SRC:-./drivelens}/api
-    # 如果你有自己的镜像仓库，可以设置 DRIVELENS_IMAGE 并删掉上面的 build:
-    image: ${DRIVELENS_IMAGE:-drivelens-api:local}
+    # Prebuilt multi-arch image (linux/amd64 + linux/arm64). Pin a version with e.g. DRIVELENS_IMAGE=ghcr.io/zzflsxygod/drivelens-api:v0.15.1
+    image: ${DRIVELENS_IMAGE:-ghcr.io/zzflsxygod/drivelens-api:latest}
     restart: always
     depends_on:
       - database
     environment:
-      - DATABASE_URL=postgres://drivelens_ro:${DRIVELENS_DB_PASS:?请在 .env 设置 DRIVELENS_DB_PASS}@database:5432/${DRIVELENS_DB_NAME:-teslamate}
-      - API_TOKEN=${DRIVELENS_API_TOKEN:?请在 .env 设置 DRIVELENS_API_TOKEN}
+      - DATABASE_URL=postgres://drivelens_ro:${DRIVELENS_DB_PASS:?set DRIVELENS_DB_PASS in .env}@database:5432/${DRIVELENS_DB_NAME:-teslamate}
+      - API_TOKEN=${DRIVELENS_API_TOKEN:?set DRIVELENS_API_TOKEN in .env}
       - RUST_LOG=info
-      # 可选（v0.11.0+）：允许在浏览器里访问 API 的网页来源，逗号分隔。不设时只允许官方网页版
-      # https://drivelens-app.oharuru.com（Windows / Android App 总是允许）。自己部署网页版时加上你的网址；* = 任意来源。
-      # 网页版要求服务器地址是 https（Cloudflare Tunnel / tailscale serve），详见 docs/install.md「网页版」。
+      # Optional (v0.11.0+): web origins allowed to call the API from a browser, comma-separated. Unset = only the official
+      # web app https://drivelens-app.oharuru.com (the Windows / Android apps are always allowed). Add your own URL if you
+      # host the web app yourself; * = any origin. The web app needs an https server address (Cloudflare Tunnel / tailscale serve).
       # - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com,https://drivelens-web.example.com
-    # 方案 A（推荐）：cloudflared / tailscale 也在这个 compose 里 → 删掉 ports，不暴露任何端口
-    # 方案 B：cloudflared 装在宿主机上 → 只映射到本机回环地址
+    # Option A (recommended): cloudflared / tailscale in this compose project → remove `ports`, nothing is exposed
+    # Option B: cloudflared on the host → publish on the loopback address only
     ports:
       - "127.0.0.1:8080:8080"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true   # only used if you enable the optional watchtower service below
     read_only: true
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      disable: true   # distroless 镜像没有 shell/curl；用 https://你的域名/health 查看版本
+      disable: true   # distroless image without shell/curl; check https://your-domain/health instead
 
-  # ---- 可选：Cloudflare Tunnel（推荐，不需要开放端口，自动 https）----
-  # 在 Cloudflare Zero Trust 面板创建 Tunnel，Public Hostname 指向 http://drivelens-api:8080
+  # ---- Optional: Cloudflare Tunnel (recommended: no open ports, automatic https) ----
+  # Create a tunnel in Cloudflare Zero Trust; its Public Hostname points to http://drivelens-api:8080
   # cloudflared:
   #   image: cloudflare/cloudflared:latest
   #   restart: always
@@ -41,16 +42,14 @@ services:
   #   environment:
   #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
-  # ---- 可选：使用镜像仓库时用 Watchtower 自动更新 drivelens-api ----
-  # 需要给 drivelens-api 加上 labels: [com.centurylinklabs.watchtower.enable=true]
+  # ---- Optional: keep drivelens-api up to date automatically (checks every 6 hours) ----
   # watchtower:
   #   image: nickfedor/watchtower:latest
   #   restart: always
   #   environment:
   #     - WATCHTOWER_LABEL_ENABLE=true
-  #     - WATCHTOWER_POLL_INTERVAL=300
+  #     - WATCHTOWER_POLL_INTERVAL=21600
   #     - WATCHTOWER_CLEANUP=true
   #     - TZ=${TZ:-UTC}
   #   volumes:
   #     - /var/run/docker.sock:/var/run/docker.sock
-  #     # 私有仓库需要登录信息：- ${HOME}/.docker/config.json:/config.json:ro

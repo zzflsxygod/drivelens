@@ -1,0 +1,40 @@
+DriveLens — Freeware License
+
+Copyright (c) 2026 zzflsxygod (https://github.com/zzflsxygod). All rights reserved.
+
+DriveLens (the web app, the Windows and Android apps, the drivelens-api server software and its Docker image,
+and the documentation and files in this repository, together "the Software") is proprietary software.
+It is NOT open-source software. The source code is not published.
+
+1. Permission to use. You may download, install and use the Software free of charge, for personal or
+   commercial purposes, on any number of your own devices and servers.
+
+2. Restrictions. Unless you have prior written permission from the copyright holder, you may not:
+   a. redistribute, sell, rent, lease, sublicense or publish the Software, or host it for others as a service,
+      except for linking to the official download locations;
+   b. modify, translate, adapt or create derivative works of the Software;
+   c. reverse engineer, decompile or disassemble the Software, except to the extent that applicable law
+      expressly permits it despite this restriction;
+   d. remove or alter any copyright, trademark or license notices.
+
+   Exceptions: you may copy and edit the configuration files in this repository (for example
+   deploy/docker-compose.drivelens.yml and deploy/setup.sql) as needed to run the Software on your own server,
+   and you may mirror the official Docker image into a private registry for your own use.
+
+3. Your data. The Software connects only to servers you configure. You are responsible for your server, your
+   access token and your data.
+
+4. Third-party components. The Software includes third-party open-source components, which remain under their
+   own licenses. Map data © OpenStreetMap contributors (ODbL); map tiles by OpenFreeMap; weather data by Open-Meteo.
+
+5. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+   NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO
+   EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+   CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+6. Termination. This permission ends automatically if you break these terms. The copyright holder may change
+   these terms for future versions of the Software.
+
+DriveLens is an independent project and is not affiliated with, endorsed by or sponsored by Tesla, Inc. or the
+TeslaMate project. "Tesla" is a trademark of Tesla, Inc.

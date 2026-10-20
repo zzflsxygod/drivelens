@@ -65,7 +65,7 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 
 ## 安装（v0.10.0 起）
 
-**新用户请看 [docs/install.md](docs/install.md)**：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
+**新用户请看安装指南：[English](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)**（公开版在 https://github.com/zzflsxygod/drivelens-releases ）：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
 下面的「部署方式一 / 二」是早期的手动步骤（旧 SQL 文件仍保留，已部署的服务器无需任何改动）。
 
 ## 部署方式一（推荐）：Docker + TeslaMate 同一个 Compose + Cloudflare Tunnel
@@ -390,7 +390,7 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 设置 →「语言 / Language」：跟随系统 / 中文 / English / 日本語；新安装默认跟随系统，已有安装保持中文。地图文字语言默认跟随界面语言。
 - 文案在 `app/src/locales/{zh,en,ja}.ts`（中文为源），格式化（日期、时长、相对时间、月份）在 `app/src/i18n.ts`。
 - `npm run check:i18n`（`npm run build` 会先执行）：缺少 key、占位符不一致、源码里残留硬编码中文时失败。
-- 安装指南：[中文](docs/install.md) · [English](docs/install.en.md) · [日本語](docs/install.ja.md)。服务器无需更新（API 未变）。
+- 安装指南：[English](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)（v0.15.1 起英文为默认）。服务器无需更新（API 未变）。
 
 ## v0.14.1 — 弹出菜单定位修复
 
@@ -412,3 +412,14 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 设置页底部「支持 DriveLens」卡片（`VITE_DONATE_URL`，为空时隐藏）；网页版显示「安装为应用」。
 - API 0.11.0：`DRIVELENS_CORS_ORIGINS`（旧名 `CORS_ORIGINS`），默认允许官方网页版 + Tauri App 来源，`*` = 任意；预检缓存 10 分钟，支持 Private Network Access。api_level 不变（12），无数据库迁移。
 - Windows / Android 打包暂停（workflow 只能手动运行；`scripts/release.conf` 的 `NATIVE_BUILDS=0`），Release 只附带 `DriveLens_0.15.0_web.zip`。
+
+## v0.15.1 — 公开发布仓库 drivelens-releases
+
+源码仓库保持私有；面向用户的内容放在公开仓库 **https://github.com/zzflsxygod/drivelens-releases** ：
+- README（English 默认 + README.zh.md / README.ja.md）、截图（演示模式）、CHANGELOG、LICENSE（免费使用的专有软件，非开源）、Issue 模板。
+- `docs/install.md`（English）/ `install.zh.md` / `install.ja.md`、`deploy/setup.sql`、`deploy/docker-compose.drivelens.yml`（默认使用预构建镜像 `ghcr.io/zzflsxygod/drivelens-api:latest`，不再需要源码）。
+- 这些文件的来源：本仓库 `distribution/`（README、LICENSE、CHANGELOG、截图、Issue 模板）+ `docs/install*.md` + `deploy/setup.sql` + `deploy/docker-compose.drivelens.yml`。
+- 同步：`scripts/sync-public.sh <tag>`（`release.sh` 第 5 步自动执行，也可手动执行）把上述文件推送到公开仓库，并在公开仓库创建同名 Release，附带 `DriveLens_X.Y.Z_web.zip`；`NATIVE_BUILDS=1` 时再附带 exe / msi / apk / aab。CI 里同样的步骤在 `.github/workflows/public-sync.yml`（需要 secret `RELEASES_REPO_TOKEN`，没有时跳过）。
+- App：引导页「安装指南」链接、设置页「帮助与反馈」（安装指南 / 版本与更新日志 / 问题反馈）都指向公开仓库，安装指南按界面语言打开对应版本（英文为默认）。
+- 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
+

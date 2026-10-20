@@ -7,6 +7,8 @@
 #      and the Android build (attaches APK + AAB). With NATIVE_BUILDS=0 (scripts/release.conf) the draft is created here.
 #      The web bundle is attached as DriveLens_X.Y.Z_web.zip (the web workflow deploys it to Cloudflare Pages when configured).
 #   4. publish the draft as a prerelease (only now can users download the new app)
+#   5. mirror it to the public repo zzflsxygod/drivelens-releases (files + release + assets, scripts/sync-public.sh):
+#      by the "Public repo sync" workflow when the RELEASES_REPO_TOKEN secret exists, otherwise from this machine
 # Usage: scripts/release.sh [api-base-url] [--skip-health]
 #   api-base-url defaults to $DRIVELENS_URL, else the first line of scripts/.release.local (gitignored, per machine)
 # Steps are idempotent: re-running after a failure continues where it stopped.
@@ -90,7 +92,7 @@ if [ "$NATIVE_BUILDS" = 1 ]; then
   done
 else
   gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --prerelease --verify-tag --title "DriveLens $TAG" \
-    --notes "网页版 / Web app (PWA)：在浏览器打开即可使用，可“安装到主屏幕”。需要 drivelens-api v$API_VER 以上（https + CORS，见 docs/install.md）。
+    --notes "网页版 / Web app (PWA)：在浏览器打开即可使用，可“安装到主屏幕”。需要 drivelens-api v$API_VER 以上（https + CORS，见 https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md ）。
 本版本没有新的 Windows / Android 安装包（打包暂停中），请继续使用之前版本的安装包。
 DriveLens_${VER}_web.zip：网页版静态文件，可自行部署到任意 https 静态托管（需在服务器 DRIVELENS_CORS_ORIGINS 中加入你的网址）。"
 fi
@@ -103,3 +105,11 @@ rm -rf "$WEB_TMP"
 echo "== 4. publish $TAG as prerelease"
 gh release edit "$TAG" --draft=false --prerelease
 gh release view "$TAG" --json url,isDraft,isPrerelease,assets -q '.url, "draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[].name)'
+
+echo "== 5. public repo (zzflsxygod/drivelens-releases)"
+if gh secret list 2>/dev/null | grep -q '^RELEASES_REPO_TOKEN'; then
+  # the release "published" event starts the sync workflow (wait_run matches on the tag's commit)
+  wait_run public-sync.yml "$TAG" || { echo "   public sync workflow failed — run scripts/sync-public.sh $TAG"; exit 1; }
+else
+  scripts/sync-public.sh "$TAG"
+fi

@@ -1,6 +1,6 @@
 # DriveLens インストールガイド（TeslaMate を自分で運用している方向け）
 
-[中文](install.md) · [English](install.en.md) · **日本語**
+[English](install.md) · [中文](install.zh.md) · **日本語**
 
 DriveLens は次の 2 つで構成されています。
 
@@ -15,17 +15,24 @@ DriveLens は次の 2 つで構成されています。
 - サーバーは x86_64 / ARM64 のどちらでも可（Raspberry Pi など）。
 - 外部から安全にサーバーへ接続する手段：**Cloudflare Tunnel または Tailscale を推奨**（手順 5）。
 
-## 1. ソースコードを用意する
+## 1. ファイルを 2 つダウンロードする
 
-TeslaMate の compose ディレクトリの中に `drivelens/` フォルダを作り、DriveLens のソースを置きます（受け取ったアーカイブを展開するか `git clone`）。
+TeslaMate の compose ディレクトリ（TeslaMate の `docker-compose.yml` がある場所）で実行します。
+
+```bash
+cd teslamate   # TeslaMate の docker-compose.yml がある場所
+curl -fsSLO https://raw.githubusercontent.com/zzflsxygod/drivelens-releases/main/deploy/setup.sql
+curl -fsSLO https://raw.githubusercontent.com/zzflsxygod/drivelens-releases/main/deploy/docker-compose.drivelens.yml
+```
+
+ソースコードは不要です。drivelens-api はビルド済みの Docker イメージ（`ghcr.io/zzflsxygod/drivelens-api`、linux/amd64 / linux/arm64 対応）で、手順 4 で Docker が自動的にダウンロードします。
 
 ```
 teslamate/
-├── docker-compose.yml        # 既存の TeslaMate の設定
-├── .env
-└── drivelens/                # DriveLens のソース
-    ├── api/
-    └── deploy/
+├── docker-compose.yml               # 既存の TeslaMate の設定
+├── docker-compose.drivelens.yml     # DriveLens API サービス
+├── setup.sql                        # 初回のデータベース設定
+└── .env
 ```
 
 ## 2. パスワードとトークンを生成して `.env` に書く
@@ -45,7 +52,7 @@ echo "DRIVELENS_API_TOKEN=$(openssl rand -hex 24)" >> .env
 ```bash
 source .env
 docker compose exec -T database psql -U teslamate -d teslamate \
-  -v ro_pass="$DRIVELENS_DB_PASS" < drivelens/deploy/setup.sql
+  -v ro_pass="$DRIVELENS_DB_PASS" < setup.sql
 ```
 
 `setup.sql` は何度実行しても安全です。次の処理を行います。
@@ -62,12 +69,12 @@ docker compose exec -T database psql -U teslamate -d teslamate \
 ## 4. drivelens-api を起動する
 
 ```bash
-cp drivelens/deploy/docker-compose.drivelens.yml .
-docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d --build drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml pull drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivelens-api
 ```
 
-初回のビルドには数分かかります（Raspberry Pi では 10 分以上かかることもあります）。ログに次のように出れば正常です。
+イメージは小さく、数秒で起動します。ログに次のように出れば正常です。
 
 ```
 INFO drivelens_api: all features enabled (API level 12)
@@ -88,16 +95,18 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 | `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せる Web のオリジン（カンマ区切り、v0.11.0 以降。旧名 `CORS_ORIGINS` も有効）。既定は公式ウェブ版 `https://drivelens-app.oharuru.com` のみ。Windows / Android アプリは常に許可されます。ウェブ版を自分でホストする場合はその URL を追加。`*` はすべて許可 |
 | `RUST_LOG` | | ログレベル。既定は `info` |
 
-compose ファイルが使う `.env` の変数：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（既定 teslamate）、`DRIVELENS_SRC`（ソースの場所、既定 `./drivelens`）、`DRIVELENS_IMAGE`（独自のレジストリを使う場合）。
+compose ファイルが使う `.env` の変数：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（既定 teslamate）、`DRIVELENS_IMAGE`（既定 `ghcr.io/zzflsxygod/drivelens-api:latest`。バージョンを固定する場合は `…:v0.15.1` など）。
 
 ### アップデート
 
 ```bash
-cd drivelens && git pull   # または新しいバージョンのソースに置き換え
-cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d --build drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml pull drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 ```
 
-データベースの構造は API の起動時に自動で更新されます。
+データベースの構造は API の起動時に自動で更新されます。新しいバージョンと変更点は [Releases](https://github.com/zzflsxygod/drivelens-releases/releases) に掲載されます。
+
+**自動アップデート（任意）**：`docker-compose.drivelens.yml` の末尾にある `watchtower` サービスのコメントを外して、もう一度 `up -d` を実行します。`com.centurylinklabs.watchtower.enable=true` ラベルの付いたコンテナ（drivelens-api には付いています）だけを 6 時間ごとに更新します。
 
 ## 5. 外部から安全に接続する（どちらか一方）
 
@@ -120,7 +129,7 @@ cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up
 
 ## 6. アプリをインストールして設定する
 
-1. アプリをインストールします（Windows インストーラー / Android APK。DriveLens を共有してくれた方から入手してください）。
+1. ウェブ版 **https://drivelens-app.oharuru.com** を開きます（スマートフォンでも PC でも使え、ホーム画面に追加できます。手順 7 参照）。または [Releases](https://github.com/zzflsxygod/drivelens-releases/releases) ページから Windows / Android アプリをインストールします（対応するインストーラーがある場合）。
 2. 初回起動時に「DriveLens へようこそ」が表示されます（言語はシステムに合わせて選ばれ、右上で切り替えられます）。
    - **サーバーの URL**：手順 5 の URL（例：`https://drivelens.example.com`）
    - **API トークン**：`.env` の `DRIVELENS_API_TOKEN`
@@ -173,3 +182,7 @@ cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up
 - **ログに `API_TOKEN looks weak` と出る**：トークンが短いか単純すぎます。`openssl rand -hex 24` で生成した値に変更し、アプリの設定も更新してください。
 - **アンインストール**：`drivelens-api` コンテナを停止・削除し、必要であれば管理ユーザーで
   `DROP SCHEMA drivelens CASCADE; DROP OWNED BY drivelens_ro; DROP ROLE drivelens_ro;` を実行します。TeslaMate のデータには影響しません。
+
+## フィードバック
+
+不具合や機能の要望は [Issues](https://github.com/zzflsxygod/drivelens-releases/issues) へお寄せください。サーバーの URL やトークンは書き込まないでください。

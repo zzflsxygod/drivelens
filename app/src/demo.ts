@@ -74,4 +74,8 @@ export function exitDemo() {
 /** Data credits for the demo dataset (ODbL requires attribution of the OSM-derived routes). */
 export const DEMO_CREDIT = "Demo routes © OpenStreetMap contributors (ODbL), routed with OSRM · elevation © Copernicus DEM via Open-Meteo (CC BY 4.0) · weather is synthetic";
 
+// ?demo (links from the README / release pages): open straight into demo mode, then drop the parameter
+if (typeof location !== "undefined" && new URLSearchParams(location.search).has("demo")) {
+  if (!isDemo()) enterDemo(); else history.replaceState(null, "", location.pathname);
+}
 if (isDemo()) installDemoFetch();

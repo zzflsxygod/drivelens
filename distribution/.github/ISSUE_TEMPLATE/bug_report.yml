@@ -1,0 +1,53 @@
+name: Bug report / 不具合 / 问题反馈
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! **Never post your server URL, API token, passwords or location data.**
+        English, 中文 and 日本語 are all fine.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead? Screenshots help (blur personal data).
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: App
+      options:
+        - Web app (browser)
+        - Web app installed to the home screen (PWA)
+        - Windows
+        - Android
+        - Demo mode
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings → top line (e.g. "App v0.15.1")
+      placeholder: v0.15.1
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: drivelens-api version
+      description: "Settings → server version, or https://your-server/health (only the version number, not the URL)"
+      placeholder: "0.11.0"
+  - type: input
+    id: device
+    attributes:
+      label: Device / OS / browser
+      placeholder: Pixel 8, Android 15, Chrome 130
+  - type: textarea
+    id: logs
+    attributes:
+      label: drivelens-api log (optional)
+      description: "`docker compose logs drivelens-api` — remove anything private before pasting"
+      render: text
