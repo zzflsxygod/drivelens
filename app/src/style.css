@@ -663,6 +663,11 @@ table.split { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: c
 .su-webnote b .ic { color: var(--accent); }
 .su-webnote ul { margin: 6px 0 0; padding-left: 18px; }
 .su-webnote li + li { margin-top: 3px; }
+.su-webnote code { font-family: var(--mono); font-size: 11.5px; padding: 1px 5px; border-radius: 5px; background: var(--card); border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
+.su-tslink { display: inline-flex; align-items: center; gap: 3px; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.su-tslink span { transition: transform .18s ease; }
+.su-tslink:hover span { transform: translateX(3px); }
+.su-tslink:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .su-or { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; color: var(--muted); font-size: 12px; }
 .su-or::before, .su-or::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
 .su-demo { width: 100%; min-height: 46px; padding: 11px; font-size: 15px; font-weight: 700; border-radius: var(--r-md); color: var(--text); border: 1px solid var(--line-2); background: var(--card);

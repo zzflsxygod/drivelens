@@ -121,11 +121,24 @@ The API upgrades its database schema automatically on start. New versions and th
 3. Add a Public Hostname `drivelens.your-domain` → `http://drivelens-api:8080` (or `http://127.0.0.1:8080` if cloudflared runs on the host).
 4. In the app, enter `https://drivelens.your-domain`.
 
+<a id="tailscale"></a>
 ### Option B: Tailscale (no domain / private access)
 
-1. Install Tailscale on the server and your phone and sign in to the same account.
-2. Change `ports` in the compose file to `- "8080:8080"` (reachable only via Tailscale / LAN — don't forward the port on your router).
-3. In the app, enter `http://<server's Tailscale IP or name>:8080` (e.g. `http://100.x.y.z:8080`). `tailscale serve` can add https.
+The web app is served over https, so browsers block `http://` server addresses, **including LAN and Tailscale IPs** like `http://100.x.y.z:8080` (mixed content). `tailscale serve` gives the server a free https address that only your tailnet can reach:
+
+1. Install Tailscale on the server (on the host, the normal install) and on your phone / computer, and sign in to the same tailnet.
+2. In the Tailscale admin console → [DNS](https://login.tailscale.com/admin/dns), enable **MagicDNS** and **HTTPS Certificates** (needed once per tailnet).
+3. On the server, run:
+   ```bash
+   sudo tailscale serve --bg 8080
+   ```
+   This proxies `https://<machine>.<tailnet>.ts.net` → `http://127.0.0.1:8080` and keeps running after reboots. `tailscale serve status` shows the address. Keep the compose file's default `127.0.0.1:8080:8080`, no port changes needed. The first request can take a few seconds while the certificate is issued.
+4. In DriveLens, enter `https://<machine>.<tailnet>.ts.net` (no port). The device you use must be connected to Tailscale.
+
+- **CORS**: nothing to add. The API allows the official web app by default; the API address itself never goes into `DRIVELENS_CORS_ORIGINS`.
+- **Chrome / Edge** may ask to let the site *access devices on your local network* (the ts.net name points to a 100.x address). Choose **Allow**; if you blocked it, allow it again in the site settings (lock icon in the address bar).
+- The certificate puts the machine name (`<machine>.<tailnet>.ts.net`) in the public Certificate Transparency logs; rename the machine first if that matters to you.
+- To stop: `sudo tailscale serve --https=443 off`.
 
 > Built-in protections: constant-time token comparison; 10 failed logins from one IP within 10 minutes → temporarily refused (HTTP 429); read-only access to TeslaMate's tables.
 
@@ -140,7 +153,7 @@ The API upgrades its database schema automatically on start. New versions and th
 | Message | What to do |
 | --- | --- |
 | Wrong token (401) | Copy `DRIVELENS_API_TOKEN` again, without spaces or quotes |
-| Can't reach / timed out | Check the URL and that the tunnel or Tailscale is running; Cloudflare Tunnel needs `https://`, a direct port is usually `http://…:8080` |
+| Can't reach / timed out | Check the URL and that the tunnel or Tailscale is running; the web app needs an `https://` address (Cloudflare Tunnel, or `tailscale serve` → `https://…ts.net`) |
 | Isn't a DriveLens API | You entered the TeslaMate / Grafana URL; use the drivelens-api URL |
 | Server is too old | Update drivelens-api (see “Updating”) |
 | Too many wrong tokens (429) | Wait 10 minutes and try again |
@@ -158,7 +171,7 @@ If you'd rather not install an app, open **https://drivelens-app.oharuru.com** i
   environment:
     - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
   ```
-- **https only**: browsers block calls from an https page to an `http://` address (mixed content). Cloudflare Tunnel (option A) works; with Tailscale enable `tailscale serve` and use `https://machine.your-tailnet.ts.net` instead of `http://100.x.y.z:8080`.
+- **https only**: browsers block calls from an https page to an `http://` address (mixed content). Cloudflare Tunnel (option A) works; with Tailscale use `tailscale serve` and `https://machine.your-tailnet.ts.net` instead of `http://100.x.y.z:8080` (see [option B](#tailscale)).
 - Don't put a login page such as Cloudflare Access in front of the API — it blocks the browser's cross-origin requests.
 
 **Install to the home screen**
@@ -183,7 +196,7 @@ Settings → Notifications turns on push notifications for this device: a **trip
 | Web app message | What to do |
 | --- | --- |
 | Server does not allow this site (CORS) | Update drivelens-api to v0.11.0+, check `DRIVELENS_CORS_ORIGINS` |
-| Browser blocks the http server address | Use an https address (Cloudflare Tunnel / `tailscale serve`) |
+| Browser blocks the http server address | Use an https address (Cloudflare Tunnel / [`tailscale serve`](#tailscale)) |
 | Can't reach (certificate / domain) | Check the domain, that the tunnel is running and the certificate is valid |
 
 ## Troubleshooting

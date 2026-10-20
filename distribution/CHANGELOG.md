@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v0.17.2 — 2026-10-20
+- Setup screen: clearer note on why the server address must be https: the web app runs on https, so browsers block any http address, including LAN and Tailscale IPs. Tailscale users can get a free https address with `tailscale serve`; the note links to the new guide section.
+- Install guide: step-by-step Tailscale setup for the web app (MagicDNS + HTTPS Certificates, `tailscale serve --bg 8080`, the `https://<machine>.<tailnet>.ts.net` address, Chrome's local network prompt).
+- No server update needed.
+
 ## v0.17.1 — 2026-10-20
 - Settings > Display: the setting labelled "Map theme" is now called **Theme** — it always switched the whole app (and the map follows it). Options: Follow system (default) / Light / Dark.
 - No server update needed.

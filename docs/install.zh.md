@@ -121,11 +121,24 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 3. 在 Tunnel 的 Public Hostname 里添加 `drivelens.你的域名` → `http://drivelens-api:8080`（cloudflared 装在宿主机上时填 `http://127.0.0.1:8080`）。
 4. App 里填 `https://drivelens.你的域名`。
 
+<a id="tailscale"></a>
 ### 方案 B：Tailscale（没有域名 / 不想公开时）
 
-1. 服务器和手机都安装 Tailscale 并登录同一账号。
-2. 把 compose 里的 `ports` 改为 `- "8080:8080"`（只在 Tailscale / 局域网内访问，路由器不要做端口转发）。
-3. App 里填 `http://服务器的Tailscale IP或名称:8080`（如 `http://100.x.y.z:8080`）。也可以用 `tailscale serve` 提供 https。
+网页版是通过 https 打开的，所以浏览器会拦截 `http://` 的服务器地址，**局域网和 Tailscale 的 IP 也一样**（比如 `http://100.x.y.z:8080`，属于混合内容）。用 `tailscale serve` 可以免费给服务器一个 https 地址，而且只有你的 tailnet 能访问：
+
+1. 服务器（装在宿主机上，即普通安装方式）和手机 / 电脑都安装 Tailscale，并登录同一个 tailnet。
+2. 在 Tailscale 管理后台 → [DNS](https://login.tailscale.com/admin/dns) 打开 **MagicDNS** 和 **HTTPS Certificates**（每个 tailnet 只需一次）。
+3. 在服务器上执行：
+   ```bash
+   sudo tailscale serve --bg 8080
+   ```
+   它会把 `https://机器名.你的tailnet.ts.net` 转发到 `http://127.0.0.1:8080`，重启后也会自动恢复。用 `tailscale serve status` 可以查看地址。compose 里保持默认的 `127.0.0.1:8080:8080` 即可，不用改端口。第一次访问时要签发证书，可能要等几秒。
+4. DriveLens 里填 `https://机器名.你的tailnet.ts.net`（不带端口）。使用的设备需要连着 Tailscale。
+
+- **CORS**：不用额外设置。API 默认允许官方网页版；API 自己的地址不需要写进 `DRIVELENS_CORS_ORIGINS`。
+- **Chrome / Edge** 可能会询问是否允许该网站「访问本地网络上的设备」（因为 ts.net 地址指向 100.x 的 IP），请选「允许」。如果之前点了拦截，在网站设置（地址栏左侧的锁形图标）里重新允许。
+- 证书会把机器名（`机器名.你的tailnet.ts.net`）记录到公开的证书透明度日志里，介意的话请先改好机器名。
+- 停止：`sudo tailscale serve --https=443 off`。
 
 > 安全措施：Token 比较为常数时间；同一 IP 10 分钟内认证失败 10 次会被暂时拒绝（HTTP 429）；API 对 TeslaMate 的表只读。
 
@@ -140,7 +153,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 | 提示 | 处理 |
 | --- | --- |
 | Token 不正确（401） | 重新复制 `DRIVELENS_API_TOKEN`，不要带空格或引号 |
-| 无法连接 / 连接超时 | 检查地址、Tunnel 或 Tailscale 是否在运行；Cloudflare Tunnel 要用 `https://`，直连端口一般是 `http://…:8080` |
+| 无法连接 / 连接超时 | 检查地址、Tunnel 或 Tailscale 是否在运行；网页版必须填 `https://` 地址（Cloudflare Tunnel，或 `tailscale serve` 的 `https://…ts.net`） |
 | 返回的不是 DriveLens API | 填成了 TeslaMate / Grafana 的地址，改成 drivelens-api 的地址 |
 | 服务器版本过旧 | 按「更新」步骤更新 drivelens-api |
 | 错误次数太多（429） | 等 10 分钟后再试 |
@@ -158,7 +171,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
   environment:
     - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
   ```
-- **必须是 https**：浏览器不允许 https 网页访问 `http://` 地址（混合内容）。用 Cloudflare Tunnel（方案 A）即可；用 Tailscale 时请开启 `tailscale serve`，填 `https://机器名.你的tailnet.ts.net`，不要用 `http://100.x.y.z:8080`。
+- **必须是 https**：浏览器不允许 https 网页访问 `http://` 地址（混合内容）。用 Cloudflare Tunnel（方案 A）即可；用 Tailscale 时请开启 `tailscale serve`，填 `https://机器名.你的tailnet.ts.net`，不要用 `http://100.x.y.z:8080`（见[方案 B](#tailscale)）。
 - 不要在 API 前面加 Cloudflare Access 之类的登录页面，浏览器的跨域请求会被它拦截。
 
 **安装到主屏幕**
@@ -183,7 +196,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 | 网页版提示 | 处理 |
 | --- | --- |
 | 服务器没有允许本网站跨域访问（CORS） | 更新 drivelens-api 到 v0.11.0+，检查 `DRIVELENS_CORS_ORIGINS` |
-| 浏览器会拦截 http 的服务器地址 | 改用 https 地址（Cloudflare Tunnel / `tailscale serve`） |
+| 浏览器会拦截 http 的服务器地址 | 改用 https 地址（Cloudflare Tunnel / [`tailscale serve`](#tailscale)） |
 | 无法连接（https 证书 / 域名） | 检查域名、隧道是否在运行、证书是否有效 |
 
 ## 常见问题

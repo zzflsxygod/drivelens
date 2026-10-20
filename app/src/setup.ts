@@ -121,7 +121,7 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
       <h1>${t("su.welcome")}</h1>
       <p class="muted">${t("su.intro")}</p>
       <a class="su-guide" href="${esc(installGuideUrl())}" target="_blank" rel="noopener noreferrer">${ic("book")} ${t("su.guide")} <span aria-hidden="true">→</span></a>
-      ${isTauri() ? "" : `<div class="su-webnote"><b>${ic("globe")} ${t("su.webTitle")}</b><ul><li>${t("su.webHttps")}</li><li>${t("su.webCors", { origin: esc(location.origin) })}</li></ul></div>`}
+      ${isTauri() ? "" : `<div class="su-webnote"><b>${ic("globe")} ${t("su.webTitle")}</b><ul><li>${esc(t("su.webHttps")).replace("tailscale serve", "<code>tailscale serve</code>")} <a class="su-tslink" href="${esc(installGuideUrl())}#tailscale" target="_blank" rel="noopener noreferrer">${t("su.webTsGuide")}<span aria-hidden="true">→</span></a></li><li>${t("su.webCors", { origin: esc(location.origin) })}</li></ul></div>`}
       <label>${t("su.url")}<input id="su-url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
       <label>API Token<input id="su-token" type="password" autocomplete="off" placeholder="${t("su.tokenPh")}" value="${esc(s.token || "")}"></label>
       <label class="chk-row"><input type="checkbox" id="su-show"> ${t("su.show")}</label>

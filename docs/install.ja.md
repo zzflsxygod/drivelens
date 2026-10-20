@@ -121,11 +121,24 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 3. トンネルの Public Hostname に `drivelens.あなたのドメイン` → `http://drivelens-api:8080` を追加します（cloudflared をホストに直接入れている場合は `http://127.0.0.1:8080`）。
 4. アプリには `https://drivelens.あなたのドメイン` を入力します。
 
+<a id="tailscale"></a>
 ### 方法 B：Tailscale（ドメインがない / 公開したくない場合）
 
-1. サーバーとスマートフォンの両方に Tailscale を入れ、同じアカウントでログインします。
-2. compose の `ports` を `- "8080:8080"` に変更します（Tailscale / LAN 内からのみ接続。ルーターでポート転送はしないでください）。
-3. アプリには `http://サーバーの Tailscale IP または名前:8080`（例：`http://100.x.y.z:8080`）を入力します。`tailscale serve` で https 化することもできます。
+ウェブ版は https で配信されているため、ブラウザは `http://` のサーバーアドレスをブロックします。**LAN や Tailscale の IP**（`http://100.x.y.z:8080` など）**も同様です**（混在コンテンツ）。`tailscale serve` を使えば、自分の tailnet からだけ接続できる https のアドレスを無料で用意できます：
+
+1. サーバー（ホストに通常どおりインストール）とスマートフォン / パソコンに Tailscale を入れ、同じ tailnet にログインします。
+2. Tailscale 管理コンソール → [DNS](https://login.tailscale.com/admin/dns) で **MagicDNS** と **HTTPS Certificates** を有効にします（tailnet ごとに 1 回）。
+3. サーバーで次を実行します：
+   ```bash
+   sudo tailscale serve --bg 8080
+   ```
+   `https://マシン名.tailnet名.ts.net` → `http://127.0.0.1:8080` に転送され、再起動後も自動で再開します。アドレスは `tailscale serve status` で確認できます。compose は既定の `127.0.0.1:8080:8080` のままで、ポートの変更は不要です。初回アクセス時は証明書の発行に数秒かかることがあります。
+4. DriveLens には `https://マシン名.tailnet名.ts.net`（ポートなし）を入力します。使う端末は Tailscale に接続しておいてください。
+
+- **CORS**：追加の設定は不要です。API は公式ウェブ版を標準で許可しています。API 自身のアドレスを `DRIVELENS_CORS_ORIGINS` に書く必要はありません。
+- **Chrome / Edge** で「ローカル ネットワーク上のデバイスへのアクセス」の許可を求められることがあります（ts.net のアドレスが 100.x の IP を指すため）。**許可**を選んでください。ブロックしてしまった場合は、サイトの設定（アドレスバーの鍵アイコン）で許可し直します。
+- 証明書の発行により、マシン名（`マシン名.tailnet名.ts.net`）が公開の Certificate Transparency ログに記録されます。気になる場合は先にマシン名を変更してください。
+- 停止するには：`sudo tailscale serve --https=443 off`。
 
 > セキュリティ対策：トークンは定数時間で比較。同じ IP から 10 分以内に 10 回認証に失敗すると一時的に拒否（HTTP 429）。TeslaMate のテーブルへのアクセスは読み取りのみ。
 
@@ -140,7 +153,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 | 表示 | 対処 |
 | --- | --- |
 | トークンが正しくありません（401） | `DRIVELENS_API_TOKEN` を空白や引用符を含めずにコピーし直す |
-| 接続できません / タイムアウト | URL と、トンネルまたは Tailscale が動いているかを確認。Cloudflare Tunnel は `https://`、ポートへの直接接続は通常 `http://…:8080` |
+| 接続できません / タイムアウト | URL と、トンネルまたは Tailscale が動いているかを確認。ウェブ版は `https://` のアドレスが必要（Cloudflare Tunnel、または `tailscale serve` の `https://…ts.net`） |
 | DriveLens API ではありません | TeslaMate / Grafana の URL を入力しています。drivelens-api の URL に変更 |
 | サーバーが古すぎます | 「アップデート」の手順で drivelens-api を更新 |
 | トークンの誤りが多すぎる（429） | 10 分待ってから再試行 |
@@ -158,7 +171,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
   environment:
     - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
   ```
-- **https が必須**：https のページから `http://` のアドレスにはアクセスできません（混在コンテンツ）。Cloudflare Tunnel（方法 A）ならそのまま使えます。Tailscale の場合は `tailscale serve` を有効にして `https://マシン名.tailnet名.ts.net` を使い、`http://100.x.y.z:8080` は使わないでください。
+- **https が必須**：https のページから `http://` のアドレスにはアクセスできません（混在コンテンツ）。Cloudflare Tunnel（方法 A）ならそのまま使えます。Tailscale の場合は `tailscale serve` を有効にして `https://マシン名.tailnet名.ts.net` を使い、`http://100.x.y.z:8080` は使わないでください（[方法 B](#tailscale) を参照）。
 - API の前に Cloudflare Access などのログイン画面を置かないでください。ブラウザのクロスオリジン通信がブロックされます。
 
 **ホーム画面に追加**
@@ -183,7 +196,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 | ウェブ版のメッセージ | 対処 |
 | --- | --- |
 | サーバーがこのサイトを許可していない（CORS） | drivelens-api を v0.11.0 以降に更新し、`DRIVELENS_CORS_ORIGINS` を確認 |
-| http のサーバーアドレスはブロックされる | https のアドレスを使う（Cloudflare Tunnel / `tailscale serve`） |
+| http のサーバーアドレスはブロックされる | https のアドレスを使う（Cloudflare Tunnel / [`tailscale serve`](#tailscale)） |
 | 接続できない（証明書 / ドメイン） | ドメイン、トンネルの稼働、証明書の有効性を確認 |
 
 ## よくある質問

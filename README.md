@@ -424,6 +424,11 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v0.17.2 — https 提示说明 + Tailscale 配置（仅网页版）
+
+- 引导页「网页版需要」第一条改写（zh/en/ja `su.webHttps`）：网页版运行在 https 上，浏览器会拦截所有 http 地址（局域网 / Tailscale IP 也一样）；Tailscale 用户执行 `tailscale serve` 即可免费得到 https 地址，后面加「Tailscale 配置方法」链接（`installGuideUrl()#tailscale`）。`su.mixed`（填 http 地址时的错误）同样说明。
+- 安装指南三语「方案 B：Tailscale」重写为网页版流程：MagicDNS + HTTPS Certificates → `sudo tailscale serve --bg 8080` → 填 `https://机器名.tailnet.ts.net`；不需要改 compose 端口，不需要改 CORS（CORS 白名单是网页版的来源，不是 API 地址）；Chrome 本地网络访问提示选允许；锚点 `<a id="tailscale">`。
+
 ## v0.17.1 — 设置「主题」文案修正（仅网页版）
 
 - 设置 › 显示：原「地图主题 / Map theme / 地図のテーマ」实际切换的是整个 App 的浅色 / 深色，改名为「主题 / Theme / テーマ」；选项为 跟随系统（默认）/ 浅色 / 深色（英文 "System default" → "Follow system"，中文「深色（夜间）」→「深色」）。地图底图始终跟随 App 主题（`map.ts` 的 `effectiveTheme()`），没有单独的地图主题设置。
