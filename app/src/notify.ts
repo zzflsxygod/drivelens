@@ -2,6 +2,7 @@
 // The server (drivelens-api) does the detection and sends the pushes; this module only manages the browser subscription
 // and the per-type toggles. Demo mode shows the same UI but everything is simulated locally (no permission, no push).
 import { api } from "./api";
+import { ic } from "./icons";
 import { t, currentLang, type Key } from "./i18n";
 import { isDemo, skey } from "./demo";
 import { isTauri } from "./platform";
@@ -129,25 +130,25 @@ export function mountNotifications(slot: HTMLElement) {
     let inner = "";
     switch (st.k) {
       case "loading": inner = `<div class="nt-skel"></div><div class="nt-skel"></div>`; break;
-      case "app": inner = hint("🌐", t("nt.app")); break;
-      case "old": inner = hint("⬆️", esc(featureText("push")), `<br><span class="muted">${t("nt.oldHint")}</span>`); break;
-      case "missing": inner = hint("🛠️", t("nt.missing")); break;
-      case "insecure": inner = hint("🔒", t("nt.insecure")); break;
-      case "unsupported": inner = hint("🚫", t(isIOS() ? "nt.iosOld" : "nt.unsupported")); break;
-      case "ios": inner = hint("📲", t("nt.ios")); break;
-      case "denied": inner = hint("🔕", t("nt.denied"), `<br><span class="muted">${t("nt.deniedHow")}</span>`); break;
-      case "error": inner = hint("⚠️", esc(st.msg), ` <button class="ghost small nt-retry">${t("common.retry")}</button>`); break;
+      case "app": inner = hint(ic("globe"), t("nt.app")); break;
+      case "old": inner = hint(ic("up"), esc(featureText("push")), `<br><span class="muted">${t("nt.oldHint")}</span>`); break;
+      case "missing": inner = hint(ic("wrench"), t("nt.missing")); break;
+      case "insecure": inner = hint(ic("lock"), t("nt.insecure")); break;
+      case "unsupported": inner = hint(ic("ban"), t(isIOS() ? "nt.iosOld" : "nt.unsupported")); break;
+      case "ios": inner = hint(ic("phone"), t("nt.ios")); break;
+      case "denied": inner = hint(ic("bellOff"), t("nt.denied"), `<br><span class="muted">${t("nt.deniedHow")}</span>`); break;
+      case "error": inner = hint(ic("alert"), esc(st.msg), ` <button class="ghost small nt-retry">${t("common.retry")}</button>`); break;
       case "off": case "on": inner = `
-        ${row("nt-master", "🔔", "nt.master", on ? "nt.masterOn" : "nt.masterOff", on, busy)}
+        ${row("nt-master", ic("bell"), "nt.master", on ? "nt.masterOn" : "nt.masterOff", on, busy)}
         <div class="nt-sub${on ? " open" : ""}" ${on ? "" : "inert"}><div>
-          ${row("nt-trip", "🚗", "nt.trip", "nt.tripSub", !!p?.trip_summary, busy || !on)}
-          ${row("nt-month", "📊", "nt.month", "nt.monthSub", !!p?.monthly_report, busy || !on)}
+          ${row("nt-trip", ic("car"), "nt.trip", "nt.tripSub", !!p?.trip_summary, busy || !on)}
+          ${row("nt-month", ic("chart"), "nt.month", "nt.monthSub", !!p?.monthly_report, busy || !on)}
           <div class="nt-actions"><button class="ghost small" id="nt-test"${busy || !on ? " disabled" : ""}>${t("nt.test")}</button>
             <span class="muted small nt-msg" aria-live="polite">${esc(msg)}</span></div>
           ${isDemo() ? `<p class="muted tiny">${t("nt.demo")}</p>` : `<p class="muted tiny">${t("nt.where")}</p>`}
         </div></div>`;
     }
-    slot.innerHTML = `<h2>${t("nt.title")}</h2><div class="card nt-card${on ? " on" : ""}${busy ? " busy" : ""}">${inner}</div>`;
+    slot.innerHTML = `<div class="section-title"><span>${t("nt.title")}</span></div><div class="card nt-card${on ? " on" : ""}${busy ? " busy" : ""}">${inner}</div>`;
     bind();
   };
   const run = async (f: () => Promise<State | void>, okMsg = "") => {

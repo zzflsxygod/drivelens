@@ -4,6 +4,13 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v0.17.0 — 2026-10-20
+- **New look**: a cleaner, instrument-style design across every screen (home, drives, journeys, charges, monthly report, battery, settings, setup and the share card). Light and dark are both fully designed and still follow your system setting (or the theme chosen in Settings).
+- Numbers use a monospaced font so values line up; line icons replace the emoji; calmer basemap in light mode and restyled map controls; higher text contrast.
+- Settings are grouped into sections (Server, Display, Journeys, Notifications, Help & feedback).
+- The web app shows "new version available" as before; tap Reload to switch.
+- No server update needed.
+
 ## v0.16.0 — 2026-10-20
 - **Notifications** (web app): Settings → Notifications. A **trip summary** when a drive ends (distance, time, energy, from → to) and a **monthly report** reminder on the 1st; each can be turned off separately, and tapping a notification opens that trip or report. Includes a "send test notification" button. iPhone / iPad: iOS 16.4+, added to the Home Screen.
 - Server 0.12.0: sends the notifications (detects finished drives every minute, read-only). It creates two new tables in the `drivelens` schema by itself; no configuration needed (see the install guide, section 7).

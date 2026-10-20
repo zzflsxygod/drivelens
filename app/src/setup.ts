@@ -1,5 +1,6 @@
 // First-run wizard + connection test (also used by Settings → save & test).
 import { loadSettings, saveSettings } from "./api";
+import { ic } from "./icons";
 import { t, langSetting } from "./i18n";
 import { MIN_API_LEVEL, FEATURE_LEVEL, checkServer } from "./version";
 import { enterDemo } from "./demo";
@@ -104,8 +105,8 @@ async function webFetchFailure(url: string, parsed: URL): Promise<string> {
 }
 
 export function renderResult(r: TestResult): string {
-  return `<div class="${r.ok ? "ok" : "error"}">${r.ok ? "✅ " : ""}${esc(r.message)}</div>` +
-    r.warnings.map(w => `<div class="warn">⚠️ ${esc(w)}</div>`).join("");
+  return `<div class="${r.ok ? "ok" : "error"}">${r.ok ? ic("check") : ""}${esc(r.message)}</div>` +
+    r.warnings.map(w => `<div class="warn">${ic("alert")} ${esc(w)}</div>`).join("");
 }
 
 /** Full-screen first-run wizard; resolves once a working server was saved. */
@@ -115,19 +116,19 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
   root.innerHTML = `
   <div class="setup">
     <div class="setup-card">
-      <div class="setup-logo">🚗</div>
-      <select id="su-lang" class="su-lang" aria-label="Language"><option value="auto">🌐 Auto</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
+      <div class="setup-logo">${ic("car")}</div>
+      <select id="su-lang" class="su-lang" aria-label="Language"><option value="auto">Auto</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
       <h1>${t("su.welcome")}</h1>
       <p class="muted">${t("su.intro")}</p>
-      <a class="su-guide" href="${esc(installGuideUrl())}" target="_blank" rel="noopener noreferrer">📘 ${t("su.guide")} <span aria-hidden="true">→</span></a>
-      ${isTauri() ? "" : `<div class="su-webnote"><b>🌐 ${t("su.webTitle")}</b><ul><li>${t("su.webHttps")}</li><li>${t("su.webCors", { origin: esc(location.origin) })}</li></ul></div>`}
+      <a class="su-guide" href="${esc(installGuideUrl())}" target="_blank" rel="noopener noreferrer">${ic("book")} ${t("su.guide")} <span aria-hidden="true">→</span></a>
+      ${isTauri() ? "" : `<div class="su-webnote"><b>${ic("globe")} ${t("su.webTitle")}</b><ul><li>${t("su.webHttps")}</li><li>${t("su.webCors", { origin: esc(location.origin) })}</li></ul></div>`}
       <label>${t("su.url")}<input id="su-url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
       <label>API Token<input id="su-token" type="password" autocomplete="off" placeholder="${t("su.tokenPh")}" value="${esc(s.token || "")}"></label>
       <label class="chk-row"><input type="checkbox" id="su-show"> ${t("su.show")}</label>
       <button id="su-go" class="primary">${t("su.go")}</button>
       <div id="su-msg"></div>
       <div class="su-or"><span>${t("demo.or")}</span></div>
-      <button id="su-demo" class="su-demo" type="button">✨ ${t("demo.try")}</button>
+      <button id="su-demo" class="su-demo" type="button">${ic("spark")} ${t("demo.try")}</button>
       <p class="muted small su-demo-hint">${t("demo.tryHint")}</p>
       <p class="muted small">${isTauri() ? t("su.foot") : t("su.footWeb")}</p>
     </div>

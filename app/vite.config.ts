@@ -19,8 +19,8 @@ function pwa(): Plugin {
     apply: "build",
     transformIndexHtml(html) {
       return html.replace("</head>", `  <meta name="description" content="DriveLens — a viewer for your own TeslaMate data (self-hosted drivelens-api)" />
-  <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#0d0f1a" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f3f4f7" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#07080a" media="(prefers-color-scheme: dark)" />
   <meta name="color-scheme" content="light dark" />
   <meta name="referrer" content="no-referrer" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -38,7 +38,7 @@ function pwa(): Plugin {
         id: "/", name: NAME, short_name: NAME,
         description: "TeslaMate drives, charges, journeys and reports — connects to your own drivelens-api server.",
         start_url: "/?source=pwa", scope: "/", display: "standalone", display_override: ["standalone", "minimal-ui"],
-        orientation: "portrait", background_color: "#f6f7fb", theme_color: "#f6f7fb",
+        orientation: "portrait", background_color: "#f3f4f7", theme_color: "#f3f4f7",
         lang: "en", dir: "ltr", categories: ["utilities", "travel", "productivity"],
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

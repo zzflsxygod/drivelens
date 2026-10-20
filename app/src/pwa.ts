@@ -27,7 +27,7 @@ export async function promptInstall(): Promise<boolean> {
   return r.outcome === "accepted";
 }
 
-const COLORS = { light: "#f6f7fb", dark: "#0d0f1a" };
+const COLORS = { light: "#f3f4f7", dark: "#07080a" };
 function syncThemeColor() {
   const c = document.documentElement.dataset.theme === "dark" ? COLORS.dark : COLORS.light;
   document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach(m => { m.content = c; m.removeAttribute("media"); });

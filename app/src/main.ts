@@ -1,4 +1,5 @@
 import "./style.css";
+import { ic } from "./icons";
 import { initPlatform, setRootBack } from "./platform";
 import { initWeb, installMode, promptInstall, onInstallChange, isWeb } from "./pwa";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
@@ -132,7 +133,7 @@ function bindPlaces(refresh: () => void) {
 
 
 function destroyMap() { map?.destroy(); map = null; }
-function showError(e: unknown) { view.innerHTML = `<div class="error">${esc((e as Error).message)}</div>`; }
+function showError(e: unknown) { view.innerHTML = `<div class="error">${ic("alert")}${esc((e as Error).message)}</div>`; }
 function loading() { destroyMap(); view.innerHTML = `<div class="muted">${t("common.loading")}</div>`; }
 
 async function loadCars() {
@@ -212,8 +213,8 @@ async function showCharges(restore = false) {
         <div class="row muted">${fmtDate(c.start_date)} · ${fmtDur(c.duration_min)}</div>
         <div class="bar"><div style="left:${c.start_battery_level ?? 0}%;width:${(c.end_battery_level ?? 0) - (c.start_battery_level ?? 0)}%"></div></div>
         <div class="stats">
-          <span>⚡ +${n(c.charge_energy_added, 2)} kWh</span>
-          <span>🔋 ${c.start_battery_level ?? "—"}% → ${c.end_battery_level ?? "—"}%</span>
+          <span>${ic("bolt")} +${n(c.charge_energy_added, 2)} kWh</span>
+          <span>${ic("battery")} ${c.start_battery_level ?? "—"}% → ${c.end_battery_level ?? "—"}%</span>
         </div>
       </div>`,
     bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
@@ -294,7 +295,7 @@ async function showCharge(id: number, back: () => void = () => showCharges(true)
 function demoSettingsCard() {
   const real = realServer().apiUrl;
   return `<div class="card demo-card on">
-    <b>✨ ${t("demo.title")}</b>
+    <b>${ic("spark")} ${t("demo.title")}</b>
     <p class="small">${t("demo.on")}</p>
     <p class="muted small">${real ? t("demo.backTo", { u: esc(real) }) : t("demo.backWizard")}<br>${t("demo.mapNote")}</p>
     <button id="demo-exit" class="primary">${t("demo.exitBtn")}</button>
@@ -326,16 +327,19 @@ function showSettings() {
   destroyMap();
   const s = loadSettings();
   view.innerHTML = `
-    <h2>${t("set.title")}</h2>
-    <div class="version-box muted">App v${esc(APP_VERSION)} · ${t("set.server")} <span id="srv-ver">${esc(serverLabel())}</span> <button id="srv-check" class="ghost small">${t("set.check")}</button></div>
+    <h2 class="tb-title set-title">${t("set.title")}</h2>
+    <div class="section-title"><span>${t("set.server")}</span></div>
+    <div class="version-box"><span class="muted">App <code>v${esc(APP_VERSION)}</code> · ${t("set.server")} <code id="srv-ver">${esc(serverLabel())}</code></span><button id="srv-check" class="ghost small">${t("set.check")}</button></div>
     ${isDemo() ? demoSettingsCard() : `
+    <div class="card set-group">
     <label>${t("set.apiUrl")}<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
     <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
     <button id="save" class="primary">${t("set.saveTest")}</button>
-    <div id="msg"></div>
-    <div class="card demo-card"><div class="demo-card-row"><div><b>✨ ${t("demo.title")}</b><p class="muted small">${t("demo.enterHint")}</p></div>
+    <div id="msg"></div></div>
+    <div class="card demo-card"><div class="demo-card-row"><div><b>${ic("spark")} ${t("demo.title")}</b><p class="muted small">${t("demo.enterHint")}</p></div>
       <button id="demo-enter" class="ghost small">${t("demo.enterBtn")}</button></div></div>`}
-    <h2>${t("set.display")}</h2>
+    <div class="section-title"><span>${t("set.display")}</span></div>
+    <div class="card set-group">
     <label>${t("set.language")}<select id="uilang">
       <option value="auto">${t("set.langAuto")}</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option>
     </select></label>
@@ -347,11 +351,15 @@ function showSettings() {
     </select></label>
     <label>${t("set.currency")}<select id="currency">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select></label>
     <p class="muted">${t("set.currencyHint")}</p>
+    <p class="muted">${t("set.mapCredit")}</p>
+    </div>
+    <div class="section-title"><span>${t("seg.journeys")}</span></div>
+    <div class="card set-group">
     <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
-    <button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span>
-    <p class="muted">${t("set.mapCredit")}</p>
+    <p><button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span></p>
+    </div>
     <div id="notify-slot"></div>
     <div id="pwa-slot"></div>
     ${aboutCardHTML()}
@@ -418,13 +426,13 @@ function donateLabel(u: string) {
 function aboutCardHTML() {
   const row = (href: string, ico: string, label: string) =>
     `<a class="about-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="about-ico" aria-hidden="true">${ico}</span><span>${label}</span><span class="about-go" aria-hidden="true">›</span></a>`;
-  return `<h2>${t("about.title")}</h2><div class="card about-card">
-    ${row(installGuideUrl(), "📘", t("about.guide"))}${row(RELEASES_URL, "📦", t("about.releases"))}${row(ISSUES_URL, "💬", t("about.feedback"))}</div>`;
+  return `<div class="section-title"><span>${t("about.title")}</span></div><div class="card about-card">
+    ${row(installGuideUrl(), ic("book"), t("about.guide"))}${row(RELEASES_URL, ic("box"), t("about.releases"))}${row(ISSUES_URL, ic("chat"), t("about.feedback"))}</div>`;
 }
 function supportCardHTML() {
   if (!/^https:\/\//.test(DONATE_URL)) return "";
   if (import.meta.env.VITE_DONATE_WEB_ONLY === "1" && !isWeb()) return "";
-  return `<div class="card support-card"><div class="support-ico" aria-hidden="true">☕</div>
+  return `<div class="card support-card"><div class="support-ico" aria-hidden="true">${ic("coffee")}</div>
     <div class="support-body"><b>${t("don.title")}</b><p class="muted small">${t("don.text")}</p>
     <a class="support-btn" href="${esc(DONATE_URL)}" target="_blank" rel="noopener noreferrer">${esc(donateLabel(DONATE_URL))} <span aria-hidden="true">→</span></a></div></div>`;
 }
@@ -432,7 +440,7 @@ function mountInstallCard() {
   const slot = document.getElementById("pwa-slot"); if (!slot) return;
   const render = () => {
     const m = installMode();
-    slot.innerHTML = !m ? "" : `<div class="card demo-card install-card"><div class="demo-card-row"><div><b>📲 ${t("pwa.title")}</b>
+    slot.innerHTML = !m ? "" : `<div class="card demo-card install-card"><div class="demo-card-row"><div><b>${ic("phone")} ${t("pwa.title")}</b>
       <p class="muted small">${m === "ios" ? t("pwa.ios") : t("pwa.text")}</p></div>
       ${m === "prompt" ? `<button id="pwa-install" class="ghost small">${t("pwa.btn")}</button>` : ""}</div></div>`;
     const b = document.getElementById("pwa-install");
@@ -563,22 +571,22 @@ function totalsHTML(d: StatsData) {
 }
 function lastDriveHTML(a: Activity) {
   const d = a.last_drive;
-  if (!d) return `<div class="section-title">${t("home.lastDrive")}</div><div class="muted">${t("home.noDrives")}</div>`;
+  if (!d) return `<div class="section-title">${t("home.lastDrive")}</div><div class="empty">${ic("route")}<span>${t("home.noDrives")}</span></div>`;
   return `<div class="section-title">${t("home.lastDrive")}</div>
     <div class="card" data-drive="${d.id}">
       <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
       <div class="row muted">${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</div>
-      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
+      <div class="stats"><span>${ic("ruler")} ${n(d.distance_km)} km</span><span>${ic("battery")} ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>${ic("bolt")} ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
     </div>`;
 }
 function lastChargeHTML(a: Activity) {
   const ch = a.last_charge;
-  if (!ch) return `<div class="section-title">${t("home.lastCharge")}</div><div class="muted">${t("charges.empty")}</div>`;
+  if (!ch) return `<div class="section-title">${t("home.lastCharge")}</div><div class="empty">${ic("bolt")}<span>${t("charges.empty")}</span></div>`;
   return `<div class="section-title">${t("home.lastCharge")}</div>
     <div class="card" data-charge="${ch.id}">
       <div class="row"><b>${esc(ch.address)}</b>${costBadge(ch)}</div>
       <div class="row muted">${fmtDate(ch.start_date)} · ${fmtDur(ch.duration_min)}</div>
-      <div class="stats"><span>⚡ +${n(ch.charge_energy_added, 2)} kWh</span><span>🔋 ${ch.start_battery_level ?? "—"}% → ${ch.end_battery_level ?? "—"}%</span></div>
+      <div class="stats"><span>${ic("bolt")} +${n(ch.charge_energy_added, 2)} kWh</span><span>${ic("battery")} ${ch.start_battery_level ?? "—"}% → ${ch.end_battery_level ?? "—"}%</span></div>
     </div>`;
 }
 
@@ -619,7 +627,7 @@ async function showHome() {
   };
 
   const errorBox = (k: string, msg: string, retry: () => void) => {
-    const el = sec(k), html = `<div class="error card-error">⚠️ ${esc(msg)} <button class="retry">${t("common.retry")}</button></div>`;
+    const el = sec(k), html = `<div class="error card-error">${ic("alert")} ${esc(msg)} <button class="retry">${t("common.retry")}</button></div>`;
     const old = el.querySelector(".card-error"); if (old) old.remove();
     el.insertAdjacentHTML(fresh[k as keyof typeof fresh] || !hasCache(k) ? "beforeend" : "afterbegin", html);
     if (!hasCache(k)) el.querySelectorAll(".sk, .sk-card, .grid, .map-ph, .section-title").forEach(e => e.remove());
@@ -637,7 +645,7 @@ async function showHome() {
     const p = data.status?.position;
     if (!data.status) return;
     if (p?.latitude == null || p.longitude == null) { sec("map").innerHTML = ""; return; }
-    const title = `<div class="section-title">📍 ${esc(data.activity?.location?.name ?? t("home.lastPos"))} <span class="muted">${p.date ? ago(p.date) : ""}</span></div>`;
+    const title = `<div class="section-title"><span>${esc(data.activity?.location?.name ?? t("home.lastPos"))}</span><span class="muted">${p.date ? ago(p.date) : ""}</span></div>`;
     const existing = document.getElementById("map");
     if (existing) { sec("map").querySelector(".section-title")!.outerHTML = title; return; }
     sec("map").innerHTML = `${title}<div id="map" class="small"><div class="map-ph sk"></div></div>`;
@@ -706,7 +714,7 @@ async function openReport(month: string, carId?: number) {
   await serverReady();
   if (lacks("report")) {
     view.innerHTML = `<button class="back">${t("common.back")}</button><div class="pane" style="margin-top:12px">
-      <div class="error card-error">⚠️ ${esc(featureText("report"))} <button class="retry">${t("common.retry")}</button></div>
+      <div class="error card-error">${ic("alert")} ${esc(featureText("report"))} <button class="retry">${t("common.retry")}</button></div>
       <div class="muted">${t("report.needServer")}</div></div>`;
     (view.querySelector(".back") as HTMLElement).onclick = showHome;
     (view.querySelector(".retry") as HTMLElement).onclick = async () => { await checkServer(); openReport(month, carId); };
@@ -746,7 +754,7 @@ function renderBanner() {
   const text = bannerOverride ?? globalBanner();
   banner.hidden = !text;
   if (!text) return;
-  banner.innerHTML = `<span>⚠️ ${esc(text)}</span><button class="retry">${t("common.retry")}</button><button class="x" aria-label="${t("common.close")}">×</button>`;
+  banner.innerHTML = `<span>${ic("alert")} ${esc(text)}</span><button class="retry">${t("common.retry")}</button><button class="x" aria-label="${t("common.close")}">×</button>`;
   (banner.querySelector(".retry") as HTMLElement).onclick = async () => {
     banner.querySelector(".retry")!.textContent = t("common.checking"); bannerOverride = null;
     await checkServer();
@@ -806,7 +814,8 @@ setRootBack(() => {   // Android back at a tab root: other tab → home; on home
 initBackToTop();
 initUI(view);
 initOverlayScrollbar();
-document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => { b.textContent = t(`nav.${b.dataset.tab}` as "nav.home"); });
+const NAV_IC: Record<string, string> = { home: "home", drives: "route", charges: "bolt", settings: "gear" };
+document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => { b.innerHTML = `${ic(NAV_IC[b.dataset.tab!] ?? "info")}<span>${t(`nav.${b.dataset.tab}` as "nav.home")}</span>`; });
 document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclick = e => {
   // re-tapping the active tab (real tap, not a programmatic re-render) scrolls to top / back to newest
   if (e.isTrusted && b.classList.contains("active") && (window.scrollY > 0 || isJumped())) return backToTop();

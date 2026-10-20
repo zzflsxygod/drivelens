@@ -1,5 +1,6 @@
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
 import { skey } from "./demo";
+import { ic } from "./icons";
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
 import { DriveMap } from "./map";
 import { t, monthLabel, fmtNum } from "./i18n";
@@ -95,7 +96,7 @@ export async function showBattery(view: HTMLElement, carId: number, back: () => 
   (view.querySelector(".back") as HTMLElement).onclick = back;
   let b: Battery;
   try { b = await api<Battery>(`/api/cars/${carId}/battery`); }
-  catch (e) { view.insertAdjacentHTML("beforeend", `<div class="error">⚠️ ${esc((e as Error).message)}</div>`); return; }
+  catch (e) { view.insertAdjacentHTML("beforeend", `<div class="error">${ic("alert")} ${esc((e as Error).message)}</div>`); return; }
   const bl = baseline(b, car, carId)!;
   const tms = (d: string) => new Date(d).getTime(), day = 864e5;
   const pts = b.points.map(p => ({ x: tms(p.date), y: p.range100_km }));
@@ -145,7 +146,7 @@ function barChart(ms: TM[], val: (m: TM) => number | null, cur: string, unit: st
   const vs = ms.map(val), max = Math.max(...vs.map(v => v ?? 0), 1e-9);
   const bw = iw / ms.length;
   const bars = ms.map((m, i) => { const v = vs[i] ?? 0, h = ih * v / max, x = L + i * bw + bw * 0.18, on = m.month === cur;
-    return `<rect x="${x.toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${Math.max(h, v ? 1 : 0).toFixed(1)}" rx="4" fill="${color}" opacity="${on ? 1 : 0.45}"/>
+    return `<rect x="${x.toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${Math.max(h, v ? 1 : 0).toFixed(1)}" rx="3" style="fill:${color}" opacity="${on ? 1 : 0.4}"/>
       <text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" class="ct${on ? " on" : ""}">${Number(m.month.slice(5))}</text>
       ${on && vs[i] != null ? `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${(T + ih - h - 4).toFixed(1)}" text-anchor="middle" class="ct on">${n(vs[i], d)}</text>` : ""}`; }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%">${bars}</svg><div class="muted small-note" style="text-align:right">${unit}</div>`;
@@ -165,13 +166,13 @@ function lineChart(ms: TM[], val: (m: TM) => number | null, cur: string, unit: s
 }
 function mixChart(ms: TM[], cur: string) {
   const W = 392, H = 150, L = 6, R = 6, T = 8, B = 20, iw = W - L - R, ih = H - T - B, bw = iw / ms.length;
-  const C = { home: "#22c58b", supercharger: "#ff5c8a", other: "#f7b733" };
+  const C = { home: "var(--mix-home)", supercharger: "var(--mix-sc)", other: "var(--mix-other)" };
   const bars = ms.map((m, i) => {
     const tot = m.home_kwh + m.supercharger_kwh + m.other_kwh, x = L + i * bw + bw * 0.18, w = bw * 0.64;
     let y = T + ih, out = "";
     if (tot > 0) for (const [k, v] of [["home", m.home_kwh], ["supercharger", m.supercharger_kwh], ["other", m.other_kwh]] as [keyof typeof C, number][]) {
-      const h = ih * v / tot; y -= h; if (h > 0) out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${C[k]}"/>`; }
-    else out = `<rect x="${x.toFixed(1)}" y="${T + ih - 2}" width="${w.toFixed(1)}" height="2" fill="#8884"/>`;
+      const h = ih * v / tot; y -= h; if (h > 0) out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" style="fill:${C[k]}"/>`; }
+    else out = `<rect x="${x.toFixed(1)}" y="${T + ih - 2}" width="${w.toFixed(1)}" height="2" style="fill:var(--track)"/>`;
     return out + `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" class="ct${m.month === cur ? " on" : ""}">${Number(m.month.slice(5))}</text>`; }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%">${bars}</svg>
     <div class="lg"><span><i style="background:${C.home}"></i>${t("mix.home")}</span><span><i style="background:${C.supercharger}"></i>${t("mix.supercharger")}</span><span><i style="background:${C.other}"></i>${t("mix.other")}</span><span>${t("mix.byEnergy")}</span></div>`;
@@ -186,10 +187,10 @@ export function trendsHTML(ms: TM[], cur: string) {
   return `<div class="section-title">${t("tr.title")}</div>
     <div class="pane"><div class="kpi"><div><small>${t("tr.km12")}</small><b>${n(km)} km</b></div><div><small>${t("tr.used")}</small><b>${n(kwh)} kWh</b></div>
       <div><small>${t("tr.avgEff")}</small><b>${km > 0 ? n(kwh * 1000 / km) : "—"} Wh/km</b></div></div></div>
-    <div class="pane"><div class="pane-t">${t("tr.distance")}</div>${barChart(ms, m => m.distance_km, cur, "km", "#7b5cff")}</div>
-    <div class="pane"><div class="pane-t">${t("tr.used")}</div>${barChart(ms, m => m.energy_used_kwh, cur, "kWh", "#5c9dff")}</div>
+    <div class="pane"><div class="pane-t">${t("tr.distance")}</div>${barChart(ms, m => m.distance_km, cur, "km", "var(--ch-1)")}</div>
+    <div class="pane"><div class="pane-t">${t("tr.used")}</div>${barChart(ms, m => m.energy_used_kwh, cur, "kWh", "var(--violet)")}</div>
     <div class="pane"><div class="pane-t">${t("tr.avgEff")}</div>${lineChart(ms, m => m.efficiency_wh_km, cur, "Wh/km")}</div>
-    ${curs.length ? curs.map(c => `<div class="pane"><div class="pane-t">${t("tr.cost")} · ${esc(c)} <span class="muted">${t("tr.total", { v: fmtMoney(sum(m => costOf(m, c)), c) })}</span></div>${barChart(ms, m => costOf(m, c), cur, c, c === main ? "#ff5c8a" : "#f7b733")}</div>`).join("")
+    ${curs.length ? curs.map(c => `<div class="pane"><div class="pane-t">${t("tr.cost")} · ${esc(c)} <span class="muted">${t("tr.total", { v: fmtMoney(sum(m => costOf(m, c)), c) })}</span></div>${barChart(ms, m => costOf(m, c), cur, c, c === main ? "var(--red)" : "var(--amber)")}</div>`).join("")
       : `<div class="pane"><div class="pane-t">${t("tr.cost")}</div><div class="chart-empty">${t("tr.noCost")}</div></div>`}
     <div class="pane"><div class="pane-t">${t("tr.mix")}</div>${mixChart(ms, cur)}</div>`;
 }

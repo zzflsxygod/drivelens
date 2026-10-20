@@ -1,4 +1,5 @@
 import { skey } from "./demo";
+import { ic } from "./icons";
 import { setJumpedPeek, setJumpedReset } from "./totop";
 // Infinite list with keyset paging (api_level ≥ 10), sticky month headers, month jump, first-page cache
 // and scroll restore. Older servers: one request with limit=100 (no paging).
@@ -87,7 +88,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
     const m = h.dataset.month!; h.innerHTML = o.header(m, monthOf(m), S.items.filter(x => ym(o.dateOf(x)) === m));
   });
   const renderEnd = () => {
-    endEl.innerHTML = S.done ? (S.items.length ? `<div class="list-end">${t("list.end")}</div>` : `<div class="muted">${o.empty}</div>`) : skRows();
+    endEl.innerHTML = S.done ? (S.items.length ? `<div class="list-end">${t("list.end")}</div>` : `<div class="empty">${ic("route")}<span>${o.empty}</span></div>`) : skRows();
     root.querySelector<HTMLElement>("#newer")!.innerHTML = S.jumpedTo
       ? `<button class="ghost small newer-btn">${t("list.newer", { m: monthLabel(S.jumpedTo) })}</button>` : "";
     const nb = root.querySelector<HTMLElement>(".newer-btn"); if (nb) nb.onclick = () => reset(null);
@@ -116,7 +117,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
       if (!S.months) refreshHeaders();
       renderEnd();
     } catch (e) {
-      endEl.innerHTML = `<div class="error card-error">⚠️ ${String((e as Error).message).replace(/[<>&]/g, "")} <button class="retry">${t("common.retry")}</button></div>`;
+      endEl.innerHTML = `<div class="error card-error">${ic("alert")} ${String((e as Error).message).replace(/[<>&]/g, "")} <button class="retry">${t("common.retry")}</button></div>`;
       (endEl.querySelector(".retry") as HTMLElement).onclick = () => { endEl.innerHTML = skRows(); loadMore(); };
     } finally { loading = false; }
     // keep filling if the sentinel is still visible

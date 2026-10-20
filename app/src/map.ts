@@ -3,8 +3,10 @@ import type { StyleSpecification, ExpressionSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { loadSettings, defaultLabelLang, type LabelLang } from "./api";
 import { t } from "./i18n";
+import { ic } from "./icons";
+import { cssVar } from "./palette";
 
-const STYLE_URL = { light: "https://tiles.openfreemap.org/styles/liberty", dark: "https://tiles.openfreemap.org/styles/dark" };
+const STYLE_URL = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
 
 /** Fallback when OpenFreeMap is unreachable: plain OSM raster tiles. */
 const OSM_FALLBACK: StyleSpecification = {
@@ -50,7 +52,7 @@ export interface Overlay { route?: [number, number][]; point?: [number, number];
   lines?: { coords: [number, number][]; speeds: (number | null)[] }[]; stops?: Stop[]; speedColor?: boolean; noPins?: boolean }
 
 /** slow red → fast green (km/h) */
-export const SPEED_STOPS: [number, string][] = [[0, "#d7301f"], [30, "#fc8d59"], [60, "#fee08b"], [90, "#91cf60"], [120, "#1a9850"]];
+export const SPEED_STOPS: [number, string][] = [[0, "#e5383b"], [30, "#f48c3a"], [60, "#f2c94c"], [90, "#7bc96f"], [120, "#12a150"]];
 const speedExpr = (): ExpressionSpecification =>
   ["interpolate", ["linear"], ["coalesce", ["get", "speed"], 0], ...SPEED_STOPS.flat()] as unknown as ExpressionSpecification;
 
@@ -60,6 +62,7 @@ export class DriveMap {
   private fellBack = false;
   private mq = matchMedia("(prefers-color-scheme: dark)");
   private onScheme = () => this.setTheme();
+  private theme: "light" | "dark" = effectiveTheme();
 
   constructor(private el: HTMLElement, private overlay: Overlay) {
     const theme = effectiveTheme();
@@ -93,8 +96,10 @@ export class DriveMap {
   }
 
   setTheme() {
-    if (this.fellBack) return;
-    this.map.setStyle(STYLE_URL[effectiveTheme()]);
+    const th = effectiveTheme();
+    if (this.fellBack || th === this.theme) return;
+    this.theme = th;
+    this.map.setStyle(STYLE_URL[th]);
   }
 
   /** Journey route: speed gradient or plain colour. */
@@ -102,7 +107,8 @@ export class DriveMap {
     this.overlay.speedColor = on;
     if (this.map.getLayer("jroute-line")) this.map.setPaintProperty("jroute-line", "line-color", on ? speedExpr() : this.plainColor());
   }
-  private plainColor() { return !this.fellBack && effectiveTheme() === "dark" ? "#4da3ff" : "#1a73e8"; }
+  private plainColor() { return this.fellBack ? "#006a9e" : cssVar("--accent", "#006a9e"); }
+  private casing(dark: boolean) { return dark ? "#07080a" : "#ffffff"; }
 
   private fit() {
     const all = this.overlay.lines?.flatMap(l => l.coords);
@@ -120,9 +126,9 @@ export class DriveMap {
       map.addSource("route", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: r } } });
       const layout = { "line-cap": "round", "line-join": "round" } as const;
       map.addLayer({ id: "route-casing", type: "line", source: "route", layout,
-        paint: { "line-color": dark ? "#0b1d3a" : "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
+        paint: { "line-color": this.casing(dark), "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
       map.addLayer({ id: "route-line", type: "line", source: "route", layout,
-        paint: { "line-color": dark ? "#4da3ff" : "#1a73e8", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
+        paint: { "line-color": this.plainColor(), "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
     }
     const lines = this.overlay.lines;
     if (lines && lines.length && !map.getSource("jroute")) {
@@ -147,23 +153,23 @@ export class DriveMap {
       const layout = { "line-cap": "round", "line-join": "round" } as const;
       const thin = !!this.overlay.noPins; // footprint: many overlapping routes → thinner lines
       map.addLayer({ id: "jroute-casing", type: "line", source: "jroute-whole", layout,
-        paint: { "line-color": dark ? "#0b1d3a" : "#ffffff", "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 3, 14, 6] : ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
+        paint: { "line-color": this.casing(dark), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 3, 14, 6] : ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
       map.addLayer({ id: "jroute-line", type: "line", source: "jroute", layout,
-        paint: { "line-color": this.overlay.speedColor ? speedExpr() : thin ? "#7b5cff" : this.plainColor(), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 1.5, 14, 3.5] : ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
+        paint: { "line-color": this.overlay.speedColor ? speedExpr() : this.plainColor(), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 1.5, 14, 3.5] : ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
     }
     this.markers.forEach(m => m.remove());
     const pts: [[number, number], string, string][] = [];
     const ends = lines && lines.length ? [lines[0].coords[0], lines[lines.length - 1].coords[lines[lines.length - 1].coords.length - 1]] : r && r.length ? [r[0], r[r.length - 1]] : null;
-    if (ends && ends[0] && ends[1] && !this.overlay.noPins) pts.push([ends[0], "#2a9d3a", t("map.start")], [ends[1], "#e31937", t("map.end")]);
-    if (this.overlay.point) pts.push([this.overlay.point, "#e31937", t("map.chargeSpot")]);
+    if (ends && ends[0] && ends[1] && !this.overlay.noPins) pts.push([ends[0], "start", t("map.start")], [ends[1], "end", t("map.end")]);
+    if (this.overlay.point) pts.push([this.overlay.point, "end", t("map.chargeSpot")]);
     this.markers = pts.map(([p, color, title]) => {
       const e = document.createElement("div");
-      e.className = "pin"; e.style.background = color; e.title = title;
+      e.className = `pin ${color}`; e.title = title;
       return new maplibregl.Marker({ element: e }).setLngLat(p).addTo(map);
     });
     for (const st of this.overlay.stops ?? []) {
       const e = document.createElement("div");
-      e.className = st.kind === "charge" ? "stop-pin charge" : "stop-pin"; e.textContent = st.kind === "charge" ? "⚡" : "";
+      e.className = st.kind === "charge" ? "stop-pin charge" : "stop-pin"; e.innerHTML = st.kind === "charge" ? ic("bolt") : "";
       e.title = st.title;
       this.markers.push(new maplibregl.Marker({ element: e }).setLngLat(st.p).addTo(map));
     }

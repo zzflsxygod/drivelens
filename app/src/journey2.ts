@@ -1,4 +1,5 @@
 // Journeys phase 2 (api_level 11): cover image, share card, weather per drive, energy by speed band.
+import { ic } from "./icons";
 import { canNativeShare, canNativeSave, nativeShareImage, nativeSaveImage } from "./platform";
 import { api, fmtMoney } from "./api";
 import type { DriveMap } from "./map";
@@ -55,7 +56,7 @@ export async function loadWeather(id: number) {
   return api<{ drives: DWeather[]; partial: boolean }>(`/api/journeys/${id}/weather`);
 }
 export const weatherChip = (w: DWeather | undefined) => !w || w.temp_c == null ? "" :
-  `<span class="wx">${w.precip_mm && w.precip_mm >= 0.1 ? "🌧" : "🌤"} ${n(w.temp_c, 0)}°C${w.precip_mm && w.precip_mm >= 0.1 ? ` · ${n(w.precip_mm, 1)} mm` : ""}</span>`;
+  `<span class="wx">${w.precip_mm && w.precip_mm >= 0.1 ? ic("rain") : ic("sun")} ${n(w.temp_c, 0)}°C${w.precip_mm && w.precip_mm >= 0.1 ? ` · ${n(w.precip_mm, 1)} mm` : ""}</span>`;
 
 /** Table: each drive's temperature / rain next to its efficiency, with a bar for Wh/km. */
 export function weatherTable(drives: { id: number; start_date: string; distance_km: number | null; efficiency_wh_km: number | null }[], ws: DWeather[]) {
@@ -76,14 +77,14 @@ export function weatherTable(drives: { id: number; start_date: string; distance_
   return `<div class="wx-table">${rows.map(d => { const w = byId.get(d.id); const e = d.efficiency_wh_km;
     const rain = w?.precip_mm != null && w.precip_mm >= 0.1;
     return `<div class="wx-row"><span class="wx-t">${fmtDateTime(d.start_date)}</span>
-      <span class="wx-w">${w?.temp_c != null ? `${rain ? "🌧" : "🌤"} ${n(w.temp_c, 0)}°C${rain ? ` ${n(w.precip_mm, 1)}mm` : ""}` : "—"}</span>
+      <span class="wx-w">${w?.temp_c != null ? `${rain ? ic("rain") : ic("sun")} ${n(w.temp_c, 0)}°C${rain ? ` ${n(w.precip_mm, 1)}mm` : ""}` : "—"}</span>
       <span class="wx-bar"><i style="width:${e != null && e > 0 ? Math.max(4, e / max * 100) : 0}%"></i></span><b>${n(e, 0)}</b></div>`; }).join("")}</div>${insight}
     <div class="muted small-note">${t("j2.wxNote")}</div>`;
 }
 
 // ---------------- speed bands ----------------
 export async function loadBands(id: number) { return api<{ bands: Band[]; method: string }>(`/api/journeys/${id}/speed-bands`); }
-const BAND_COLOR: Record<string, string> = { city: "#fc8d59", suburb: "#e0b400", highway: "#1a9850" };
+const BAND_COLOR: Record<string, string> = { city: "var(--ch-2)", suburb: "var(--amber)", highway: "var(--green)" };
 /** Localized from the band key (the server's Chinese label is only a fallback for unknown keys). */
 const bandLabel = (b: Band) => b.key in BAND_COLOR ? t(`band.${b.key}` as "band.city") : b.label;
 export function bandsHTML(r: { bands: Band[]; method: string }) {
@@ -111,7 +112,8 @@ export async function renderCard(d: CardData, dark: boolean): Promise<HTMLCanvas
   const W = 1080, H = 1350, MH = 760;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const g = c.getContext("2d")!;
-  const bg = dark ? "#151517" : "#ffffff", fg = dark ? "#f2f2f2" : "#1d1d1f", mu = dark ? "#9a9aa0" : "#86868b", red = "#e31937";
+  const bg = dark ? "#0f1116" : "#ffffff", fg = dark ? "#eef0f4" : "#0b0e14", mu = dark ? "#8a92a2" : "#5a6272", red = dark ? "#ff5468" : "#c4122f";
+  const accent = dark ? "#00e5ff" : "#006a9e", green = dark ? "#00e08f" : "#047857";
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
   let drewImage = false;
   if (d.image) {
@@ -120,7 +122,7 @@ export async function renderCard(d: CardData, dark: boolean): Promise<HTMLCanvas
       g.drawImage(im, (W - im.width * s) / 2, (MH - im.height * s) / 2, im.width * s, im.height * s); g.restore(); drewImage = true; } catch { /* fall back */ }
   }
   if (!drewImage) {
-    g.fillStyle = dark ? "#202024" : "#eef1f5"; g.fillRect(0, 0, W, MH);
+    g.fillStyle = dark ? "#161920" : "#eceef2"; g.fillRect(0, 0, W, MH);
     const pts = d.route; if (pts.length > 1) {
       const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
       const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -128,10 +130,10 @@ export async function renderCard(d: CardData, dark: boolean): Promise<HTMLCanvas
       const sc = Math.min((W - 160) / Math.max((x1 - x0) * k, 1e-6), (MH - 160) / Math.max(y1 - y0, 1e-6));
       const px = (p: [number, number]) => [W / 2 + (p[0] - (x0 + x1) / 2) * k * sc, MH / 2 - (p[1] - (y0 + y1) / 2) * sc];
       g.lineJoin = g.lineCap = "round";
-      for (const [w, col] of [[16, "#ffffffcc"], [8, red]] as [number, string][]) {
+      for (const [w, col] of [[16, dark ? "#07080acc" : "#ffffffcc"], [8, accent]] as [number, string][]) {
         g.strokeStyle = col; g.lineWidth = w; g.beginPath(); pts.forEach((p, i) => { const [x, y] = px(p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
       }
-      for (const [p, col] of [[pts[0], "#1a9850"], [pts[pts.length - 1], red]] as [[number, number], string][]) {
+      for (const [p, col] of [[pts[0], green], [pts[pts.length - 1], red]] as [[number, number], string][]) {
         const [x, y] = px(p); g.fillStyle = "#fff"; g.beginPath(); g.arc(x, y, 16, 0, 7); g.fill(); g.fillStyle = col; g.beginPath(); g.arc(x, y, 10, 0, 7); g.fill();
       }
     }
@@ -153,8 +155,8 @@ export async function renderCard(d: CardData, dark: boolean): Promise<HTMLCanvas
     g.fillStyle = fg; g.font = font(v.length > 7 ? 40 : 54, 700); g.fillText(fit(v, cw - 16), x, top + 96);
     if (u) { const vw = g.measureText(fit(v, cw - 16)).width; g.fillStyle = mu; g.font = font(26); g.fillText(u, x + Math.min(vw + 8, cw - 70), top + 96); }
   });
-  g.fillStyle = red; g.fillRect(60, H - 110, 8, 44);
-  g.fillStyle = fg; g.font = font(34, 700); g.fillText("DriveLens", 84, H - 76);
+  g.save(); g.translate(72, H - 88); g.rotate(Math.PI / 4); g.fillStyle = accent; g.fillRect(-11, -11, 22, 22); g.restore();
+  g.fillStyle = fg; g.font = font(34, 700); g.fillText("DriveLens", 100, H - 76);
   g.fillStyle = mu; g.font = font(24); g.textAlign = "right"; g.fillText(drewImage && !d.image?.startsWith("data:image/png") ? "© OpenFreeMap © OpenStreetMap" : "", W - 60, H - 78); g.textAlign = "left";
   return c;
 }

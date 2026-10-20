@@ -1,5 +1,6 @@
 // 月度报告 page. Data: GET /api/cars/:id/report?month=YYYY-MM&tz=..&currency=..
 import { api, fmtMoney, defaultCurrency } from "./api";
+import { ic } from "./icons";
 import { featureText } from "./version";
 import type { DriveMap } from "./map";
 import { loadReportExtras } from "./insights";
@@ -25,9 +26,9 @@ const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.c
 const num = (v: number, d = 0) => fmtNum(v, d);
 const md = (iso: string) => fmtMonthDay(iso);
 const durHM = (m: number | null) => fmtDur(m);
-const COLORS = { home: "#2a9d4a", supercharger: "#e31937", other: "#f0a020" };
+const COLORS = { home: "var(--mix-home)", supercharger: "var(--mix-sc)", other: "var(--mix-other)" };
 const LABEL = (k: "home" | "supercharger" | "other") => t(`mix.${k}`);
-const ICON = { home: "🏠", supercharger: "⚡", other: "🔌" };
+const ICON = { home: ic("home"), supercharger: ic("bolt"), other: ic("plug") };
 
 export function shiftMonth(m: string, by: number) {
   const [y, mo] = m.split("-").map(Number); const d = new Date(y, mo - 1 + by, 1);
@@ -49,9 +50,9 @@ function delta(cur: number | null, prev: number | null, goodUp: boolean) {
 function donut(parts: [number, string][], center: string, sub: string) {
   const R = 42, C = 2 * Math.PI * R, tot = parts.reduce((a, p) => a + p[0], 0); let off = 0, s = "";
   if (tot > 0) for (const [v, c] of parts) { if (v <= 0) continue; const l = C * v / tot;
-    s += `<circle r="${R}" cx="55" cy="55" fill="none" stroke="${c}" stroke-width="14" stroke-dasharray="${l} ${C - l}" stroke-dashoffset="${-off}" transform="rotate(-90 55 55)"/>`; off += l; }
-  else s = `<circle r="${R}" cx="55" cy="55" fill="none" stroke="#8883" stroke-width="14"/>`;
-  return `<svg width="110" height="110" viewBox="0 0 110 110"><g>${s}</g><text x="55" y="54" text-anchor="middle" font-size="${center.length > 6 ? 13 : 15}" font-weight="700" fill="var(--text)">${center}</text><text x="55" y="70" text-anchor="middle" class="ax">${sub}</text></svg>`;
+    s += `<circle r="${R}" cx="55" cy="55" fill="none" style="stroke:${c}" stroke-width="14" stroke-dasharray="${l} ${C - l}" stroke-dashoffset="${-off}" transform="rotate(-90 55 55)"/>`; off += l; }
+  else s = `<circle r="${R}" cx="55" cy="55" fill="none" style="stroke:var(--sub)" stroke-width="14"/>`;
+  return `<svg width="110" height="110" viewBox="0 0 110 110"><g>${s}</g><text x="55" y="54" text-anchor="middle" font-size="${center.length > 6 ? 13 : 15}" font-weight="700" style="fill:var(--text)">${center}</text><text x="55" y="70" text-anchor="middle" class="ax">${sub}</text></svg>`;
 }
 
 function bars(r: Report) {
@@ -62,12 +63,12 @@ function bars(r: Report) {
   [0, .5, 1].forEach(f => { const y = T + ih * (1 - f);
     g += `<line x1="${L}" x2="${W - 6}" y1="${y}" y2="${y}" class="cg"/><text class="ax" x="${L - 4}" y="${y + 3}" text-anchor="end">${Math.round(mk * f)}</text>`; });
   r.daily.forEach((d, i) => { const x = L + i * bw, fut = r.is_current && i >= r.days_elapsed;
-    if (d.distance_km > 0) g += `<rect x="${x + 1}" y="${T + ih * (1 - d.distance_km / mk)}" width="${Math.max(bw / 2 - 1, 1)}" height="${ih * d.distance_km / mk}" rx="1.5" fill="var(--red)" opacity=".85"><title>${d.date} ${d.distance_km} km</title></rect>`;
-    if (d.energy_added_kwh > 0) g += `<rect x="${x + bw / 2}" y="${T + ih * (1 - d.energy_added_kwh / mc)}" width="${Math.max(bw / 2 - 1, 1)}" height="${ih * d.energy_added_kwh / mc}" rx="1.5" fill="#2a9d4a" opacity=".85"><title>${d.date} ${d.energy_added_kwh} kWh</title></rect>`;
-    if (fut) g += `<rect x="${x}" y="${T}" width="${bw}" height="${ih}" fill="#8881"/>`;
+    if (d.distance_km > 0) g += `<rect x="${x + 1}" y="${T + ih * (1 - d.distance_km / mk)}" width="${Math.max(bw / 2 - 1, 1)}" height="${ih * d.distance_km / mk}" rx="1.5" style="fill:var(--accent)"><title>${d.date} ${d.distance_km} km</title></rect>`;
+    if (d.energy_added_kwh > 0) g += `<rect x="${x + bw / 2}" y="${T + ih * (1 - d.energy_added_kwh / mc)}" width="${Math.max(bw / 2 - 1, 1)}" height="${ih * d.energy_added_kwh / mc}" rx="1.5" style="fill:var(--green)" opacity=".85"><title>${d.date} ${d.energy_added_kwh} kWh</title></rect>`;
+    if (fut) g += `<rect x="${x}" y="${T}" width="${bw}" height="${ih}" style="fill:var(--grid)" opacity=".6"/>`;
     if ([0, 4, 9, 14, 19, 24, 29].includes(i)) g += `<text class="ax" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${i + 1}</text>`; });
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("rp.dailyAria")}">${g}</svg>
-    <div class="lg"><span><i style="background:var(--red)"></i>${t("rp.lgKm")}</span><span><i style="background:#2a9d4a"></i>${t("rp.lgKwh", { v: mc })}</span></div>`;
+    <div class="lg"><span><i style="background:var(--accent)"></i>${t("rp.lgKm")}</span><span><i style="background:var(--green)"></i>${t("rp.lgKwh", { v: mc })}</span></div>`;
 }
 
 function calendar(r: Report) {
@@ -76,10 +77,10 @@ function calendar(r: Report) {
   const max = Math.max(1, ...r.daily.map(d => d.distance_km));
   const cells = Array.from({ length: lead }, () => `<div></div>`).concat(r.daily.map((d, i) => {
     const fut = r.is_current && i >= r.days_elapsed, a = d.distance_km / max;
-    const bg = d.distance_km > 0 ? `background:rgba(227,25,55,${(0.15 + 0.75 * a).toFixed(2)});${a > .55 ? "color:#fff;" : ""}` : "";
-    return `<div class="cal-d${fut ? " fut" : ""}" style="${bg}" title="${d.date}"><b>${i + 1}</b><span>${d.distance_km > 0 ? Math.round(d.distance_km) : ""}</span>${d.energy_added_kwh > 0 ? `<i title="${d.energy_added_kwh} kWh">⚡</i>` : ""}</div>`; }));
+    const bg = d.distance_km > 0 ? `background:color-mix(in srgb, var(--accent) ${Math.round(18 + 72 * a)}%, var(--sub));` : "";
+    return `<div class="cal-d${fut ? " fut" : ""}${d.distance_km > 0 && a > .5 ? " hot" : ""}" style="${bg}" title="${d.date}"><b>${i + 1}</b><span>${d.distance_km > 0 ? Math.round(d.distance_km) : ""}</span>${d.energy_added_kwh > 0 ? `<i title="${d.energy_added_kwh} kWh">${ic("bolt")}</i>` : ""}</div>`; }));
   return `<div class="cal">${weekdays().map(w => `<div class="cal-h">${w}</div>`).join("")}${cells.join("")}</div>
-    <div class="lg"><span><i style="background:rgba(227,25,55,.5)"></i>${t("rp.calLegend")}</span><span>${t("rp.calCharge")}</span></div>`;
+    <div class="lg"><span><i style="background:color-mix(in srgb, var(--accent) 55%, var(--sub))"></i>${t("rp.calLegend")}</span><span style="display:inline-flex;align-items:center;gap:4px"><span style="color:var(--red);display:inline-flex">${ic("bolt")}</span>${t("rp.calCharge")}</span></div>`;
 }
 
 function bodySkeleton() {
@@ -151,10 +152,10 @@ export function reportHTML(r: Report) {
     <div class="pane"><div id="rp-daily">${bars(r)}</div>
       <div class="muted" style="text-align:center;margin-top:4px">${t("rp.dailySummary", { n: days.length, avg: num(o.distance_km / elapsed) })}${top && top.distance_km > 0 ? t("rp.dailyTop", { d: md(top.date), km: num(top.distance_km) }) : ""}</div></div>
     <div class="section-title">${t("rp.records")}</div>
-    ${ld ? recCard(`data-drive="${ld.id}"`, "🛣️", t("rp.longest", { d: md(ld.start_date) }), `${esc(ld.start_address)} → ${esc(ld.end_address)}`, `${num(ld.distance_km ?? 0, 1)} km`, durHM(ld.duration_min)) : ""}
-    ${ts ? recCard(`data-drive="${ts.id}"`, "🏎️", t("rp.topSpeed", { d: md(ts.start_date) }), `${esc(ts.start_address)} → ${esc(ts.end_address)}`, `${ts.speed_max} km/h`) : ""}
-    ${ec ? recCard(`data-charge="${ec.id}"`, "💴", t("rp.priciest", { d: md(ec.start_date) }), esc(ec.address), fmtMoney(ec.cost, ec.currency), `${num(ec.energy_kwh ?? 0, 1)} kWh`) : ""}
-    ${fc ? recCard(`data-charge="${fc.id}"`, "⚡", t("rp.fastest", { d: md(fc.start_date) }), esc(fc.address), `${num(fc.peak_kw ?? 0)} kW`, `${fc.start_battery_level ?? "—"}%→${fc.end_battery_level ?? "—"}% ${durHM(fc.duration_min)}`) : ""}
+    ${ld ? recCard(`data-drive="${ld.id}"`, ic("route"), t("rp.longest", { d: md(ld.start_date) }), `${esc(ld.start_address)} → ${esc(ld.end_address)}`, `${num(ld.distance_km ?? 0, 1)} km`, durHM(ld.duration_min)) : ""}
+    ${ts ? recCard(`data-drive="${ts.id}"`, ic("speed"), t("rp.topSpeed", { d: md(ts.start_date) }), `${esc(ts.start_address)} → ${esc(ts.end_address)}`, `${ts.speed_max} km/h`) : ""}
+    ${ec ? recCard(`data-charge="${ec.id}"`, ic("coin"), t("rp.priciest", { d: md(ec.start_date) }), esc(ec.address), fmtMoney(ec.cost, ec.currency), `${num(ec.energy_kwh ?? 0, 1)} kWh`) : ""}
+    ${fc ? recCard(`data-charge="${fc.id}"`, ic("bolt"), t("rp.fastest", { d: md(fc.start_date) }), esc(fc.address), `${num(fc.peak_kw ?? 0)} kW`, `${fc.start_battery_level ?? "—"}%→${fc.end_battery_level ?? "—"}% ${durHM(fc.duration_min)}`) : ""}
     ${!ld && !ts && !ec && !fc ? `<div class="muted">${t("common.none")}</div>` : ""}`}`;
 }
 
@@ -216,7 +217,7 @@ export async function showReport(view: HTMLElement, carId: number, month: string
       if (g !== gen) return;
       body.querySelector(".card-error")?.remove();
       if (!cache.has(key)) body.innerHTML = "";
-      body.insertAdjacentHTML("afterbegin", `<div class="error card-error">⚠️ ${(e as { status?: number }).status === 404 ? esc(featureText("report")) : esc(t("rp.loadErr", { e: (e as Error).message }))} <button class="retry">${t("common.retry")}</button></div>`);
+      body.insertAdjacentHTML("afterbegin", `<div class="error card-error">${ic("alert")} ${(e as { status?: number }).status === 404 ? esc(featureText("report")) : esc(t("rp.loadErr", { e: (e as Error).message }))} <button class="retry">${t("common.retry")}</button></div>`);
       (body.querySelector(".retry") as HTMLElement).onclick = () => { body.querySelector(".card-error")!.innerHTML = t("common.loading"); load(); };
     });
   load();

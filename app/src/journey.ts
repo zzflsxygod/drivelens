@@ -1,5 +1,6 @@
 // Drives tab (drive list with multi-select) + journeys: list, suggestions, detail, editing.
 import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } from "./api";
+import { ic } from "./icons";
 import { DriveMap, SPEED_STOPS } from "./map";
 import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
@@ -44,8 +45,8 @@ const fmtTime = (iso: string) => fmtT(iso);
 const sgName = (name: string) => name.endsWith("（往返）") ? name.slice(0, -4) + t("sg.round") : name;
 const n = (v: number | null | undefined, d = 1) => v == null ? "—" : v.toFixed(d);
 const costTxt = (l: Money[]) => l.length ? l.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—";
-const badge = (d: Drive) => d.journey_id ? `<span class="jbadge" title="${esc(d.journey_name)}">🧭 ${esc(d.journey_name)}</span>` : "";
-const err = (e: unknown) => `<div class="error card-error">⚠️ ${esc((e as Error).message)} <button class="retry">${t("common.retry")}</button></div>`;
+const badge = (d: Drive) => d.journey_id ? `<span class="jbadge" title="${esc(d.journey_name)}">${ic("compass")} ${esc(d.journey_name)}</span>` : "";
+const err = (e: unknown) => `<div class="error card-error">${ic("alert")} ${esc((e as Error).message)} <button class="retry">${t("common.retry")}</button></div>`;
 const bindRetry = (root: HTMLElement, f: () => void) => root.querySelectorAll<HTMLElement>(".retry").forEach(b => b.onclick = f);
 
 // ---------------- drives | journeys segment ----------------
@@ -80,7 +81,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
       ${selectMode ? `<div class="chk">${sel.has(d.id) ? "✓" : ""}</div>` : ""}<div class="cbody">
       <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
       <div class="row muted"><span>${fmtDate(d.start_date)} · ${fmtDur(d.duration_min)}</span>${badge(d)}</div>
-      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
+      <div class="stats"><span>${ic("ruler")} ${n(d.distance_km)} km</span><span>${ic("battery")} ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>${ic("bolt")} ${n(d.efficiency_wh_km, 0)} Wh/km</span></div>
     </div></div>`; };
   const bar = () => {
     const tip = v.querySelector("#seltip"), btn = v.querySelector("#selmode");
@@ -162,7 +163,7 @@ function nameDialog(o: { title: string; name: string; note: string; hint?: strin
 export async function showJourneys(ctx: Ctx) {
   lastSeg = "journeys"; ctx.setMap(null);
   const v = ctx.view;
-  if (!ctx.journeysAvailable()) { v.innerHTML = `<div class="error card-error">⚠️ ${esc(ctx.journeysMessage())}</div>`; return; }
+  if (!ctx.journeysAvailable()) { v.innerHTML = `<div class="error card-error">${ic("alert")} ${esc(ctx.journeysMessage())}</div>`; return; }
   v.innerHTML = `<div class="list-toolbar">${segHTML("journeys", ctx)}<div class="tb-right"></div></div><div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
   const car = await ctx.carId();
   const gap = loadSettings().journeyGap ?? 60;
@@ -170,10 +171,10 @@ export async function showJourneys(ctx: Ctx) {
     const el = v.querySelector("#j-list"); if (!el) return;
     el.innerHTML = `<div class="section-title">${t("j.mine")} <span class="muted">${t("j.count", { n: list.length })}</span></div>` + (list.length ? list.map(j => `
       <div class="card" data-j="${j.id}">
-        <div class="row"><b>🧭 ${esc(j.name)}</b><span class="muted">${t("j.drivesN", { n: j.drive_count })}</span></div>
+        <div class="row"><b>${ic("compass")} ${esc(j.name)}</b><span class="muted">${t("j.drivesN", { n: j.drive_count })}</span></div>
         <div class="row muted">${fmtDate(j.start_date)} – ${fmtDate(j.end_date)}</div>
-        <div class="stats"><span>📍 ${esc(j.start_address)} → ${esc(j.end_address)}</span></div>
-        <div class="stats"><span>📏 ${n(j.distance_km, 0)} km</span><span>⏱ ${fmtDur(j.duration_min)}</span><span>🔋 ${n(j.energy_kwh, 1)} kWh</span></div>
+        <div class="stats"><span>${ic("pin")} ${esc(j.start_address)} → ${esc(j.end_address)}</span></div>
+        <div class="stats"><span>${ic("ruler")} ${n(j.distance_km, 0)} km</span><span>${ic("clock")} ${fmtDur(j.duration_min)}</span><span>${ic("battery")} ${n(j.energy_kwh, 1)} kWh</span></div>
       </div>`).join("") : `<div class="muted">${t("j.emptyList")}</div>`);
     el.querySelectorAll<HTMLElement>("[data-j]").forEach(c => c.onclick = () => showJourney(ctx, Number(c.dataset.j)));
   }).catch(e => { const el = v.querySelector<HTMLElement>("#j-list"); if (el) { el.innerHTML = err(e); bindRetry(el, loadList); } });
@@ -193,7 +194,7 @@ export async function showJourneys(ctx: Ctx) {
         <div class="card sugg" data-s="${i}">
           <div class="row"><b>${esc(sgName(s.name))}</b><button class="ghost small sg-x" data-dismiss="${i}" title="${t("sg.dismissTitle")}">${t("sg.dismiss")}</button></div>
           <div class="row muted">${fmtDate(s.start_date)} – ${fmtDate(s.end_date)}</div>
-          <div class="row"><span class="stats" style="margin:0"><span>🚗 ${t("j.drivesN", { n: s.drive_ids.length })}</span><span>📏 ${n(s.distance_km, 0)} km</span>${s.charge_count ? `<span>${t("sg.charges", { n: s.charge_count })}</span>` : ""}</span>
+          <div class="row"><span class="stats" style="margin:0"><span>${ic("car")} ${t("j.drivesN", { n: s.drive_ids.length })}</span><span>${ic("ruler")} ${n(s.distance_km, 0)} km</span>${s.charge_count ? `<span>${t("sg.charges", { n: s.charge_count })}</span>` : ""}</span>
             <button class="primary small" data-create="${i}">${t("sg.create")}</button></div>
         </div>`).join("");
       }
@@ -233,9 +234,9 @@ function elevationChart(pts: JPoint[], stopsKm: { km: number; charge: boolean }[
   let g = "";
   [0, .5, 1].forEach(f => { const m = lo + (hi - lo) * f; g += `<line x1="${L}" x2="${W - R}" y1="${y(m)}" y2="${y(m)}" class="cg"/><text x="${L - 4}" y="${y(m) + 3}" text-anchor="end" class="ax">${Math.round(m)}</text>`; });
   [0, .25, .5, .75, 1].forEach(f => g += `<text x="${x(maxKm * f)}" y="${H - 6}" text-anchor="middle" class="ax">${Math.round(maxKm * f)}${f === 1 ? " km" : ""}</text>`);
-  const sm = stopsKm.map(s => `<line x1="${x(s.km)}" x2="${x(s.km)}" y1="${T}" y2="${T + ih}" stroke="${s.charge ? "#e31937" : "#999"}" stroke-dasharray="3 3"/>${s.charge ? `<text x="${x(s.km)}" y="${T + 9}" text-anchor="middle" font-size="10">⚡</text>` : ""}`).join("");
+  const sm = stopsKm.map(s => `<line x1="${x(s.km)}" x2="${x(s.km)}" y1="${T}" y2="${T + ih}" class="${s.charge ? "elev-charge" : "elev-stop"}" stroke-dasharray="3 3"/>${s.charge ? `<circle cx="${x(s.km)}" cy="${T + 5}" r="4" class="elev-cdot"/>` : ""}`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("j.elevAria")}">${g}<path d="${area}" class="elev-a"/>${sm}
-    <circle cx="${x(peak.km)}" cy="${y(peak.elevation!)}" r="3" fill="#1a73e8"/><text x="${Math.min(x(peak.km), W - 40)}" y="${y(peak.elevation!) - 6}" text-anchor="middle" class="ax">${t("j.peak", { v: peak.elevation ?? "" })}</text></svg>`;
+    <circle cx="${x(peak.km)}" cy="${y(peak.elevation!)}" r="3.5" class="elev-peak"/><text x="${Math.min(x(peak.km), W - 40)}" y="${y(peak.elevation!) - 6}" text-anchor="middle" class="ax">${t("j.peak", { v: peak.elevation ?? "" })}</text></svg>`;
 }
 
 export async function showJourney(ctx: Ctx, id: number) {
@@ -257,20 +258,20 @@ export async function showJourney(ctx: Ctx, id: number) {
     tl.push(`<div class="tl drive"><div class="card" data-drive="${d.id}">
       <div class="row"><b>${esc(d.start_address)} → ${esc(d.end_address)}</b></div>
       <div class="row muted">${fmtTime(d.start_date)} – ${fmtTime(d.end_date)} · ${fmtDur(d.duration_min)}</div>
-      <div class="stats"><span>📏 ${n(d.distance_km)} km</span><span>🔋 ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>⚡ ${n(d.efficiency_wh_km, 0)} Wh/km</span><span data-wx="${d.id}"></span></div></div></div>`);
+      <div class="stats"><span>${ic("ruler")} ${n(d.distance_km)} km</span><span>${ic("battery")} ${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</span><span>${ic("bolt")} ${n(d.efficiency_wh_km, 0)} Wh/km</span><span data-wx="${d.id}"></span></div></div></div>`);
     const st = j.stops[i];
     if (st) {
       const chs = st.charge_ids.map(c => chargeById.get(c)).filter(Boolean) as Charge[];
       chs.forEach(c => used.add(c.id));
       tl.push(chs.length ? chs.map(c => `<div class="tl charge"><div class="card" data-charge="${c.id}">
-          <div class="row"><b>⚡ ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
+          <div class="row"><b>${ic("bolt")} ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
           <div class="row muted">${fmtTime(c.start_date)} – ${fmtTime(c.end_date)} · ${fmtDur(c.duration_min)} · ${t("j.stay", { d: fmtDur(st.duration_min) })}</div>
-          <div class="stats"><span>+${n(c.charge_energy_added, 1)} kWh</span><span>🔋 ${c.start_battery_level ?? "—"}% → ${c.end_battery_level ?? "—"}%</span></div></div></div>`).join("")
-        : `<div class="tl stop">⏸ ${t("j.stayCap", { d: fmtDur(st.duration_min) })} · ${esc(st.address)}</div>`);
+          <div class="stats"><span>+${n(c.charge_energy_added, 1)} kWh</span><span>${ic("battery")} ${c.start_battery_level ?? "—"}% → ${c.end_battery_level ?? "—"}%</span></div></div></div>`).join("")
+        : `<div class="tl stop">${ic("pause")} ${t("j.stayCap", { d: fmtDur(st.duration_min) })} · ${esc(st.address)}</div>`);
     }
   });
   const extra = j.charges.filter(c => !used.has(c.id)); // e.g. charge at the very end
-  extra.forEach(c => tl.push(`<div class="tl charge"><div class="card" data-charge="${c.id}"><div class="row"><b>⚡ ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
+  extra.forEach(c => tl.push(`<div class="tl charge"><div class="card" data-charge="${c.id}"><div class="row"><b>${ic("bolt")} ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
     <div class="row muted">${fmtTime(c.start_date)} · +${n(c.charge_energy_added, 1)} kWh</div></div></div>`));
   const grad = `linear-gradient(90deg, ${SPEED_STOPS.map(([k, c]) => `${c} ${k / 1.2}%`).join(", ")})`;
   const meta = `${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${t("j.meta", { n: j.drives.length })}${s.charge_count ? t("card.metaCharges", { n: s.charge_count }) : ""}`;
@@ -283,7 +284,7 @@ export async function showJourney(ctx: Ctx, id: number) {
     ${heroOn ? `<div class="jhero sk" id="j-hero"><div class="jhero-in">
         <h2>${esc(j.name)} ${pen}</h2><div class="jhero-meta">${meta}</div>
         <div class="jhero-stats"><span>${n(s.distance_km, 0)} km</span><span>${n(s.energy_used_kwh, 1)} kWh</span><span>${n(s.efficiency_wh_km, 0)} Wh/km</span>${s.costs.length ? `<span>${costTxt(s.costs)}</span>` : ""}</div></div></div>`
-      : `<h2 class="jtitle">🧭 ${esc(j.name)} ${pen}</h2><div class="muted">${meta}</div>`}
+      : `<h2 class="jtitle">${ic("compass")} ${esc(j.name)} ${pen}</h2><div class="muted">${meta}</div>`}
     <div id="j-msg" class="muted"></div>
     ${j.note ? `<div class="jnote">${esc(j.note)}</div>` : ""}
     ${p2 ? "" : `<div class="muted small-note">${esc(t("j.p2Missing", { m: ctx.journey2Message() }))}</div>`}
