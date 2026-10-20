@@ -4,6 +4,12 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.0.1 — 2026-10-20
+- **Fixed on iPhone / iPad:** renaming a journey (and renaming a place or entering a charging cost) could show no input box. The edit sheet now always stays above the on-screen keyboard, the keyboard opens right away and the page no longer zooms in. Enter saves, Esc cancels.
+- The pencil buttons are easier to tap on phones.
+- Battery health: an invalid baseline value and a failed "create journey" from a suggestion now show an inline message instead of a browser pop-up.
+- No server update needed.
+
 ## v1.0.0 — 2026-10-20
 **DriveLens 1.0.0, the first stable release.**
 

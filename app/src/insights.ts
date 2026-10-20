@@ -130,7 +130,11 @@ export async function showBattery(view: HTMLElement, carId: number, back: () => 
   const again = () => showBattery(view, carId, back, car);
   (view.querySelector("#bl-save") as HTMLElement).onclick = () => {
     const v = Number((view.querySelector("#bl-km") as HTMLInputElement).value);
-    if (!(v >= 100 && v <= 1000)) return alert(t("bat.invalid"));
+    const box = view.querySelector(".bl-box")!; box.querySelector(".bl-err")?.remove();
+    if (!(v >= 100 && v <= 1000)) {
+      box.querySelector(".bl-row")!.insertAdjacentHTML("afterend", `<div class="error bl-err" role="alert">${esc(t("bat.invalid"))}</div>`);
+      (view.querySelector("#bl-km") as HTMLInputElement).focus(); return;
+    }
     setBaselineOverride(carId, Math.round(v)); again();
   };
   const rs = view.querySelector<HTMLElement>("#bl-reset"); if (rs) rs.onclick = () => { setBaselineOverride(carId, null); again(); };

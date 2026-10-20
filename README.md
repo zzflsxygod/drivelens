@@ -424,6 +424,14 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v1.0.1 — iOS 上重命名旅程没有输入框（仅网页版）
+
+- 原因：编辑弹层（`.modal` 固定在布局视口底部）在 iOS 上不会随键盘上移——iOS 打开键盘时不缩小布局视口，底部弹层整个被键盘挡住；输入框 15px 还会触发 iOS 聚焦放大，把页面推离弹层。
+- 新增 `sheets.ts`：`initSheets()` 用 `visualViewport` 设置 `--vv-top` / `--vv-h`，所有 `.modal` 贴合可视视口（键盘上方），`max-height` 改用可视高度，键盘打开时去掉底部安全区留白（`html.kb-open`），打开时锁定页面滚动；自动加 `role="dialog"`、`aria-modal`、`aria-labelledby`；Esc 关闭最上层弹层（等同取消）。`focusField()` 在点击处理里同步聚焦（`preventScroll`），iOS 才会弹出键盘。
+- 触屏设备输入框 / 下拉框 16px（避免 iOS 放大）；`.pen` 触控区扩大到 44px；旅程名称框 Enter 保存。
+- 替换浏览器原生弹窗：`insights.ts` 电池基准值无效的 `alert()` → 输入框下方行内错误；`journey.ts` 建议「创建旅程」失败的 `alert()` → 建议卡片内行内错误。全应用已无 `prompt()` / `confirm()` / `alert()`。
+- API 不变（0.12.0），无数据库迁移。
+
 ## v1.0.0 — 第一个正式版（仅网页版）
 
 - 重新显示捐助卡片：仓库变量 `DONATE_URL=https://buymeacoffee.com/zzflsxygod`（web.yml → `VITE_DONATE_URL`），设置页最底部「支持 DriveLens」。

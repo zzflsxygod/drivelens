@@ -265,6 +265,18 @@ html.touch .icon-btn, html.touch .tb-btn, html.touch .msw-arrow { min-width: 44p
 .sheet h3 { margin: 0 0 12px; font-size: 16px; }
 .sheet #note { width: 100%; margin-top: 8px; }
 .share-sheet { max-height: 92vh; }
+/* keyboard-safe sheets (v1.0.1): pinned to the visual viewport (sheets.ts sets --vv-top / --vv-h), so on iOS the
+   sheet sits above the on-screen keyboard instead of behind it */
+.modal { inset: auto 0; top: var(--vv-top, 0px); height: var(--vv-h, 100dvh); }
+.sheet { max-height: calc(var(--vv-h, 100dvh) - 24px - var(--sat)); overscroll-behavior: contain; }
+.share-sheet { max-height: calc(var(--vv-h, 100dvh) * .92); }
+html.kb-open .sheet { padding-bottom: 14px; }
+body.sheet-open { overflow: hidden; }
+/* iOS zooms into any focused field under 16px; phones / tablets get 16px fields */
+html.touch input:not([type=checkbox]), html.touch textarea, html.touch select { font-size: 16px; }
+/* the little pencil buttons get a full 44px touch target */
+html.touch .pen { position: relative; }
+html.touch .pen::after { content: ""; position: absolute; inset: -10px; border-radius: 50%; }
 .share-img { display: block; width: 100%; border-radius: var(--r-md); border: 1px solid var(--line); margin-bottom: 8px; }
 
 /* ---------- content blocks ---------- */

@@ -8,6 +8,7 @@ import { ICON } from "./toolbar";
 import { trackPopover } from "./ui";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { effectiveTheme } from "./map";
+import { focusField } from "./sheets";
 
 export interface Ctx {
   view: HTMLElement;
@@ -136,13 +137,14 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
 function nameDialog(o: { title: string; name: string; note: string; hint?: string; ok: string; save: (name: string, note: string | null) => Promise<void>; del?: () => Promise<void> }) {
   const dlg = document.createElement("div"); dlg.className = "modal";
   dlg.innerHTML = `<div class="sheet"><h3>${esc(o.title)}</h3>
-    <input id="jname" maxlength="200" placeholder="${t("j.namePh")}" value="${esc(o.name).replace(/^—$/, "")}">
+    <input id="jname" maxlength="200" enterkeyhint="done" autocomplete="off" placeholder="${t("j.namePh")}" value="${esc(o.name).replace(/^—$/, "")}">
     <textarea id="jnote" maxlength="2000" rows="3" placeholder="${t("common.noteOptional")}" style="width:100%;margin-top:8px">${esc(o.note).replace(/^—$/, "")}</textarea>
     ${o.hint ? `<p class="muted">${esc(o.hint)}</p>` : ""}<div id="dlgmsg"></div>
     <div class="btns">${o.del ? `<button id="del" class="ghost" style="color:var(--red)">${t("j.delete")}</button>` : ""}
       <button id="cancel" class="ghost">${t("common.cancel")}</button><button id="ok" class="primary small">${esc(o.ok)}</button></div></div>`;
   document.body.appendChild(dlg);
-  const name = dlg.querySelector("#jname") as HTMLInputElement; name.focus(); name.select();
+  const name = dlg.querySelector("#jname") as HTMLInputElement; focusField(name, true);
+  name.onkeydown = e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); (dlg.querySelector("#ok") as HTMLElement).click(); } };
   const close = () => dlg.remove();
   const msg = (s: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(s)}</div>`; };
   dlg.onclick = e => { if (e.target === dlg) close(); };
@@ -203,7 +205,12 @@ export async function showJourneys(ctx: Ctx) {
         ev.stopPropagation(); b.textContent = t("sg.creating");
         const s = sg[Number(b.dataset.create)];
         try { const j = await api<Journey>("/api/journeys", "POST", { name: sgName(s.name), drive_ids: s.drive_ids }); showJourney(ctx, j.id); }
-        catch (e) { b.textContent = t("sg.failed"); alert((e as Error).message); }
+        catch (e) {
+          b.textContent = t("sg.failed");
+          const card = b.closest(".card") ?? b.parentElement!;
+          card.querySelector(".sg-err")?.remove();
+          card.insertAdjacentHTML("beforeend", `<div class="error sg-err" role="alert">${esc((e as Error).message)}</div>`);
+        }
       });
       el.querySelectorAll<HTMLElement>("[data-dismiss]").forEach(b => b.onclick = async ev => {
         ev.stopPropagation(); b.textContent = "…";

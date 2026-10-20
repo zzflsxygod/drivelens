@@ -7,6 +7,7 @@ import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, 
 import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { ICON } from "./toolbar";
 import { initUI, popMenu, closeMenus } from "./ui";
+import { initSheets, focusField } from "./sheets";
 import { mountNotifications, initNotificationClicks } from "./notify";
 import { initOverlayScrollbar } from "./scrollbar";
 import { DriveMap, effectiveTheme } from "./map";
@@ -43,7 +44,7 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
   dlg.innerHTML = `
     <div class="sheet">
       <h3>${t("alias.title")}</h3>
-      <input id="alias" maxlength="200" value="${esc(current)}">
+      <input id="alias" maxlength="200" enterkeyhint="done" autocomplete="off" value="${esc(current)}">
       <p class="muted">${t("alias.hint")}</p>
       <div id="dlgmsg"></div>
       <div class="btns">
@@ -54,7 +55,7 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
     </div>`;
   document.body.appendChild(dlg);
   const input = dlg.querySelector("#alias") as HTMLInputElement;
-  input.focus(); input.select();
+  focusField(input, true);
   const close = () => dlg.remove();
   const run = async (fn: () => Promise<unknown>) => {
     try { await fn(); close(); onDone(); }
@@ -109,7 +110,7 @@ function costDialog(c: Charge, onDone: () => void) {
     dlg.querySelector("#unit")!.textContent = v >= 0 && kwh ? t("common.unitPrice", { p: fmtMoney(v / kwh, cur.value, true) }) : "";
   };
   amount.oninput = unit; cur.onchange = unit; unit();
-  amount.focus();
+  focusField(amount);
   const close = () => dlg.remove();
   const msg = (s: string) => { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${esc(s)}</div>`; };
   const run = async (fn: () => Promise<unknown>) => { try { await fn(); close(); onDone(); } catch (e) { msg((e as Error).message); } };
@@ -858,6 +859,7 @@ window.addEventListener("touchend", e => {
 
 mountDemoBanner();
 trackHeaderHeight();
+initSheets();
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 initPlatform();   // touch class, external links, Android insets / status bar / back button
 initWeb();        // browser / PWA: service worker (shell only), install prompt, theme-color
