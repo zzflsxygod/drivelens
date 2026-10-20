@@ -297,7 +297,18 @@ function demoSettingsCard() {
     <button id="demo-exit" class="primary">${t("demo.exitBtn")}</button>
     <p class="muted tiny">${esc(DEMO_CREDIT)}</p></div>`;
 }
-/** Slim persistent strip under the header while demo mode is active. */
+/** Publishes the real height of the sticky header (safe-area padding + car pill + demo strip) as --hdr-h,
+ *  so everything that sticks below it (server banner, month headers, page heads) lines up exactly instead of
+ *  relying on a hard-coded guess. */
+function trackHeaderHeight() {
+  const h = document.querySelector("body > header") as HTMLElement | null;
+  if (!h) return;
+  const set = () => { const v = Math.round(h.getBoundingClientRect().height); if (v > 0) document.body.style.setProperty("--hdr-h", `${v}px`); };
+  set();
+  if ("ResizeObserver" in window) new ResizeObserver(set).observe(h); else addEventListener("resize", set);
+}
+/** Slim persistent strip at the bottom of the header while demo mode is active.
+ *  It lives *inside* the sticky header (not as a separately sticky sibling), so it can never drift. */
 function mountDemoBanner() {
   if (!isDemo()) return;
   document.body.classList.add("demo");
@@ -305,7 +316,7 @@ function mountDemoBanner() {
   b.id = "demo-banner"; b.className = "demo-banner"; b.setAttribute("role", "status");
   b.innerHTML = `<span class="demo-dot"></span><b>${t("demo.banner")}</b><span class="demo-sub">· ${t("demo.bannerSub")}</span><button type="button">${t("demo.exit")}</button>`;
   (b.querySelector("button") as HTMLElement).onclick = () => exitDemo();
-  document.querySelector("header")!.after(b);
+  document.querySelector("header")!.append(b);
 }
 
 function showSettings() {
@@ -735,6 +746,7 @@ window.addEventListener("touchend", e => {
 });
 
 mountDemoBanner();
+trackHeaderHeight();
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 initPlatform();   // touch class, external links, Android insets / status bar / back button
 setRootBack(() => {   // Android back at a tab root: other tab → home; on home → exit

@@ -536,10 +536,12 @@ html { scrollbar-gutter: auto; overflow-x: hidden; }
 .su-demo:hover { background: color-mix(in srgb, var(--cardsolid) 85%, #a78bfa); }
 .su-demo:active { transform: scale(.98); }
 .setup-card .su-demo-hint { margin-top: 8px; text-align: center; }
-.demo-banner { position: sticky; top: calc(49px + var(--sat)); z-index: 998; height: 28px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 16px;
-  font-size: 12px; color: #5b3fc4; background: linear-gradient(90deg, #efe9ffe6, #e6f0ffe6); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  border-bottom: 1px solid #7c5cff26; }
-:root[data-theme="dark"] .demo-banner { color: #c9b8ff; background: linear-gradient(90deg, #241b45e6, #16233fe6); border-bottom-color: #9d86ff33; }
+/* v0.14.2: the strip is the last row *inside* the sticky header (full-bleed), so it moves with nothing */
+body.demo header { flex-wrap: wrap; row-gap: 0; }
+.demo-banner { flex: 0 0 calc(100% + 32px); order: 99; margin: 10px -16px -10px; z-index: 1; height: 28px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 16px;
+  font-size: 12px; color: #5b3fc4; background: linear-gradient(90deg, #efe9ffe6, #e6f0ffe6);
+  border-top: 1px solid #7c5cff26; }
+:root[data-theme="dark"] .demo-banner { color: #c9b8ff; background: linear-gradient(90deg, #241b45e6, #16233fe6); border-top-color: #9d86ff33; }
 .demo-banner b { font-weight: 700; }
 .demo-banner .demo-sub { opacity: .75; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .demo-dot { width: 7px; height: 7px; border-radius: 50%; background: #7c5cff; box-shadow: 0 0 0 3px #7c5cff33; flex: none; }
@@ -547,10 +549,11 @@ html { scrollbar-gutter: auto; overflow-x: hidden; }
 :root[data-theme="dark"] .demo-banner button { background: #ffffff14; }
 .demo-banner button:active { transform: scale(.96); }
 body.setup-mode .demo-banner { display: none; }
-/* everything sticky below the header moves down by the strip */
-body.demo .srv-banner { top: calc(77px + var(--sat)); }
-body.demo .month-h { top: calc(77px + var(--sat)); }
-body.demo .page-head { top: calc(92px + var(--sat)); }
+/* everything sticky below the header follows its measured height (--hdr-h, see trackHeaderHeight) */
+body { --hdr-h: calc(59px + var(--sat)); }
+body.demo { --hdr-h: calc(87px + var(--sat)); }   /* fallbacks; the inline value on <body> wins */
+.srv-banner, .month-h { top: var(--hdr-h); }
+.page-head { top: calc(var(--hdr-h) + 5px); }
 .demo-card { margin: 14px 0 6px; }
 .demo-card p { margin: 6px 0; }
 .demo-card-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
