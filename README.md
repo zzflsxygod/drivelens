@@ -380,3 +380,10 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 文案在 `app/src/locales/{zh,en,ja}.ts`（中文为源），格式化（日期、时长、相对时间、月份）在 `app/src/i18n.ts`。
 - `npm run check:i18n`（`npm run build` 会先执行）：缺少 key、占位符不一致、源码里残留硬编码中文时失败。
 - 安装指南：[中文](docs/install.md) · [English](docs/install.en.md) · [日本語](docs/install.ja.md)。服务器无需更新（API 未变）。
+
+## v0.14.1 — 弹出菜单定位修复
+
+所有弹出菜单（引导页语言、车辆切换、行程月份跳转、设置里的下拉框、旅程 ⋯ 菜单）都改用 `ui.ts` 里同一个定位函数 `placePopover()` / `trackPopover()`：
+- 按锚点所在的一侧对齐左边或右边，并限制在可视区域内。可视区域会扣掉安全区（刘海、手势条）、顶栏和底部导航。
+- 根据上下哪边空间大，自动向上或向下弹出；内容超过可用高度时在菜单内部滚动。
+- 窗口缩放、横竖屏切换、键盘弹出和页面滚动时自动重新定位；锚点滚出屏幕时自动关闭菜单。

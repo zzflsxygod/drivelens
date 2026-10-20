@@ -579,3 +579,11 @@ html.touch .chk-row input[type=checkbox] { width: 22px; height: 22px; }
 html.touch * { -webkit-tap-highlight-color: transparent; }
 /* keyboard open (Android): the floating tab bar would sit on top of the inputs */
 html.ime nav, html.ime .totop { display: none; }
+
+/* ===== v0.14.1 popovers: fixed + clamped by placePopover() in ui.ts ===== */
+.tb-menu { position: fixed; overscroll-behavior: contain; box-sizing: border-box; }
+.tb-menu button > span { overflow-wrap: anywhere; }
+.pop-menu:not([hidden]) { overscroll-behavior: contain; box-sizing: border-box; z-index: 2100; }
+#j-more.open { border-color: var(--accent); }
+/* setup wizard: the language pill sits in the card's top-right corner (the native select it replaces did) */
+.setup-card > .su-lang + .sel-pill { position: absolute; top: 18px; right: 18px; margin: 0; max-width: calc(100% - 110px); }

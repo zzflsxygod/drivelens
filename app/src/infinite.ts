@@ -4,7 +4,8 @@ import { setJumpedPeek, setJumpedReset } from "./totop";
 // and scroll restore. Older servers: one request with limit=100 (no paging).
 import { api } from "./api";
 import { t, monthLabel } from "./i18n";
-import { ICON, popMenu, closeMenus } from "./toolbar";
+import { ICON } from "./toolbar";
+import { popMenu, closeMenus } from "./ui";
 export { monthLabel };
 
 export interface MonthRow { month: string; drive_count: number; distance_km: number; duration_min: number; charge_count: number; energy_added_kwh: number }

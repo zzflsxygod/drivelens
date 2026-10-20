@@ -4,6 +4,7 @@ import { DriveMap, SPEED_STOPS } from "./map";
 import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
 import { ICON } from "./toolbar";
+import { trackPopover } from "./ui";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { effectiveTheme } from "./map";
 
@@ -405,8 +406,16 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
     if (el) { el.classList.remove("sk"); if (img) el.style.backgroundImage = `url("${img}")`; }
   }) : Promise.resolve();
   const menu = v.querySelector<HTMLElement>("#j-menu")!;
-  const closeMenu = (e: Event) => { if (!(e.target as HTMLElement).closest("#j-more")) { menu.hidden = true; document.removeEventListener("click", closeMenu); } };
-  (v.querySelector("#j-more") as HTMLElement).onclick = () => { menu.hidden = !menu.hidden; if (!menu.hidden) document.addEventListener("click", closeMenu); };
+  const more = v.querySelector<HTMLElement>("#j-more")!;
+  let stopMenu: (() => void) | null = null;
+  const hideMenu = () => { menu.hidden = true; stopMenu?.(); stopMenu = null; more.classList.remove("open"); document.removeEventListener("click", closeMenu); };
+  const closeMenu = (e: Event) => { if (!(e.target as HTMLElement).closest("#j-more")) hideMenu(); };
+  more.onclick = () => {
+    if (!menu.hidden) { hideMenu(); return; }
+    menu.hidden = false; more.classList.add("open");
+    stopMenu = trackPopover(menu, more, hideMenu);   // shared clamp / flip / follow (v0.14.1)
+    document.addEventListener("click", closeMenu);
+  };
   (menu.querySelector('[data-act="setcover"]') as HTMLElement).onclick = async () => {
     msg(t("cv.capturing"));
     const img = await J2.mapSnapshot(getMap());

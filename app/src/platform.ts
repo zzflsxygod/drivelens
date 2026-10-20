@@ -1,6 +1,6 @@
 // Platform glue: touch devices, Android (Tauri mobile) safe areas / status bar / back button / share,
 // and external links (always the system browser, never inside the app's webview).
-import { closeMenus, hasOpenMenu } from "./toolbar";
+import { closeMenus, hasOpenMenu } from "./ui";
 
 interface AndroidBridge {   // MainActivity.kt → webView.addJavascriptInterface(…, "DriveLensAndroid")
   insets(): string; setDarkBars(dark: boolean): void;
@@ -39,7 +39,7 @@ export function inAppBack(): boolean {
   const modal = [...document.querySelectorAll<HTMLElement>(".modal")].pop();
   if (modal) { modal.dispatchEvent(new MouseEvent("click", { bubbles: true })); if (modal.isConnected) modal.remove(); return true; }
   const jmenu = document.querySelector<HTMLElement>("#j-menu:not([hidden])");
-  if (jmenu) { jmenu.hidden = true; return true; }
+  if (jmenu) { jmenu.hidden = true; document.querySelector("#j-more")?.classList.remove("open"); return true; }
   const sel = document.querySelector<HTMLElement>("#selmode.active");
   if (sel) { sel.click(); return true; }
   const back = document.querySelector<HTMLElement>("#view .page-head .back, #view .back");

@@ -1,13 +1,131 @@
 // v0.12.0: unified glass controls + motion. Upgrades whatever the page renderers put into #view
 // (back links → round chevron buttons in a sticky page header, ✎ → pencil chips, native <select> → pill + popover)
 // and plays push / pop / tab transitions. Transform + opacity only; prefers-reduced-motion disables it in CSS.
-import { ICON, popMenu } from "./toolbar";
+import { ICON } from "./toolbar";
 
 const CHEV_L = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m14.5 5.5-6.5 6.5 6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const PEN = `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
 const MORE = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5.5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="18.5" cy="12" r="1.8" fill="currentColor"/></svg>`;
 const SHARE = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3.5v11M7.5 8 12 3.5 16.5 8M5 12.5V18a2.5 2.5 0 0 0 2.5 2.5h9A2.5 2.5 0 0 0 19 18v-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const REFRESH = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4.5H15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+// ---------------- shared popover positioning (v0.14.1) ----------------
+// Popovers are position:fixed and clamped to the visible viewport minus safe-area insets, the sticky
+// header and the bottom nav. They align with the anchor's left or right edge (whichever side the anchor
+// is on), flip above/below by available space, scroll internally when taller than the space, and follow
+// the anchor on resize / orientation / keyboard (visualViewport) / scroll.
+const POP_GAP = 8, POP_EDGE = 8;
+let insetProbe: HTMLElement | null = null;
+/** resolved safe-area insets in px (the --sa* vars combine env() with the Android bridge values) */
+function insets() {
+  if (!insetProbe || !insetProbe.isConnected) {
+    insetProbe = document.createElement("div");
+    insetProbe.setAttribute("aria-hidden", "true");
+    insetProbe.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--sat,0px) var(--sar,0px) var(--sab,0px) var(--sal,0px)";
+    document.body.appendChild(insetProbe);
+  }
+  const cs = getComputedStyle(insetProbe), n = (v: string) => parseFloat(v) || 0;
+  return { top: n(cs.paddingTop), right: n(cs.paddingRight), bottom: n(cs.paddingBottom), left: n(cs.paddingLeft) };
+}
+// (offsetParent is null for position:fixed elements such as the bottom nav, so check the computed style)
+const shown = (el: Element | null): el is HTMLElement => {
+  if (!el) return false;
+  const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+  return cs.display !== "none" && cs.visibility !== "hidden" && r.height > 0 && r.bottom > 0 && r.top < innerHeight;
+};
+
+/** Place `el` (any parent) next to `anchor`, fully inside the usable viewport. */
+export function placePopover(el: HTMLElement, anchor: HTMLElement) {
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : document.documentElement.clientWidth, vh = vv ? vv.height : innerHeight;
+  const ox = vv ? vv.offsetLeft : 0, oy = vv ? vv.offsetTop : 0;
+  const ins = insets();
+  const a = anchor.getBoundingClientRect();
+  let top = oy + ins.top + POP_EDGE, bottom = oy + vh - ins.bottom - POP_EDGE;
+  const left = ox + ins.left + POP_EDGE, right = ox + vw - ins.right - POP_EDGE;
+  // keep clear of the sticky header and the bottom nav (unless the anchor itself lives in them)
+  const head = document.querySelector("body > header");
+  if (shown(head) && !head.contains(anchor)) { const r = head.getBoundingClientRect(); if (r.bottom <= a.top + 1) top = Math.max(top, r.bottom + 4); }
+  const nav = document.querySelector("body > nav");
+  if (shown(nav) && !nav.contains(anchor)) { const r = nav.getBoundingClientRect(); if (r.top >= a.bottom - 1) bottom = Math.min(bottom, r.top - 4); }
+
+  Object.assign(el.style, { position: "fixed", left: "0px", top: "0px", right: "auto", bottom: "auto", maxWidth: `${Math.max(120, right - left)}px`, maxHeight: "" });
+  // a fixed element under a transformed / backdrop-filtered ancestor is positioned relative to that ancestor:
+  // measure the real origin with an untransformed probe in the same parent
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;visibility:hidden";
+  (el.parentElement ?? document.body).appendChild(probe);
+  const o = probe.getBoundingClientRect(); probe.remove();
+
+  const cssMax = parseFloat(getComputedStyle(el).maxHeight) || Infinity;   // CSS cap (e.g. min(60vh, 420px))
+  const w = Math.min(el.offsetWidth, right - left);
+  const natural = Math.min(el.scrollHeight + (el.offsetHeight - el.clientHeight), cssMax);
+  const below = bottom - a.bottom - POP_GAP, above = a.top - POP_GAP - top;
+  const down = natural <= below || below >= above;
+  const space = Math.max(80, down ? below : above);
+  const h = Math.min(natural, space);
+  // align to the anchor edge on the side of the screen the anchor is on, then clamp
+  const alignRight = a.left + a.width / 2 > ox + vw / 2;
+  let x = alignRight ? a.right - w : a.left;
+  x = Math.min(Math.max(x, left), Math.max(left, right - w));
+  let y = down ? a.bottom + POP_GAP : a.top - POP_GAP - h;
+  y = Math.min(Math.max(y, top), Math.max(top, bottom - h));
+  Object.assign(el.style, { left: `${Math.round(x - o.left)}px`, top: `${Math.round(y - o.top)}px`, maxHeight: `${Math.floor(Math.min(space, cssMax))}px`, overflowY: "auto",
+    transformOrigin: `${down ? "top" : "bottom"} ${alignRight ? "right" : "left"}` });
+  el.dataset.side = down ? "below" : "above";
+}
+
+/** Keep `el` attached to `anchor` until the returned stop() is called (or the popover/anchor disappears). */
+export function trackPopover(el: HTMLElement, anchor: HTMLElement, onGone?: () => void) {
+  let raf = 0;
+  const update = (e?: Event) => {
+    if (e?.type === "scroll" && e.target instanceof Node && el.contains(e.target)) return;   // the menu's own scroll
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      if (!el.isConnected || el.hidden || !anchor.isConnected) { stop(); return; }
+      const a = anchor.getBoundingClientRect();
+      if (a.bottom < 0 || a.top > innerHeight || a.width === 0) { stop(); onGone?.(); return; }   // anchor scrolled away
+      placePopover(el, anchor);
+    });
+  };
+  const vv = window.visualViewport;
+  const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => update()) : null;
+  ro?.observe(el); ro?.observe(document.documentElement);
+  addEventListener("resize", update); addEventListener("orientationchange", update); addEventListener("scroll", update, true);
+  vv?.addEventListener("resize", update); vv?.addEventListener("scroll", update);
+  const stop = () => {
+    cancelAnimationFrame(raf); ro?.disconnect();
+    removeEventListener("resize", update); removeEventListener("orientationchange", update); removeEventListener("scroll", update, true);
+    vv?.removeEventListener("resize", update); vv?.removeEventListener("scroll", update);
+  };
+  placePopover(el, anchor);
+  return stop;
+}
+
+const escH = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+export interface MenuItem { value: string; label: string; sub?: string; active?: boolean }
+let openMenu: (() => void) | null = null;
+/** Popover menu anchored to `anchor`; closes on outside tap / Esc / pick / back. */
+export function popMenu(anchor: HTMLElement, items: MenuItem[], onPick: (v: string) => void, title?: string) {
+  if (openMenu) { const wasMine = anchor.classList.contains("open"); openMenu(); if (wasMine) return; }
+  const m = document.createElement("div");
+  m.className = "tb-menu"; m.setAttribute("role", "menu");
+  m.innerHTML = (title ? `<div class="tb-menu-t">${escH(title)}</div>` : "") + items.map(i =>
+    `<button role="menuitemradio" aria-checked="${!!i.active}" data-v="${escH(i.value)}" class="${i.active ? "on" : ""}"><span>${escH(i.label)}${i.sub ? `<small>${escH(i.sub)}</small>` : ""}</span><i>${i.active ? ICON.check : ""}</i></button>`).join("");
+  document.body.appendChild(m);
+  anchor.classList.add("open"); anchor.setAttribute("aria-expanded", "true");
+  const close = () => { stopTrack(); m.remove(); anchor.classList.remove("open"); anchor.setAttribute("aria-expanded", "false"); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key); openMenu = null; };
+  const stopTrack = trackPopover(m, anchor, () => close());
+  const outside = (e: Event) => { if (!m.contains(e.target as Node) && !anchor.contains(e.target as Node)) close(); };
+  const key = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+  setTimeout(() => { document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key); });
+  m.querySelectorAll<HTMLButtonElement>("button").forEach(b => b.onclick = () => { close(); onPick(b.dataset.v!); });
+  const on = m.querySelector<HTMLElement>("button.on");
+  if (on) m.scrollTop = Math.max(0, on.offsetTop - (m.clientHeight - on.offsetHeight) / 2);   // no scrollIntoView: it would scroll the page
+  openMenu = close;
+}
+export const closeMenus = () => openMenu?.();
+export const hasOpenMenu = () => openMenu != null;
 
 const label = (s: string | null) => (s ?? "").replace(/^[←‹<]\s*/, "").trim();
 

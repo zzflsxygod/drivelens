@@ -7,31 +7,6 @@ export const ICON = {
   chev: `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   close: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
 };
-const esc = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 
-export interface MenuItem { value: string; label: string; sub?: string; active?: boolean }
-let openMenu: (() => void) | null = null;
-/** Popover anchored under `anchor` (right-aligned); closes on outside tap / Esc / pick. */
-export function popMenu(anchor: HTMLElement, items: MenuItem[], onPick: (v: string) => void, title?: string) {
-  if (openMenu) { const wasMine = anchor.classList.contains("open"); openMenu(); if (wasMine) return; }
-  const m = document.createElement("div");
-  m.className = "tb-menu"; m.setAttribute("role", "menu");
-  m.innerHTML = (title ? `<div class="tb-menu-t">${esc(title)}</div>` : "") + items.map(i =>
-    `<button role="menuitemradio" aria-checked="${!!i.active}" data-v="${esc(i.value)}" class="${i.active ? "on" : ""}"><span>${esc(i.label)}${i.sub ? `<small>${esc(i.sub)}</small>` : ""}</span><i>${i.active ? ICON.check : ""}</i></button>`).join("");
-  document.body.appendChild(m);
-  const r = anchor.getBoundingClientRect();
-  const h = m.offsetHeight, below = innerHeight - r.bottom - 90;   // keep clear of the bottom nav
-  if (h > below && r.top - 8 > below) { m.style.top = `${r.top + window.scrollY - 8 - Math.min(h, r.top - 70)}px`; m.style.maxHeight = `${r.top - 78}px`; m.style.transformOrigin = "bottom right"; }
-  else { m.style.top = `${r.bottom + window.scrollY + 8}px`; if (h > below) m.style.maxHeight = `${Math.max(160, below)}px`; }
-  m.style.right = `${Math.max(8, document.documentElement.clientWidth - r.right)}px`;
-  anchor.classList.add("open"); anchor.setAttribute("aria-expanded", "true");
-  const close = () => { m.remove(); anchor.classList.remove("open"); anchor.setAttribute("aria-expanded", "false"); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key); openMenu = null; };
-  const outside = (e: Event) => { if (!m.contains(e.target as Node) && !anchor.contains(e.target as Node)) close(); };
-  const key = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
-  setTimeout(() => { document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key); });
-  m.querySelectorAll<HTMLButtonElement>("button").forEach(b => b.onclick = () => { close(); onPick(b.dataset.v!); });
-  m.querySelector<HTMLElement>("button.on")?.scrollIntoView({ block: "nearest" });
-  openMenu = close;
-}
-export const closeMenus = () => openMenu?.();
-export const hasOpenMenu = () => openMenu != null;
+// popMenu / MenuItem / closeMenus / hasOpenMenu live in ui.ts (shared popover positioning).
+

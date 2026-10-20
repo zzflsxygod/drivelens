@@ -3,8 +3,8 @@ import { initPlatform, setRootBack } from "./platform";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
-import { ICON, popMenu } from "./toolbar";
-import { initUI } from "./ui";
+import { ICON } from "./toolbar";
+import { initUI, popMenu } from "./ui";
 import { initOverlayScrollbar } from "./scrollbar";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
