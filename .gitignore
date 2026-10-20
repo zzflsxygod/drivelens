@@ -12,3 +12,4 @@ scripts/.release.local
 *.p12
 *.keystore
 keystore.properties
+dist-web/

@@ -48,8 +48,15 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   if (!s.apiUrl) throw new Error(t("api.noUrl"));
   const headers: Record<string, string> = { Authorization: `Bearer ${s.token}` };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const res = await fetch(s.apiUrl.replace(/\/+$/, "") + path,
-    { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(s.apiUrl.replace(/\/+$/, "") + path,
+      { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    // browsers report CORS / DNS / TLS / offline all as a bare TypeError ("Failed to fetch")
+    throw new Error(!navigator.onLine ? t("api.offline") : "__TAURI_INTERNALS__" in window ? t("api.network") : t("api.networkWeb"));
+  }
   if (res.status === 401) throw new Error(t("api.401"));
   if (res.status === 429) throw new Error(t("api.429"));
   if (!res.ok) {

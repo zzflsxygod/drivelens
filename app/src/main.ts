@@ -1,5 +1,6 @@
 import "./style.css";
 import { initPlatform, setRootBack } from "./platform";
+import { initWeb, installMode, promptInstall, onInstallChange, isWeb } from "./pwa";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
@@ -348,7 +349,10 @@ function showSettings() {
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
     <button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span>
-    <p class="muted">${t("set.mapCredit")}</p>`;
+    <p class="muted">${t("set.mapCredit")}</p>
+    <div id="pwa-slot"></div>
+    ${supportCardHTML()}`;
+  mountInstallCard();
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
@@ -395,6 +399,36 @@ function showSettings() {
   };
 }
 
+
+// ---------------- Settings extras: install as app (web) + support / donation ----------------
+/** Build-time donation page (VITE_DONATE_URL). Empty → no card at all. */
+const DONATE_URL = (import.meta.env.VITE_DONATE_URL ?? "").trim();
+function donateLabel(u: string) {
+  const h = (() => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+  if (/buymeacoffee\.com$/.test(h)) return "Buy me a coffee";
+  if (/ko-fi\.com$/.test(h)) return "Ko-fi";
+  if (/github\.com$/.test(h)) return "GitHub Sponsors";
+  return t("don.btn");
+}
+function supportCardHTML() {
+  if (!/^https:\/\//.test(DONATE_URL)) return "";
+  if (import.meta.env.VITE_DONATE_WEB_ONLY === "1" && !isWeb()) return "";
+  return `<div class="card support-card"><div class="support-ico" aria-hidden="true">☕</div>
+    <div class="support-body"><b>${t("don.title")}</b><p class="muted small">${t("don.text")}</p>
+    <a class="support-btn" href="${esc(DONATE_URL)}" target="_blank" rel="noopener noreferrer">${esc(donateLabel(DONATE_URL))} <span aria-hidden="true">→</span></a></div></div>`;
+}
+function mountInstallCard() {
+  const slot = document.getElementById("pwa-slot"); if (!slot) return;
+  const render = () => {
+    const m = installMode();
+    slot.innerHTML = !m ? "" : `<div class="card demo-card install-card"><div class="demo-card-row"><div><b>📲 ${t("pwa.title")}</b>
+      <p class="muted small">${m === "ios" ? t("pwa.ios") : t("pwa.text")}</p></div>
+      ${m === "prompt" ? `<button id="pwa-install" class="ghost small">${t("pwa.btn")}</button>` : ""}</div></div>`;
+    const b = document.getElementById("pwa-install");
+    if (b) b.onclick = () => { void promptInstall(); };
+  };
+  render(); onInstallChange(() => { if (slot.isConnected) render(); });
+}
 
 // ---------------- Home (首页) ----------------
 interface Summary {
@@ -749,6 +783,7 @@ mountDemoBanner();
 trackHeaderHeight();
 const tabs: Record<string, () => void> = { home: showHome, drives: showDrives, charges: () => showCharges(), settings: showSettings };
 initPlatform();   // touch class, external links, Android insets / status bar / back button
+initWeb();        // browser / PWA: service worker (shell only), install prompt, theme-color
 setRootBack(() => {   // Android back at a tab root: other tab → home; on home → exit
   const active = document.querySelector<HTMLElement>("nav button.active");
   if (document.body.classList.contains("setup-mode")) return false;

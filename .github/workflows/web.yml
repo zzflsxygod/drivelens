@@ -1,0 +1,74 @@
+name: Web app (PWA)
+
+# Builds the browser / PWA bundle (app/dist-web) and keeps it as an artifact.
+# On release tags (and manual runs with deploy=true) it is also deployed to Cloudflare Pages —
+# only when the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets exist; otherwise the deploy is skipped.
+# Optional repository *variables* (Settings → Secrets and variables → Actions → Variables):
+#   DONATE_URL        donation page shown at the bottom of Settings (empty → card hidden)
+#   CF_PAGES_PROJECT  Cloudflare Pages project name (default: drivelens-app)
+#   WEB_ORIGIN        public origin of the web app (default: https://drivelens-app.oharuru.com)
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to Cloudflare Pages (production)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: ["app/**", ".github/workflows/web.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: app
+        run: npm ci
+
+      - name: Build web bundle
+        working-directory: app
+        env:
+          VITE_DONATE_URL: ${{ vars.DONATE_URL }}
+          VITE_WEB_ORIGIN: ${{ vars.WEB_ORIGIN || 'https://drivelens-app.oharuru.com' }}
+        run: |
+          npm run build:web
+          test -f dist-web/sw.js && test -f dist-web/manifest.webmanifest && test -f dist-web/_headers
+          du -sh dist-web
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DriveLens-web
+          path: app/dist-web/
+          if-no-files-found: error
+
+      - name: Deploy to Cloudflare Pages
+        if: startsWith(github.ref, 'refs/tags/') || inputs.deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CF_PAGES_PROJECT || 'drivelens-app' }}
+        working-directory: app
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping the Cloudflare Pages deploy (bundle is in the DriveLens-web artifact)"
+            exit 0
+          fi
+          # first deploy: create the Pages project (no-op error when it already exists)
+          npx --yes wrangler@4 pages project create "$PROJECT" --production-branch main >/dev/null 2>&1 || true
+          npx --yes wrangler@4 pages deploy dist-web --project-name "$PROJECT" --branch main --commit-dirty=true

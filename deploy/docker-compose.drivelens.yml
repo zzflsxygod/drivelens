@@ -18,8 +18,10 @@ services:
       - DATABASE_URL=postgres://drivelens_ro:${DRIVELENS_DB_PASS:?请在 .env 设置 DRIVELENS_DB_PASS}@database:5432/${DRIVELENS_DB_NAME:-teslamate}
       - API_TOKEN=${DRIVELENS_API_TOKEN:?请在 .env 设置 DRIVELENS_API_TOKEN}
       - RUST_LOG=info
-      # 可选：只允许这些网页来源跨域访问（逗号分隔）；App 本身不受影响时可不设，默认允许任意来源（仅 Bearer Token，无 Cookie）
-      # - CORS_ORIGINS=https://drivelens.example.com
+      # 可选（v0.11.0+）：允许在浏览器里访问 API 的网页来源，逗号分隔。不设时只允许官方网页版
+      # https://drivelens-app.oharuru.com（Windows / Android App 总是允许）。自己部署网页版时加上你的网址；* = 任意来源。
+      # 网页版要求服务器地址是 https（Cloudflare Tunnel / tailscale serve），详见 docs/install.md「网页版」。
+      # - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com,https://drivelens-web.example.com
     # 方案 A（推荐）：cloudflared / tailscale 也在这个 compose 里 → 删掉 ports，不暴露任何端口
     # 方案 B：cloudflared 装在宿主机上 → 只映射到本机回环地址
     ports:

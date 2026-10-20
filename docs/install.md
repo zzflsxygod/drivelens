@@ -85,7 +85,7 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:密码@database:5432/teslamate`（compose 文件已用 `.env` 拼好） |
 | `API_TOKEN` | ✅ | App 用的 Bearer Token，至少 16 位，建议 32 位以上 |
 | `BIND_ADDR` | | 监听地址，镜像默认 `0.0.0.0:8080` |
-| `CORS_ORIGINS` | | 允许跨域的网页来源，逗号分隔；默认允许任意来源（只用 Bearer Token、没有 Cookie，所以安全性不受影响） |
+| `DRIVELENS_CORS_ORIGINS` | | 允许在浏览器里访问 API 的网页来源，逗号分隔（v0.11.0+；旧名 `CORS_ORIGINS` 仍有效）。默认只允许官方网页版 `https://drivelens-app.oharuru.com`；Windows / Android App 的来源总是自动允许。自己部署网页版时加上你的网址，`*` 表示允许任意来源 |
 | `RUST_LOG` | | 日志级别，默认 `info` |
 
 compose 文件里用到的 `.env` 变量：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`，可选 `DRIVELENS_DB_NAME`（默认 teslamate）、`DRIVELENS_SRC`（源码目录，默认 `./drivelens`）、`DRIVELENS_IMAGE`（使用自己的镜像仓库时）。
@@ -135,6 +135,37 @@ cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up
 | 错误次数太多（429） | 等 10 分钟后再试 |
 
 之后可以随时在「设置」中修改服务器地址和 Token（新设置测试成功才会保存）。界面语言（中文 / English / 日本語）、地图文字语言和默认货币按手机语言自动选择，也可以在「设置」中修改。
+
+## 7. 网页版（PWA）
+
+不想安装 App 时，可以直接在浏览器里打开 **https://drivelens-app.oharuru.com**，填写服务器地址和 Token 即可使用（也可以先点「先体验演示」）。网页版只是一份静态页面：它从你的浏览器直接访问**你自己的** drivelens-api，Token 和数据不会经过网页服务器。
+
+**服务器要求**
+
+- **drivelens-api v0.11.0 以上**：默认允许官方网页版跨域访问（CORS）。设置过 `DRIVELENS_CORS_ORIGINS` 时，记得把 `https://drivelens-app.oharuru.com` 也写进去，例如：
+  ```yaml
+  environment:
+    - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
+  ```
+- **必须是 https**：浏览器不允许 https 网页访问 `http://` 地址（混合内容）。用 Cloudflare Tunnel（方案 A）即可；用 Tailscale 时请开启 `tailscale serve`，填 `https://机器名.你的tailnet.ts.net`，不要用 `http://100.x.y.z:8080`。
+- 不要在 API 前面加 Cloudflare Access 之类的登录页面，浏览器的跨域请求会被它拦截。
+
+**安装到主屏幕**
+
+- Android（Chrome）/ 电脑（Chrome、Edge）：「设置」页底部的「安装为应用」，或浏览器菜单 →「安装应用」。
+- iPhone / iPad（Safari）：「分享」→「添加到主屏幕」。安装后全屏、竖屏显示。
+
+**说明**
+
+- Token 保存在这个浏览器的本地存储里；在公共电脑上用完请在「设置」里清除。
+- 离线缓存只包含网页本身（HTML / JS / CSS / 图标），API 返回的数据从不缓存。
+- 自己托管网页版：从 Release 下载 `DriveLens_版本_web.zip`，解压到任意 https 静态托管（需要把所有找不到的路径回退到 `index.html`），然后把你的网址加入服务器的 `DRIVELENS_CORS_ORIGINS`。
+
+| 网页版提示 | 处理 |
+| --- | --- |
+| 服务器没有允许本网站跨域访问（CORS） | 更新 drivelens-api 到 v0.11.0+，检查 `DRIVELENS_CORS_ORIGINS` |
+| 浏览器会拦截 http 的服务器地址 | 改用 https 地址（Cloudflare Tunnel / `tailscale serve`） |
+| 无法连接（https 证书 / 域名） | 检查域名、隧道是否在运行、证书是否有效 |
 
 ## 常见问题
 

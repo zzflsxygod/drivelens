@@ -3,11 +3,11 @@ import { loadSettings, saveSettings } from "./api";
 import { t, langSetting } from "./i18n";
 import { MIN_API_LEVEL, FEATURE_LEVEL, checkServer } from "./version";
 import { enterDemo } from "./demo";
-import { isAndroid } from "./platform";
+import { isAndroid, isTauri } from "./platform";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
-export const LATEST_SERVER = "0.10.1";
+export const LATEST_SERVER = "0.11.0";
 
 export interface TestResult { ok: boolean; url: string; message: string; warnings: string[]; cars?: number }
 
@@ -56,6 +56,7 @@ export async function testConnection(rawUrl: string, token: string): Promise<Tes
   try { res = await timed(url + "/health"); }
   catch (e) {
     if ((e as Error).name === "AbortError") return fail(t("su.timeout", { host: parsed.host }));
+    if (!isTauri()) return fail(await webFetchFailure(url, parsed));
     return fail(isHttp
       ? t("su.unreachHttp", { host: parsed.host })
       : t("su.unreachHttps", { host: parsed.host }));
@@ -74,7 +75,7 @@ export async function testConnection(rawUrl: string, token: string): Promise<Tes
 
   // 2) authenticated call
   try { res = await timed(url + "/api/cars", { headers: { Authorization: `Bearer ${token}` } }); }
-  catch { return fail(t("su.authFetch")); }
+  catch { return fail(isTauri() ? t("su.authFetch") : t("su.authFetchWeb", { origin: location.origin })); }
   if (res.status === 401) return fail(t("su.401"));
   if (res.status === 429) return fail(t("su.429"));
   if (!res.ok) {
@@ -84,6 +85,21 @@ export async function testConnection(rawUrl: string, token: string): Promise<Tes
   const cars = await res.json().catch(() => []) as unknown[];
   const message = cars.length ? t("su.ok", { v: h.version ?? "?", n: cars.length }) : t("su.okNoCars", { v: h.version ?? "?" });
   return { ok: true, url, message, warnings, cars: cars.length };
+}
+
+/**
+ * Browsers hide why a fetch failed (CORS, DNS, TLS, offline all look the same: TypeError).
+ * An opaque no-cors request tells "server answered but this site is not allowed (CORS)" apart from "server not reachable".
+ */
+async function webFetchFailure(url: string, parsed: URL): Promise<string> {
+  if (!navigator.onLine) return t("su.offline");
+  try {
+    await timed(url + "/health", { mode: "no-cors" }, 6000);
+    return t("su.cors", { host: parsed.host, origin: location.origin });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return t("su.timeout", { host: parsed.host });
+    return t("su.unreachWeb", { host: parsed.host });
+  }
 }
 
 export function renderResult(r: TestResult): string {
@@ -102,6 +118,7 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
       <select id="su-lang" class="su-lang" aria-label="Language"><option value="auto">🌐 Auto</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
       <h1>${t("su.welcome")}</h1>
       <p class="muted">${t("su.intro")}</p>
+      ${isTauri() ? "" : `<div class="su-webnote"><b>🌐 ${t("su.webTitle")}</b><ul><li>${t("su.webHttps")}</li><li>${t("su.webCors", { origin: esc(location.origin) })}</li></ul></div>`}
       <label>${t("su.url")}<input id="su-url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
       <label>API Token<input id="su-token" type="password" autocomplete="off" placeholder="${t("su.tokenPh")}" value="${esc(s.token || "")}"></label>
       <label class="chk-row"><input type="checkbox" id="su-show"> ${t("su.show")}</label>
@@ -110,7 +127,7 @@ export function showSetupWizard(root: HTMLElement, done: () => void) {
       <div class="su-or"><span>${t("demo.or")}</span></div>
       <button id="su-demo" class="su-demo" type="button">✨ ${t("demo.try")}</button>
       <p class="muted small su-demo-hint">${t("demo.tryHint")}</p>
-      <p class="muted small">${t("su.foot")}</p>
+      <p class="muted small">${isTauri() ? t("su.foot") : t("su.footWeb")}</p>
     </div>
   </div>`;
   const $ = (id: string) => document.getElementById(id) as HTMLInputElement;

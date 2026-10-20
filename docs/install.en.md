@@ -85,7 +85,7 @@ Local check: `curl http://127.0.0.1:8080/health` should return `{"status":"ok","
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:password@database:5432/teslamate` (the compose file builds it from `.env`) |
 | `API_TOKEN` | ✅ | Bearer token for the app; at least 16 characters, 32+ recommended |
 | `BIND_ADDR` | | Listen address, `0.0.0.0:8080` in the image |
-| `CORS_ORIGINS` | | Comma-separated web origins allowed to call the API; default is any origin (auth is a bearer token with no cookies, so this doesn't weaken security) |
+| `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser (v0.11.0+; the old name `CORS_ORIGINS` still works). Default: only the official web app `https://drivelens-app.oharuru.com`; the Windows / Android apps are always allowed. Add your own URL if you host the web app yourself; `*` allows any origin |
 | `RUST_LOG` | | Log level, default `info` |
 
 `.env` variables used by the compose file: `DRIVELENS_DB_PASS`, `DRIVELENS_API_TOKEN`, optionally `DRIVELENS_DB_NAME` (default teslamate), `DRIVELENS_SRC` (source folder, default `./drivelens`) and `DRIVELENS_IMAGE` (if you use your own registry).
@@ -135,6 +135,37 @@ The API upgrades its database schema automatically on start.
 | Too many wrong tokens (429) | Wait 10 minutes and try again |
 
 You can change the server URL and token at any time in Settings (new values are saved only after a successful test). The app language, map label language and default currency follow your device and can also be changed in Settings.
+
+## 7. Web app (PWA)
+
+If you'd rather not install an app, open **https://drivelens-app.oharuru.com** in a browser and enter your server address and token (or try the demo first). The web app is just static files: your browser talks directly to **your own** drivelens-api; the token and your data never pass through the web host.
+
+**Server requirements**
+
+- **drivelens-api v0.11.0 or later**: allows the official web app (CORS) by default. If you set `DRIVELENS_CORS_ORIGINS`, include `https://drivelens-app.oharuru.com`, e.g.
+  ```yaml
+  environment:
+    - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
+  ```
+- **https only**: browsers block calls from an https page to an `http://` address (mixed content). Cloudflare Tunnel (option A) works; with Tailscale enable `tailscale serve` and use `https://machine.your-tailnet.ts.net` instead of `http://100.x.y.z:8080`.
+- Don't put a login page such as Cloudflare Access in front of the API — it blocks the browser's cross-origin requests.
+
+**Install to the home screen**
+
+- Android (Chrome) / desktop (Chrome, Edge): "Install as an app" at the bottom of Settings, or the browser menu → Install app.
+- iPhone / iPad (Safari): Share → Add to Home Screen. Installed, it opens full-screen in portrait.
+
+**Notes**
+
+- The token is kept in this browser's local storage; clear it in Settings on shared computers.
+- The offline cache holds only the app itself (HTML / JS / CSS / icons); API responses are never cached.
+- Hosting the web app yourself: download `DriveLens_<version>_web.zip` from the release, unzip it to any https static host (unknown paths must fall back to `index.html`) and add your URL to `DRIVELENS_CORS_ORIGINS` on the server.
+
+| Web app message | What to do |
+| --- | --- |
+| Server does not allow this site (CORS) | Update drivelens-api to v0.11.0+, check `DRIVELENS_CORS_ORIGINS` |
+| Browser blocks the http server address | Use an https address (Cloudflare Tunnel / `tailscale serve`) |
+| Can't reach (certificate / domain) | Check the domain, that the tunnel is running and the certificate is valid |
 
 ## Troubleshooting
 

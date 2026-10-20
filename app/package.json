@@ -1,14 +1,16 @@
 {
   "name": "drivelens",
   "private": true,
-  "version": "0.14.2",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/check-i18n.mjs && tsc && vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:web": "node scripts/check-i18n.mjs && tsc && vite build --mode web",
+    "preview:web": "vite preview --mode web --outDir dist-web --port 4174"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

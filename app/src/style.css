@@ -590,3 +590,36 @@ html.ime nav, html.ime .totop { display: none; }
 #j-more.open { border-color: var(--accent); }
 /* setup wizard: the language pill sits in the card's top-right corner (the native select it replaces did) */
 .setup-card > .su-lang + .sel-pill { position: absolute; top: 18px; right: 18px; margin: 0; max-width: calc(100% - 110px); }
+
+/* ===== v0.15.0 web / PWA ===== */
+.su-webnote { text-align: left; margin: 4px 0 14px; padding: 10px 14px; border-radius: 16px; font-size: 12.5px; line-height: 1.5;
+  background: linear-gradient(135deg, #7b5cff14, #ff5c8a14); border: 1px solid #7b5cff30; }
+.su-webnote b { font-size: 13px; }
+.su-webnote ul { margin: 4px 0 0; padding-left: 18px; }
+.su-webnote li + li { margin-top: 3px; }
+:root[data-theme="dark"] .su-webnote { background: linear-gradient(135deg, #7b5cff22, #ff5c8a1a); border-color: #7b5cff44; }
+/* Settings → support card (always the last thing on the page) */
+.support-card { position: relative; display: flex; gap: 14px; align-items: flex-start; margin: 22px 0 8px; cursor: default; overflow: hidden;
+  border: 1px solid transparent !important;
+  background: linear-gradient(var(--cardsolid), var(--cardsolid)) padding-box, linear-gradient(135deg, #7b5cff88, #ff5c8a88) border-box !important; }
+.support-card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 120% at 100% 0%, #ff5c8a1c, transparent 60%), radial-gradient(70% 120% at 0% 100%, #7b5cff18, transparent 60%); pointer-events: none; }
+.support-ico { position: relative; flex: none; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font-size: 22px;
+  background: var(--grad); box-shadow: 0 6px 16px #ff5c8a40; }
+.support-body { position: relative; min-width: 0; flex: 1; }
+.support-body p { margin: 4px 0 10px; line-height: 1.5; }
+.support-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 999px; background: var(--grad); color: #fff !important;
+  font-weight: 700; font-size: 14px; text-decoration: none; box-shadow: 0 6px 16px #7b5cff40; transition: transform .18s ease, box-shadow .18s ease; }
+.support-btn span { transition: transform .18s ease; }
+.support-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px #7b5cff55; }
+.support-btn:hover span { transform: translateX(3px); }
+.support-btn:active { transform: scale(.97); }
+.install-card { margin-top: 18px; }
+/* update toast (service worker found a new shell) */
+.pwa-toast { position: fixed; left: 50%; bottom: calc(86px + var(--sab)); z-index: 2200; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 32px); box-sizing: border-box;
+  padding: 10px 10px 10px 16px; border-radius: 999px; background: var(--cardsolid); box-shadow: 0 10px 30px #1b1d2a33; border: 1px solid var(--line); font-size: 14px;
+  transform: translate(-50%, 20px); opacity: 0; transition: transform .28s cubic-bezier(.2,.8,.2,1), opacity .28s ease; }
+.pwa-toast.in { transform: translate(-50%, 0); opacity: 1; }
+.pwa-toast .primary { flex: none; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .support-btn, .support-btn span, .pwa-toast { transition: none; } }
+/* installed PWA: no rubber-band overscroll of the whole page behind the floating bars */
+html.standalone, html.standalone body { overscroll-behavior-y: none; }

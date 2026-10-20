@@ -1,11 +1,14 @@
 name: Windows desktop app
 
 on:
+  # PAUSED since v0.15.0 (web app first): runs only when started by hand (Actions → Run workflow).
+  # To re-enable automatic builds on release tags: uncomment the push: block below AND set
+  # NATIVE_BUILDS=1 in scripts/release.conf (see the comment there).
   workflow_dispatch:
-  push:
-    branches: [main]
-    tags: ["v*"]
-    paths: ["app/**", ".github/workflows/windows.yml"]
+# push:
+#   branches: [main]
+#   tags: ["v*"]
+#   paths: ["app/**", ".github/workflows/windows.yml"]
 
 permissions:
   contents: write

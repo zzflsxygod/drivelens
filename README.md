@@ -283,6 +283,17 @@ Linux 需先安装：`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana
      npx tauri android build --apk --aab --target aarch64 armv7 x86_64
      ```
 
+### 网页版 / PWA（v0.15.0 起）
+
+- `cd app && npm run build:web` → `app/dist-web/`（同一套代码；运行时检测 Tauri / 浏览器，构建时 `--mode web` 额外生成 `manifest.webmanifest`、只缓存 App 外壳的 `sw.js`、图标和 Cloudflare Pages 用的 `_headers`）。本地预览：`npm run preview:web`（http://localhost:4174）。
+- 构建变量：`VITE_DONATE_URL`（设置页底部「支持 DriveLens」卡片的链接，为空则不显示）、`VITE_DONATE_WEB_ONLY=1`（只在网页版显示）、`VITE_WEB_ORIGIN`（默认 `https://drivelens-app.oharuru.com`）。
+- 官方地址 `https://drivelens-app.oharuru.com`：`.github/workflows/web.yml` 每次构建都上传 artifact，打 tag（或手动运行并勾选 deploy）时在有 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets 的情况下部署到 Cloudflare Pages（项目名默认 `drivelens-app`，可用仓库变量 `CF_PAGES_PROJECT` 修改；`DONATE_URL` 变量即 `VITE_DONATE_URL`）。没有 secrets 时跳过部署。
+- API 默认 CORS 只允许官方网页版和 Tauri App（`DRIVELENS_CORS_ORIGINS` 可改，见 docs/install.md）。
+
+### Windows / Android 打包暂停（v0.15.0 起）
+
+`windows.yml` / `android.yml` 现在只能手动运行（Actions → Run workflow）。恢复自动打包：取消两个文件里 `push:` 段的注释，并把 `scripts/release.conf` 改为 `NATIVE_BUILDS=1`。
+
 ### iOS（需要 macOS + Xcode）
 
 1. 安装 Xcode、`brew install cocoapods`
@@ -303,7 +314,7 @@ cd testdata && python3 gen_sample.py
 PGPASSWORD=secret psql -h localhost -U teslamate teslamate -f schema.sql -f sample_data.sql
 
 cd ../api
-DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token-1234567890 cargo run
+DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token-1234567890 DRIVELENS_CORS_ORIGINS=http://localhost:1420,http://localhost:4174 cargo run
 # 前端：cd app && npm run dev，然后浏览器打开
 # http://localhost:1420/?api=http://127.0.0.1:8080&token=dev-token-1234567890
 ```
@@ -328,7 +339,7 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 - `GET /health`（无需 Token）返回 `{"status":"ok","version":"0.5.1","api_level":7}`；`GET /api/health`（需要 Token）额外检查数据库。
 - App 启动时读取 `/health`：服务器版本过旧或正在更新时显示提示条「服务器正在更新或版本过旧…」并隐藏不支持的功能，不会崩溃。设置页显示服务器版本。
 - 自动更新：`deploy/docker-compose.drivelens.yml` 里的 `watchtower` 服务（nickfedor/watchtower，只更新带 `com.centurylinklabs.watchtower.enable=true` 标签的 drivelens-api，每 5 分钟检查一次）。
-- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建 Windows 安装包（草稿）→ 发布为预发布版本。
+- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建网页版（以及 `NATIVE_BUILDS=1` 时的 Windows / Android 安装包，草稿）→ 附加 `DriveLens_版本_web.zip` → 发布为预发布版本。
 
 
 ## 旅程（v0.6.0）
@@ -393,3 +404,11 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 演示模式的提示条（含“退出”按钮）现在是顶栏里的最后一行，跟顶栏一起固定在最上方，滚动时不再往上漂移。原因：提示条是顶栏外单独的 sticky 元素，`top` 写死为 49px，而 v0.12 起顶栏实际高 59px，一滚动就上移 10px、钻到顶栏下面。
 - 顶栏的实际高度由 `ResizeObserver` 测量并写入 CSS 变量 `--hdr-h`（含安全区和演示提示条），服务器提示条、列表月份标题、页面返回栏都按它吸顶，不再被顶栏遮住一截。
 - Android 版锁定竖屏（`AndroidManifest.xml` 里 `android:screenOrientation="portrait"`）。Windows 窗口不受影响，仍可自由缩放。服务器无需更新（API 未变）。
+
+## v0.15.0 — 网页版（PWA）+ API 0.11.0（可配置 CORS）
+
+- 网页版：`npm run build:web` 生成可安装的 PWA（manifest、竖屏、主题色、apple-touch-icon、只缓存 App 外壳的 service worker，API 响应从不缓存）。官方地址 https://drivelens-app.oharuru.com（部署见上文「网页版 / PWA」）。
+- 网页版设置向导说明 https + CORS 要求，并区分 CORS 被拒、混合内容（http）、无法连接 / 证书、离线等错误。分享卡片用下载 / Web Share，封面照片用文件选择（仍转 JPG ≤1600px）。演示模式在网页版可用。
+- 设置页底部「支持 DriveLens」卡片（`VITE_DONATE_URL`，为空时隐藏）；网页版显示「安装为应用」。
+- API 0.11.0：`DRIVELENS_CORS_ORIGINS`（旧名 `CORS_ORIGINS`），默认允许官方网页版 + Tauri App 来源，`*` = 任意；预检缓存 10 分钟，支持 Private Network Access。api_level 不变（12），无数据库迁移。
+- Windows / Android 打包暂停（workflow 只能手动运行；`scripts/release.conf` 的 `NATIVE_BUILDS=0`），Release 只附带 `DriveLens_0.15.0_web.zip`。

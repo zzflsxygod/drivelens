@@ -85,7 +85,7 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:パスワード@database:5432/teslamate`（compose ファイルが `.env` から組み立てます） |
 | `API_TOKEN` | ✅ | アプリ用の Bearer トークン。16 文字以上、32 文字以上を推奨 |
 | `BIND_ADDR` | | 待ち受けアドレス。イメージの既定は `0.0.0.0:8080` |
-| `CORS_ORIGINS` | | API を呼び出せる Web のオリジン（カンマ区切り）。既定はすべて許可（認証は Bearer トークンのみで Cookie を使わないため、安全性は変わりません） |
+| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せる Web のオリジン（カンマ区切り、v0.11.0 以降。旧名 `CORS_ORIGINS` も有効）。既定は公式ウェブ版 `https://drivelens-app.oharuru.com` のみ。Windows / Android アプリは常に許可されます。ウェブ版を自分でホストする場合はその URL を追加。`*` はすべて許可 |
 | `RUST_LOG` | | ログレベル。既定は `info` |
 
 compose ファイルが使う `.env` の変数：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（既定 teslamate）、`DRIVELENS_SRC`（ソースの場所、既定 `./drivelens`）、`DRIVELENS_IMAGE`（独自のレジストリを使う場合）。
@@ -135,6 +135,37 @@ cd .. && docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up
 | トークンの誤りが多すぎる（429） | 10 分待ってから再試行 |
 
 サーバーの URL とトークンは、あとから「設定」でいつでも変更できます（新しい設定はテストに成功した場合のみ保存されます）。アプリの言語、地図の表記言語、デフォルトの通貨は端末の設定に合わせて選ばれ、「設定」で変更することもできます。
+
+## 7. ウェブ版（PWA）
+
+アプリをインストールしたくない場合は、ブラウザで **https://drivelens-app.oharuru.com** を開き、サーバーアドレスとトークンを入力するだけで使えます（先にデモを試すこともできます）。ウェブ版は静的ファイルだけで、ブラウザが**ご自身の** drivelens-api に直接アクセスします。トークンやデータがウェブのホストを経由することはありません。
+
+**サーバーの条件**
+
+- **drivelens-api v0.11.0 以降**：公式ウェブ版からのアクセス（CORS）を標準で許可します。`DRIVELENS_CORS_ORIGINS` を設定している場合は `https://drivelens-app.oharuru.com` も含めてください。例：
+  ```yaml
+  environment:
+    - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
+  ```
+- **https が必須**：https のページから `http://` のアドレスにはアクセスできません（混在コンテンツ）。Cloudflare Tunnel（方法 A）ならそのまま使えます。Tailscale の場合は `tailscale serve` を有効にして `https://マシン名.tailnet名.ts.net` を使い、`http://100.x.y.z:8080` は使わないでください。
+- API の前に Cloudflare Access などのログイン画面を置かないでください。ブラウザのクロスオリジン通信がブロックされます。
+
+**ホーム画面に追加**
+
+- Android（Chrome）/ パソコン（Chrome・Edge）：「設定」の一番下の「アプリとしてインストール」、またはブラウザのメニュー →「アプリをインストール」。
+- iPhone / iPad（Safari）：「共有」→「ホーム画面に追加」。インストール後は全画面・縦向きで表示されます。
+
+**補足**
+
+- トークンはこのブラウザのローカルストレージに保存されます。共用パソコンでは使用後に「設定」で消去してください。
+- オフラインキャッシュはアプリ本体（HTML / JS / CSS / アイコン）のみで、API のレスポンスはキャッシュしません。
+- ウェブ版を自分でホストする場合：リリースから `DriveLens_バージョン_web.zip` をダウンロードし、https の静的ホスティングに展開（存在しないパスは `index.html` にフォールバック）して、その URL をサーバーの `DRIVELENS_CORS_ORIGINS` に追加してください。
+
+| ウェブ版のメッセージ | 対処 |
+| --- | --- |
+| サーバーがこのサイトを許可していない（CORS） | drivelens-api を v0.11.0 以降に更新し、`DRIVELENS_CORS_ORIGINS` を確認 |
+| http のサーバーアドレスはブロックされる | https のアドレスを使う（Cloudflare Tunnel / `tailscale serve`） |
+| 接続できない（証明書 / ドメイン） | ドメイン、トンネルの稼働、証明書の有効性を確認 |
 
 ## よくある質問
 

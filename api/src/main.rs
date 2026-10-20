@@ -605,12 +605,78 @@ fn client_key(req: &Request) -> String {
 const FAIL_LIMIT: u32 = 10;
 const FAIL_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// CORS: any origin by default (auth is a bearer token, no cookies, so CORS adds no protection);
-/// CORS_ORIGINS=https://a.example,tauri://localhost restricts it.
+/// Official hosted web app (PWA). Apps (Tauri) are always allowed as well.
+const DEFAULT_WEB_ORIGIN: &str = "https://drivelens-app.oharuru.com";
+/// Tauri webview origins: macOS/iOS (tauri://localhost), Windows/Android (http(s)://tauri.localhost).
+const TAURI_ORIGINS: [&str; 3] = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
+
+/// Parsed CORS policy: `None` = any origin, else the explicit list (always incl. the Tauri origins).
+/// DRIVELENS_CORS_ORIGINS (or the older CORS_ORIGINS): comma-separated origins, `*` = any origin.
+/// Unset → the official web app + Tauri apps. Auth is a bearer token (no cookies), so CORS is about
+/// which web pages may use the API from a browser, not about authentication.
+fn cors_origins(raw: Option<String>) -> Option<Vec<String>> {
+    let raw = raw.filter(|v| !v.trim().is_empty()).unwrap_or_else(|| DEFAULT_WEB_ORIGIN.to_string());
+    let mut list: Vec<String> = Vec::new();
+    for o in raw.split(',').map(|o| o.trim().trim_end_matches('/')).filter(|o| !o.is_empty()) {
+        if o == "*" { return None; }
+        if !list.iter().any(|x| x.eq_ignore_ascii_case(o)) { list.push(o.to_ascii_lowercase()); }
+    }
+    for t in TAURI_ORIGINS { if !list.iter().any(|x| x == t) { list.push(t.to_string()); } }
+    Some(list)
+}
+
 fn cors_layer() -> CorsLayer {
-    match std::env::var("CORS_ORIGINS").ok().filter(|v| !v.trim().is_empty()) {
-        Some(v) => CorsLayer::new().allow_origin(v.split(',').filter_map(|o| o.trim().parse::<axum::http::HeaderValue>().ok()).collect::<Vec<_>>()),
-        None => CorsLayer::new().allow_origin(Any),
+    let raw = std::env::var("DRIVELENS_CORS_ORIGINS").ok().filter(|v| !v.trim().is_empty())
+        .or_else(|| std::env::var("CORS_ORIGINS").ok());
+    let base = CorsLayer::new()
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PATCH, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .max_age(std::time::Duration::from_secs(600))
+        // Chrome Private Network Access: lets the https web app reach an https server on a LAN / tailnet address
+        .allow_private_network(true);
+    match cors_origins(raw) {
+        None => { tracing::info!("CORS: any origin"); base.allow_origin(Any) }
+        Some(list) => {
+            tracing::info!("CORS: allowed origins {}", list.join(", "));
+            let vals: Vec<axum::http::HeaderValue> = list.iter().filter_map(|o| match o.parse() {
+                Ok(v) => Some(v), Err(_) => { tracing::warn!("CORS: ignoring invalid origin {o:?}"); None } }).collect();
+            base.allow_origin(vals)
+        }
+    }
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::*;
+    #[test]
+    fn default_is_official_web_plus_tauri() {
+        let l = cors_origins(None).unwrap();
+        assert_eq!(l[0], DEFAULT_WEB_ORIGIN);
+        assert!(l.contains(&"tauri://localhost".to_string()) && l.contains(&"http://tauri.localhost".to_string()));
+    }
+    #[test]
+    fn star_means_any() { assert!(cors_origins(Some("https://a.example, *".into())).is_none()); }
+    #[test]
+    fn custom_list_keeps_tauri_and_dedups() {
+        let l = cors_origins(Some(" https://A.example/ ,https://a.example,,tauri://localhost".into())).unwrap();
+        assert_eq!(l, vec!["https://a.example", "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
+    }
+    async fn preflight(origin: &str) -> axum::http::Response<axum::body::Body> {
+        use tower::ServiceExt;
+        let app: Router = Router::new().route("/api/cars", get(|| async { "x" })).layer(cors_layer());
+        app.oneshot(axum::http::Request::builder().method("OPTIONS").uri("/api/cars")
+            .header("origin", origin).header("access-control-request-method", "GET")
+            .header("access-control-request-headers", "authorization")
+            .body(axum::body::Body::empty()).unwrap()).await.unwrap()
+    }
+    #[tokio::test]
+    async fn preflight_default_policy() {
+        let r = preflight(DEFAULT_WEB_ORIGIN).await;
+        let h = r.headers();
+        assert_eq!(h.get("access-control-allow-origin").unwrap(), DEFAULT_WEB_ORIGIN);
+        assert!(h.get("access-control-allow-headers").unwrap().to_str().unwrap().contains("authorization"));
+        assert_eq!(preflight("http://tauri.localhost").await.headers().get("access-control-allow-origin").unwrap(), "http://tauri.localhost");
+        assert!(preflight("https://evil.example").await.headers().get("access-control-allow-origin").is_none());
     }
 }
 
@@ -695,7 +761,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .nest("/api", api)
-        .layer(cors_layer().allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PATCH, axum::http::Method::PUT, axum::http::Method::DELETE, axum::http::Method::OPTIONS]).allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
+        .layer(cors_layer())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 

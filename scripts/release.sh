@@ -3,7 +3,9 @@
 #   1. push main  → wait for the "Docker image" CI run of this commit to succeed (:latest pushed)
 #   2. poll https://<domain>/health until "version" == api/Cargo.toml version (skipped when api/ is unchanged since the last tag)
 #      (Watchtower on the server pulls :latest within ~5 min)
-#   3. tag vX.Y.Z → wait for the Windows build (creates a DRAFT release) and the Android build (attaches APK + AAB)
+#   3. tag vX.Y.Z → wait for the Web (PWA) build; with NATIVE_BUILDS=1 also the Windows build (creates a DRAFT release)
+#      and the Android build (attaches APK + AAB). With NATIVE_BUILDS=0 (scripts/release.conf) the draft is created here.
+#      The web bundle is attached as DriveLens_X.Y.Z_web.zip (the web workflow deploys it to Cloudflare Pages when configured).
 #   4. publish the draft as a prerelease (only now can users download the new app)
 # Usage: scripts/release.sh [api-base-url] [--skip-health]
 #   api-base-url defaults to $DRIVELENS_URL, else the first line of scripts/.release.local (gitignored, per machine)
@@ -14,6 +16,8 @@ LOCAL_URL=$( [ -f scripts/.release.local ] && head -1 scripts/.release.local | t
 BASE="${1:-${DRIVELENS_URL:-$LOCAL_URL}}"; BASE="${BASE%/}"
 [ -n "$BASE" ] || { echo "no server URL: pass it as the first argument, set DRIVELENS_URL, or put it in scripts/.release.local"; exit 1; }
 SKIP_HEALTH="${2:-}"
+NATIVE_BUILDS=$( [ -f scripts/release.conf ] && sed -n 's/^NATIVE_BUILDS=\([01]\).*/\1/p' scripts/release.conf | tail -1 || true)
+NATIVE_BUILDS="${DRIVELENS_NATIVE_BUILDS:-${NATIVE_BUILDS:-1}}"
 VER=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' app/package.json | head -1)
 API_VER=$(grep -m1 '^version' api/Cargo.toml | cut -d'"' -f2)
 TAG="v$VER"
@@ -72,14 +76,29 @@ if [ "$SKIP_HEALTH" != "--skip-health" ]; then
   done
 fi
 
-echo "== 3. tag $TAG and wait for the Windows (draft release) + Android builds"
+if [ "$NATIVE_BUILDS" = 1 ]; then echo "== 3. tag $TAG and wait for the Web, Windows (draft release) + Android builds"
+else echo "== 3. tag $TAG and wait for the Web build (Windows/Android paused: NATIVE_BUILDS=0 in scripts/release.conf)"; fi
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG"
 git push -q origin "$TAG" 2>/dev/null || true
-wait_run windows.yml "$TAG"
-wait_run android.yml "$TAG"
-for a in _android_universal.apk _android.aab; do
-  gh release view "$TAG" --json assets -q '.assets[].name' | grep -q -- "$a\$" || { echo "   Android asset *$a missing on the draft — not publishing"; exit 1; }
-done
+wait_run web.yml "$TAG"
+WEB_RUN=$(gh run list --workflow web.yml --json databaseId,headSha,headBranch -q "[.[] | select(.headSha==\"$SHA\" and .headBranch==\"$TAG\")][0].databaseId")
+if [ "$NATIVE_BUILDS" = 1 ]; then
+  wait_run windows.yml "$TAG"
+  wait_run android.yml "$TAG"
+  for a in _android_universal.apk _android.aab; do
+    gh release view "$TAG" --json assets -q '.assets[].name' | grep -q -- "$a\$" || { echo "   Android asset *$a missing on the draft — not publishing"; exit 1; }
+  done
+else
+  gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --prerelease --verify-tag --title "DriveLens $TAG" \
+    --notes "网页版 / Web app (PWA)：在浏览器打开即可使用，可“安装到主屏幕”。需要 drivelens-api v$API_VER 以上（https + CORS，见 docs/install.md）。
+本版本没有新的 Windows / Android 安装包（打包暂停中），请继续使用之前版本的安装包。
+DriveLens_${VER}_web.zip：网页版静态文件，可自行部署到任意 https 静态托管（需在服务器 DRIVELENS_CORS_ORIGINS 中加入你的网址）。"
+fi
+WEB_TMP=$(mktemp -d)
+gh run download "$WEB_RUN" -n DriveLens-web -D "$WEB_TMP/dist-web"
+(cd "$WEB_TMP/dist-web" && python3 -m zipfile -c "../DriveLens_${VER}_web.zip" $(ls -A))   # zip of the bundle root (index.html at top level)
+gh release upload "$TAG" "$WEB_TMP/DriveLens_${VER}_web.zip" --clobber
+rm -rf "$WEB_TMP"
 
 echo "== 4. publish $TAG as prerelease"
 gh release edit "$TAG" --draft=false --prerelease
