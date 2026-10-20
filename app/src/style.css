@@ -91,8 +91,10 @@ html.standalone, html.standalone body { overscroll-behavior-y: none; }
 
 /* ---------- chrome: header / banners / nav ---------- */
 header { --hpad: 16px; position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: calc(10px + var(--sat)) var(--hpad) 10px; background: var(--glass); border-bottom: 1px solid var(--line);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4); }
+  padding: calc(10px + var(--sat)) var(--hpad) 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
+/* the status-bar zone (iOS standalone, black-translucent + viewport-fit=cover) is always one solid surface with the
+   header: also when the header is hidden (setup screen) nothing may scroll through under the clock / notch */
+body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: var(--sat); z-index: 1001; background: var(--bg); pointer-events: none; }
 header h1 { display: inline-flex; align-items: center; gap: 9px; font-size: 18px; font-weight: 800; letter-spacing: -.02em; color: var(--text); }
 header h1::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--accent); transform: rotate(45deg);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }

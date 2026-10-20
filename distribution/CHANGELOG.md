@@ -4,6 +4,10 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.0.2 — 2026-10-20
+- **Fixed on iPhone / iPad (app added to the home screen):** the area under the status bar showed a blurred, see-through band above the header. The header is now one solid bar that reaches up under the status bar (clock / notch / Dynamic Island), with the divider line only at its bottom edge; content no longer shows through while scrolling. Light and dark themes both match the status bar.
+- No server update needed.
+
 ## v1.0.1 — 2026-10-20
 - **Fixed on iPhone / iPad:** renaming a journey (and renaming a place or entering a charging cost) could show no input box. The edit sheet now always stays above the on-screen keyboard, the keyboard opens right away and the page no longer zooms in. Enter saves, Esc cancels.
 - The pencil buttons are easier to tap on phones.

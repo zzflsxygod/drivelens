@@ -424,6 +424,13 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v1.0.2 — iOS 状态栏区域的毛玻璃带（仅网页版）
+
+- 原因：PWA 使用 `apple-mobile-web-app-status-bar-style=black-translucent` + `viewport-fit=cover`，状态栏区域属于页面；顶栏 `header` 用半透明 `--glass`（.82）+ `backdrop-filter: blur(16px) saturate(1.4)`，其顶部 `padding`（`10px + --sat`）延伸到状态栏下，滚动内容透过模糊显示成一条毛玻璃带；顶部吸附元素不是实色时，iOS 自身的滚动边缘效果也会再叠一层模糊。
+- 改动（`style.css`）：`header` 背景改为实色 `var(--bg)`（与 theme-color #f3f4f7 / #07080a 一致），去掉 `backdrop-filter`，细线只在底部（`border-bottom`）；新增 `body::before`（`position: fixed`，高度 `var(--sat)`，`z-index: 1001`，`var(--bg)`，`pointer-events: none`），顶栏隐藏时（引导页）状态栏区域也不透出内容。非独立模式 Safari 中 `--sat` 为 0，不受影响。`--hdr-h` 仍包含安全区，演示条、`.page-head` / `.srv-banner` 继续贴在顶栏下方。
+- 测试：WebKit iPhone 13（390，模拟 59px）/ iPhone SE（320，模拟 47px），中英日 × 亮暗 × 设置 / 行程列表 / 行程详情，滚动前后，演示模式（36 组全部通过）。
+- API 不变（0.12.0），无数据库迁移。
+
 ## v1.0.1 — iOS 上重命名旅程没有输入框（仅网页版）
 
 - 原因：编辑弹层（`.modal` 固定在布局视口底部）在 iOS 上不会随键盘上移——iOS 打开键盘时不缩小布局视口，底部弹层整个被键盘挡住；输入框 15px 还会触发 iOS 聚焦放大，把页面推离弹层。
