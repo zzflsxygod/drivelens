@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v0.16.0 — 2026-10-20
+- **Notifications** (web app): Settings → Notifications. A **trip summary** when a drive ends (distance, time, energy, from → to) and a **monthly report** reminder on the 1st; each can be turned off separately, and tapping a notification opens that trip or report. Includes a "send test notification" button. iPhone / iPad: iOS 16.4+, added to the Home Screen.
+- Server 0.12.0: sends the notifications (detects finished drives every minute, read-only). It creates two new tables in the `drivelens` schema by itself; no configuration needed (see the install guide, section 7).
+- The web app is offered only at https://drivelens-app.oharuru.com (no more web zip in the releases).
+
 ## v0.15.1 — 2026-10-20
 - Public home for DriveLens: this repository (install guide, setup files, changelog, issue tracker).
 - The install guide no longer needs the source code: the server runs the prebuilt image `ghcr.io/zzflsxygod/drivelens-api`.

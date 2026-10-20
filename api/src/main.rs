@@ -18,6 +18,7 @@ mod report;
 mod journey;
 mod phase2;
 mod insights;
+mod push;
 
 #[derive(Clone)]
 struct AppState {
@@ -29,6 +30,10 @@ struct AppState {
     dismiss_ok: Arc<std::sync::atomic::AtomicBool>,
     cover_ok: Arc<std::sync::atomic::AtomicBool>,
     weather_ok: Arc<std::sync::atomic::AtomicBool>,
+    push_ok: Arc<std::sync::atomic::AtomicBool>,
+    /// VAPID key pair (env override or generated once and stored in drivelens.push_state)
+    vapid: Arc<tokio::sync::RwLock<Option<Arc<push::Vapid>>>>,
+    http: reqwest::Client,
     /// failed auth attempts per client: (count, first failure)
     fails: Arc<std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>>,
 }
@@ -281,7 +286,7 @@ pub(crate) fn charge_select(costs: bool) -> String {
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
 /// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0)
-pub(crate) const API_LEVEL: u32 = 12;
+pub(crate) const API_LEVEL: u32 = 13;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -338,7 +343,8 @@ async fn health_full(State(s): State<AppState>) -> Response {
         "api_level": API_LEVEL, "database": db, "manual_costs": costs_ok(&s).await.unwrap_or(false),
         "journeys": journey::tables_ok(&s).await.unwrap_or(false),
         "suggestion_dismissal": journey::dismiss_ok(&s).await.unwrap_or(false),
-        "journey_cover": phase2::cover_ok(&s).await.unwrap_or(false), "weather": phase2::weather_ok(&s).await.unwrap_or(false)}))).into_response()
+        "journey_cover": phase2::cover_ok(&s).await.unwrap_or(false), "weather": phase2::weather_ok(&s).await.unwrap_or(false),
+        "web_push": push::push_ok(&s).await.unwrap_or(false)}))).into_response()
 }
 
 async fn list_cars(State(s): State<AppState>) -> ApiResult<Vec<Car>> {
@@ -568,6 +574,7 @@ async fn migrate(db: &PgPool) -> anyhow::Result<()> {
     }
     journey::try_create_tables(db).await;
     phase2::try_migrate(db).await;
+    push::try_migrate(db).await;
     Ok(())
 }
 
@@ -581,7 +588,8 @@ async fn log_features(s: &AppState) {
     let f = [("teslamate read", teslamate), ("place aliases", aliases),
         ("manual costs", costs_ok(s).await.unwrap_or(false)), ("journeys", journey::tables_ok(s).await.unwrap_or(false)),
         ("suggestion dismissal", journey::dismiss_ok(s).await.unwrap_or(false)),
-        ("journey cover", phase2::cover_ok(s).await.unwrap_or(false)), ("weather cache", phase2::weather_ok(s).await.unwrap_or(false))];
+        ("journey cover", phase2::cover_ok(s).await.unwrap_or(false)), ("weather cache", phase2::weather_ok(s).await.unwrap_or(false)),
+        ("web push", push::push_ok(s).await.unwrap_or(false))];
     let off: Vec<&str> = f.iter().filter(|x| !x.1).map(|x| x.0).collect();
     if off.is_empty() { tracing::info!("all features enabled (API level {API_LEVEL})"); }
     else { tracing::warn!("disabled features: {} — {SETUP_HINT}", off.join(", ")); }
@@ -723,8 +731,11 @@ async fn main() -> anyhow::Result<()> {
 
     let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
     migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()), fails: Arc::new(Default::default()) };
+    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()),
+        push_ok: Arc::new(Default::default()), vapid: Arc::new(Default::default()),
+        http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build()?, fails: Arc::new(Default::default()) };
     log_features(&state).await;
+    push::spawn(state.clone());
 
     let api = Router::new()
         .route("/health", get(health_full))
@@ -754,6 +765,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/journeys/:id/speed-bands", get(phase2::speed_bands))
         .route("/drives/:id", get(get_drive))
         .route("/drives/:id/path", get(drive_path))
+        .route("/push/key", get(push::key))
+        .route("/push/subscription", axum::routing::post(push::subscribe))
+        .route("/push/subscription/status", axum::routing::post(push::status))
+        .route("/push/unsubscribe", axum::routing::post(push::unsubscribe))
+        .route("/push/test", axum::routing::post(push::test))
         .route("/addresses/aliases", get(list_aliases))
         .route("/addresses/:id/alias", axum::routing::put(put_alias).delete(delete_alias))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth));

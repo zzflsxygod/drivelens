@@ -7,7 +7,7 @@
 --   * creates the login role drivelens_ro with SELECT only on TeslaMate's tables (public schema) —
 --     DriveLens never writes to TeslaMate's tables;
 --   * creates a separate drivelens schema owned by drivelens_ro; the API creates / upgrades its own tables there
---     on every start (idempotent).
+--     on every start (idempotent), e.g. place aliases, costs, journeys and the web-push tables (push_subscriptions, push_state).
 -- (Older drivelens-init.sql / drivelens-v0.x.sql files are no longer needed; servers that ran them need no changes.)
 
 SELECT format('CREATE ROLE drivelens_ro LOGIN PASSWORD %L', :'ro_pass')

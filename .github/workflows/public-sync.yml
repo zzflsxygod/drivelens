@@ -2,7 +2,7 @@ name: Public repo sync (drivelens-releases)
 
 # Copies the user-facing files (distribution/, docs/install*.md, deploy/setup.sql, deploy/docker-compose.drivelens.yml)
 # to the public repo zzflsxygod/drivelens-releases, and on a published release also creates the matching public
-# release with its assets (web zip; with NATIVE_BUILDS=1 the installers too). Logic: scripts/sync-public.sh.
+# release (with NATIVE_BUILDS=1 also the installers as assets; the web app is only offered at its official URL). Logic: scripts/sync-public.sh.
 #
 # GITHUB_TOKEN cannot push to another repository, so this needs the secret RELEASES_REPO_TOKEN:
 # a fine-grained personal access token, resource owner zzflsxygod, only the repository drivelens-releases,

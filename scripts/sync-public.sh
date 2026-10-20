@@ -3,8 +3,8 @@
 #   scripts/sync-public.sh            → files only (README, LICENSE, CHANGELOG, screenshots, issue templates,
 #                                       docs/install*.md, deploy/setup.sql, deploy/docker-compose.drivelens.yml)
 #   scripts/sync-public.sh vX.Y.Z     → files + a public release vX.Y.Z (notes = that version's CHANGELOG section)
-#                                       with the assets of the private release: DriveLens_X.Y.Z_web.zip, and with
-#                                       NATIVE_BUILDS=1 (scripts/release.conf) also the .exe / .msi / .apk / .aab.
+#                                       with NATIVE_BUILDS=1 (scripts/release.conf) also the assets of the private release
+#                                       (.exe / .msi / .apk / .aab). The web app is only offered at the official URL (no web zip).
 # Never copies source code. Idempotent: re-running updates the files and re-uploads the assets (--clobber).
 # Auth: PUBLIC_REPO_TOKEN (CI: secret RELEASES_REPO_TOKEN, a fine-grained PAT with Contents: read & write on
 #       drivelens-releases) for the public repo; without it the logged-in gh account is used (the build box).
@@ -55,15 +55,15 @@ NOTES="${NOTES}
 ---
 **Use it:** web app https://drivelens-app.oharuru.com · [demo](https://drivelens-app.oharuru.com/?demo) · server: [install guide](https://github.com/${PUBLIC}/blob/main/docs/install.md) (image \`ghcr.io/zzflsxygod/drivelens-api\`)"
 if [ "$NATIVE_BUILDS" != 1 ]; then NOTES="${NOTES}
-Windows / Android installers are not part of this version; the web app has the latest features.
-\`DriveLens_${VER}_web.zip\`: the web app as static files, for hosting it yourself (add your URL to \`DRIVELENS_CORS_ORIGINS\`)."; fi
+Windows / Android installers are not part of this version; the web app has the latest features."; fi
 if pub_gh release view "$TAG" -R "$PUBLIC" >/dev/null 2>&1; then
   pub_gh release edit "$TAG" -R "$PUBLIC" --title "DriveLens $TAG" --notes "$NOTES" >/dev/null
 else
   pub_gh release create "$TAG" -R "$PUBLIC" --target main --title "DriveLens $TAG" --notes "$NOTES" --latest >/dev/null
 fi
-PATS=(-p "*_web.zip"); [ "$NATIVE_BUILDS" = 1 ] && PATS+=(-p "*.exe" -p "*.msi" -p "*.apk" -p "*.aab")
-mkdir -p "$WORK/assets"
-gh release download "$TAG" -R "$PRIVATE" "${PATS[@]}" -D "$WORK/assets" --clobber || { echo "   no assets on the private release $TAG"; exit 1; }
-pub_gh release upload "$TAG" -R "$PUBLIC" "$WORK"/assets/* --clobber
+if [ "$NATIVE_BUILDS" = 1 ]; then
+  mkdir -p "$WORK/assets"
+  gh release download "$TAG" -R "$PRIVATE" -p "*.exe" -p "*.msi" -p "*.apk" -p "*.aab" -D "$WORK/assets" --clobber || { echo "   no assets on the private release $TAG"; exit 1; }
+  pub_gh release upload "$TAG" -R "$PUBLIC" "$WORK"/assets/* --clobber
+fi
 pub_gh release view "$TAG" -R "$PUBLIC" --json url,assets -q '.url, (.assets[].name)'

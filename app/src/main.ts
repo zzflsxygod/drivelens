@@ -5,7 +5,8 @@ import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // fi
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
 import { testConnection, renderResult, showSetupWizard } from "./setup";
 import { ICON } from "./toolbar";
-import { initUI, popMenu } from "./ui";
+import { initUI, popMenu, closeMenus } from "./ui";
+import { mountNotifications, initNotificationClicks } from "./notify";
 import { initOverlayScrollbar } from "./scrollbar";
 import { DriveMap, effectiveTheme } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
@@ -351,10 +352,12 @@ function showSettings() {
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
     <button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span>
     <p class="muted">${t("set.mapCredit")}</p>
+    <div id="notify-slot"></div>
     <div id="pwa-slot"></div>
     ${aboutCardHTML()}
     ${supportCardHTML()}`;
   mountInstallCard();
+  mountNotifications(document.getElementById("notify-slot")!);
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer(); };
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
@@ -816,16 +819,23 @@ carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (doc
 const qp = new URLSearchParams(location.search);
 if (qp.get("api")) saveSettings({ ...loadSettings(), apiUrl: qp.get("api")!, token: qp.get("token") || "" });
 const start = qp.get("view");
+/** Deep links (?view=…) and notification taps (service worker → postMessage, see notify.ts). */
+function openView(v: string | null) {
+  const tab = (name: string) => document.querySelector<HTMLElement>(`nav button[data-tab="${name}"]`)!;
+  if (v === "charges") tab("charges").click();
+  else if (v === "settings") tab("settings").click();
+  else if (v?.startsWith("drive:")) showDrive(Number(v.slice(6)));
+  else if (v?.startsWith("charge:")) showCharge(Number(v.slice(7)));
+  else if (v?.startsWith("report")) openReport(v.slice(7) || nowMonth());
+  else if (v === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
+  else if (v?.startsWith("journey:")) { serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(v.slice(8))))); }
+  else if (v === "journeys") { tab("drives").classList.add("active"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
+  else if (v === "drives") tab("drives").click();
+  else showHome();
+}
+initNotificationClicks(v => { if (loadSettings().apiUrl && !document.body.classList.contains("setup-mode")) { closeMenus(); document.querySelector(".modal")?.remove(); openView(v); } });
+// a later reload must not reopen the notification target (but keep it while the first service-worker install may still reload the page)
+if (qp.get("from") === "push" && navigator.serviceWorker?.controller) history.replaceState(null, "", location.pathname);
 if (!loadSettings().apiUrl) {
   showSetupWizard(view, () => { checkServer(); loadCars(); showHome(); });
-} else { checkServer(); loadCars(); }
-if (!loadSettings().apiUrl) { /* wizard shown */ }
-else if (start === "charges") (document.querySelector('nav button[data-tab="charges"]') as HTMLElement).click();
-else if (start?.startsWith("drive:")) showDrive(Number(start.slice(6)));
-else if (start?.startsWith("charge:")) showCharge(Number(start.slice(7)));
-else if (start?.startsWith("report")) openReport(start.slice(7) || nowMonth());
-else if (start === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
-else if (start?.startsWith("journey:")) { serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(start.slice(8))))); }
-else if (start === "journeys") { (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).classList.add("active"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
-else if (start === "drives") (document.querySelector('nav button[data-tab="drives"]') as HTMLElement).click();
-else showHome();
+} else { checkServer(); loadCars(); openView(start); }

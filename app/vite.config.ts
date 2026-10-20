@@ -50,7 +50,7 @@ function pwa(): Plugin {
       // app shell = everything Vite emitted (hashed JS/CSS chunks incl. the lazy demo + maplibre chunks) + public icons
       const files = Object.keys(bundle).filter(f => !f.endsWith(".map"));
       const shell = ["/", ...files.map(f => "/" + f), "/manifest.webmanifest", "/favicon.ico",
-        "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/icons/apple-touch-icon.png", "/icons/favicon-32.png"]
+        "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/icons/apple-touch-icon.png", "/icons/favicon-32.png", "/icons/badge-96.png"]
         .filter((v, i, a) => a.indexOf(v) === i && v !== "/index.html");
       this.emitFile({ type: "asset", fileName: "sw.js", source: swSource(`drivelens-shell-${pkg.version}-${Date.now().toString(36)}`, shell) });
     },
@@ -79,6 +79,31 @@ self.addEventListener("fetch", e => {
   }
   if (!SHELL.includes(u.pathname)) return;
   e.respondWith(caches.match(u.pathname).then(hit => hit || fetch(r)));
+});
+// Web Push (drivelens-api ≥ 0.12.0): the server sends {title, body, tag, url, kind}; nothing is cached here.
+self.addEventListener("push", e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(d.title || "DriveLens", {
+    body: d.body || "", tag: d.tag || undefined, icon: "/icons/icon-192.png", badge: "/icons/badge-96.png",
+    data: { url: typeof d.url === "string" ? d.url : "/" }, timestamp: Date.now() }));
+});
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "/", self.location.origin);
+  if (url.origin !== self.location.origin) return;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const w = wins.find(c => new URL(c.url).origin === self.location.origin);
+    const view = url.searchParams.get("view");
+    if (w) {                                                 // app already open: focus it and let it navigate (no reload)
+      await w.focus().catch(() => {});
+      w.postMessage({ type: "drivelens-open", view });
+      return;
+    }
+    url.searchParams.set("from", "push");
+    await self.clients.openWindow(url.pathname + url.search);
+  })());
 });
 `;
 }

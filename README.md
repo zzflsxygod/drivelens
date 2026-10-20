@@ -339,7 +339,7 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 - `GET /health`（无需 Token）返回 `{"status":"ok","version":"0.5.1","api_level":7}`；`GET /api/health`（需要 Token）额外检查数据库。
 - App 启动时读取 `/health`：服务器版本过旧或正在更新时显示提示条「服务器正在更新或版本过旧…」并隐藏不支持的功能，不会崩溃。设置页显示服务器版本。
 - 自动更新：`deploy/docker-compose.drivelens.yml` 里的 `watchtower` 服务（nickfedor/watchtower，只更新带 `com.centurylinklabs.watchtower.enable=true` 标签的 drivelens-api，每 5 分钟检查一次）。
-- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建网页版（以及 `NATIVE_BUILDS=1` 时的 Windows / Android 安装包，草稿）→ 附加 `DriveLens_版本_web.zip` → 发布为预发布版本。
+- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建网页版（以及 `NATIVE_BUILDS=1` 时的 Windows / Android 安装包，草稿）→ 发布为预发布版本（v0.16.0 起不再附带网页版 zip，网页版只在官方网址提供）。
 
 
 ## 旅程（v0.6.0）
@@ -411,7 +411,7 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 网页版设置向导说明 https + CORS 要求，并区分 CORS 被拒、混合内容（http）、无法连接 / 证书、离线等错误。分享卡片用下载 / Web Share，封面照片用文件选择（仍转 JPG ≤1600px）。演示模式在网页版可用。
 - 设置页底部「支持 DriveLens」卡片（`VITE_DONATE_URL`，为空时隐藏）；网页版显示「安装为应用」。
 - API 0.11.0：`DRIVELENS_CORS_ORIGINS`（旧名 `CORS_ORIGINS`），默认允许官方网页版 + Tauri App 来源，`*` = 任意；预检缓存 10 分钟，支持 Private Network Access。api_level 不变（12），无数据库迁移。
-- Windows / Android 打包暂停（workflow 只能手动运行；`scripts/release.conf` 的 `NATIVE_BUILDS=0`），Release 只附带 `DriveLens_0.15.0_web.zip`。
+- Windows / Android 打包暂停（workflow 只能手动运行；`scripts/release.conf` 的 `NATIVE_BUILDS=0`），v0.15.x 的 Release 附带过 `DriveLens_版本_web.zip`，v0.16.0 起不再附带。
 
 ## v0.15.1 — 公开发布仓库 drivelens-releases
 
@@ -419,7 +419,18 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - README（English 默认 + README.zh.md / README.ja.md）、截图（演示模式）、CHANGELOG、LICENSE（免费使用的专有软件，非开源）、Issue 模板。
 - `docs/install.md`（English）/ `install.zh.md` / `install.ja.md`、`deploy/setup.sql`、`deploy/docker-compose.drivelens.yml`（默认使用预构建镜像 `ghcr.io/zzflsxygod/drivelens-api:latest`，不再需要源码）。
 - 这些文件的来源：本仓库 `distribution/`（README、LICENSE、CHANGELOG、截图、Issue 模板）+ `docs/install*.md` + `deploy/setup.sql` + `deploy/docker-compose.drivelens.yml`。
-- 同步：`scripts/sync-public.sh <tag>`（`release.sh` 第 5 步自动执行，也可手动执行）把上述文件推送到公开仓库，并在公开仓库创建同名 Release，附带 `DriveLens_X.Y.Z_web.zip`；`NATIVE_BUILDS=1` 时再附带 exe / msi / apk / aab。CI 里同样的步骤在 `.github/workflows/public-sync.yml`（需要 secret `RELEASES_REPO_TOKEN`，没有时跳过）。
+- 同步：`scripts/sync-public.sh <tag>`（`release.sh` 第 5 步自动执行，也可手动执行）把上述文件推送到公开仓库，并在公开仓库创建同名 Release；`NATIVE_BUILDS=1` 时附带 exe / msi / apk / aab。CI 里同样的步骤在 `.github/workflows/public-sync.yml`（需要 secret `RELEASES_REPO_TOKEN`，没有时跳过）。
 - App：引导页「安装指南」链接、设置页「帮助与反馈」（安装指南 / 版本与更新日志 / 问题反馈）都指向公开仓库，安装指南按界面语言打开对应版本（英文为默认）。
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
+
+## v0.16.0 — 网页推送通知 + API 0.12.0（api_level 13）
+
+- 设置 → 通知：本设备开启推送（总开关），**行程小结**（行程结束时：距离、用时、电耗 / 电效、起点 → 终点）和**月报提醒**（每月 1 日，按订阅时浏览器的时区，9 点以后）可分别开关；“发送测试通知”。点通知打开对应行程 / 月报（已打开的窗口直接跳转，不重新加载）。
+- 状态提示：App（Tauri）里提示用网页版；浏览器不支持；需要 https；iPhone 需先添加到主屏幕（iOS 16.4+）；通知被拦截；服务器 api_level < 13；服务器未建表（提示执行 v0.16.0.sql）。演示模式：同样的界面，开关存在本地，测试通知只在页面内预览，不申请权限、不推送。
+- 服务器：`api/src/push.rs`。纯 Rust 的 `web-push-native`（RFC 8291 aes128gcm + RFC 8292 VAPID，RustCrypto，镜像里无 OpenSSL）。VAPID 密钥首次启动自动生成并存在 `drivelens.push_state`（或用 `DRIVELENS_VAPID_PRIVATE_KEY` / `DRIVELENS_VAPID_SUBJECT` 覆盖）。后台任务每 60 秒轮询 TeslaMate `drives`（只读）：`drive_watermark` + `drive_sent` 防重复；首次运行从当前最新行程开始（不补发历史）；结束超过 6 小时的行程只标记不推送。推送服务返回 404/410 时删除订阅，连续失败 10 次也删除。
+- API：`GET /api/push/key`、`POST /api/push/subscription`（新建 / 更新，按 endpoint）、`POST /api/push/subscription/status`、`POST /api/push/unsubscribe`、`POST /api/push/test`（都需要 Token）。`/api/health` 多了 `web_push`。
+- 表（只在 `drivelens` schema）：`push_subscriptions`、`push_state`。用 setup.sql 安装的服务器由 API 自动建表；生产这种由管理员建表的旧安装需要先执行：
+  `docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.16.0.sql`
+  没执行时启动日志会显示 `disabled features: web push`，执行后一分钟内自动生效（不用重启）。
+- 网页版不再提供自行托管的 zip（Release 不再附带 `DriveLens_版本_web.zip`），安装向导和安装说明里去掉了自行托管网页版的说明。

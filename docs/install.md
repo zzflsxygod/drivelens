@@ -92,7 +92,9 @@ Local check: `curl http://127.0.0.1:8080/health` should return `{"status":"ok","
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:password@database:5432/teslamate` (the compose file builds it from `.env`) |
 | `API_TOKEN` | ✅ | Bearer token for the app; at least 16 characters, 32+ recommended |
 | `BIND_ADDR` | | Listen address, `0.0.0.0:8080` in the image |
-| `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser (v0.11.0+; the old name `CORS_ORIGINS` still works). Default: only the official web app `https://drivelens-app.oharuru.com`; the Windows / Android apps are always allowed. Add your own URL if you host the web app yourself; `*` allows any origin |
+| `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser (v0.11.0+; the old name `CORS_ORIGINS` still works). Default: only the official web app `https://drivelens-app.oharuru.com`; the Windows / Android apps are always allowed. `*` allows any origin |
+| `DRIVELENS_VAPID_PRIVATE_KEY` | | Web push signing key (base64url P-256 private key, v0.12.0+). Normally leave unset: the API generates one on first start and keeps it in the `drivelens` schema |
+| `DRIVELENS_VAPID_SUBJECT` | | Contact sent to the browser push services with each notification (`mailto:you@example.com` or an https URL). Default: the DriveLens project page |
 | `RUST_LOG` | | Log level, default `info` |
 
 `.env` variables used by the compose file: `DRIVELENS_DB_PASS`, `DRIVELENS_API_TOKEN`, optionally `DRIVELENS_DB_NAME` (default teslamate), and `DRIVELENS_IMAGE` (default `ghcr.io/zzflsxygod/drivelens-api:latest`; set e.g. `…:v0.15.1` to pin a version).
@@ -164,11 +166,19 @@ If you'd rather not install an app, open **https://drivelens-app.oharuru.com** i
 - Android (Chrome) / desktop (Chrome, Edge): "Install as an app" at the bottom of Settings, or the browser menu → Install app.
 - iPhone / iPad (Safari): Share → Add to Home Screen. Installed, it opens full-screen in portrait.
 
+**Notifications (drivelens-api v0.12.0+)**
+
+Settings → Notifications turns on push notifications for this device: a **trip summary** when a drive ends (distance, time, energy, from → to) and a **monthly report** reminder on the 1st (your device's time zone, from 9:00). Each can be switched off separately; tapping a notification opens that trip or report.
+
+- Your server detects finished drives in TeslaMate's database (every minute) and sends the notification itself, encrypted, through the browser's push service (Google / Apple / Mozilla). The API container therefore needs outbound https access to those services.
+- No setup is needed: the signing key is generated on the first start. Changing or losing it (e.g. a new database) means every device has to turn notifications on again.
+- iPhone / iPad: iOS 16.4 or later, and DriveLens must be added to the Home Screen and opened from there.
+- Android / desktop: Chrome, Edge or Firefox. If notifications were blocked, allow them in the site settings.
+
 **Notes**
 
 - The token is kept in this browser's local storage; clear it in Settings on shared computers.
 - The offline cache holds only the app itself (HTML / JS / CSS / icons); API responses are never cached.
-- Hosting the web app yourself: download `DriveLens_<version>_web.zip` from [Releases](https://github.com/zzflsxygod/drivelens-releases/releases), unzip it to any https static host (unknown paths must fall back to `index.html`) and add your URL to `DRIVELENS_CORS_ORIGINS` on the server.
 
 | Web app message | What to do |
 | --- | --- |

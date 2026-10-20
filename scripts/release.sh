@@ -5,7 +5,7 @@
 #      (Watchtower on the server pulls :latest within ~5 min)
 #   3. tag vX.Y.Z → wait for the Web (PWA) build; with NATIVE_BUILDS=1 also the Windows build (creates a DRAFT release)
 #      and the Android build (attaches APK + AAB). With NATIVE_BUILDS=0 (scripts/release.conf) the draft is created here.
-#      The web bundle is attached as DriveLens_X.Y.Z_web.zip (the web workflow deploys it to Cloudflare Pages when configured).
+#      The web app is only offered at the official URL (the web workflow deploys it to Cloudflare Pages); no web zip is attached.
 #   4. publish the draft as a prerelease (only now can users download the new app)
 #   5. mirror it to the public repo zzflsxygod/drivelens-releases (files + release + assets, scripts/sync-public.sh):
 #      by the "Public repo sync" workflow when the RELEASES_REPO_TOKEN secret exists, otherwise from this machine
@@ -83,7 +83,6 @@ else echo "== 3. tag $TAG and wait for the Web build (Windows/Android paused: NA
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG"
 git push -q origin "$TAG" 2>/dev/null || true
 wait_run web.yml "$TAG"
-WEB_RUN=$(gh run list --workflow web.yml --json databaseId,headSha,headBranch -q "[.[] | select(.headSha==\"$SHA\" and .headBranch==\"$TAG\")][0].databaseId")
 if [ "$NATIVE_BUILDS" = 1 ]; then
   wait_run windows.yml "$TAG"
   wait_run android.yml "$TAG"
@@ -93,14 +92,8 @@ if [ "$NATIVE_BUILDS" = 1 ]; then
 else
   gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --prerelease --verify-tag --title "DriveLens $TAG" \
     --notes "网页版 / Web app (PWA)：在浏览器打开即可使用，可“安装到主屏幕”。需要 drivelens-api v$API_VER 以上（https + CORS，见 https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md ）。
-本版本没有新的 Windows / Android 安装包（打包暂停中），请继续使用之前版本的安装包。
-DriveLens_${VER}_web.zip：网页版静态文件，可自行部署到任意 https 静态托管（需在服务器 DRIVELENS_CORS_ORIGINS 中加入你的网址）。"
+本版本没有新的 Windows / Android 安装包（打包暂停中），请继续使用之前版本的安装包。"
 fi
-WEB_TMP=$(mktemp -d)
-gh run download "$WEB_RUN" -n DriveLens-web -D "$WEB_TMP/dist-web"
-(cd "$WEB_TMP/dist-web" && python3 -m zipfile -c "../DriveLens_${VER}_web.zip" $(ls -A))   # zip of the bundle root (index.html at top level)
-gh release upload "$TAG" "$WEB_TMP/DriveLens_${VER}_web.zip" --clobber
-rm -rf "$WEB_TMP"
 
 echo "== 4. publish $TAG as prerelease"
 gh release edit "$TAG" --draft=false --prerelease

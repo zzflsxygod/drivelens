@@ -92,7 +92,9 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:密码@database:5432/teslamate`（compose 文件已用 `.env` 拼好） |
 | `API_TOKEN` | ✅ | App 用的 Bearer Token，至少 16 位，建议 32 位以上 |
 | `BIND_ADDR` | | 监听地址，镜像默认 `0.0.0.0:8080` |
-| `DRIVELENS_CORS_ORIGINS` | | 允许在浏览器里访问 API 的网页来源，逗号分隔（v0.11.0+；旧名 `CORS_ORIGINS` 仍有效）。默认只允许官方网页版 `https://drivelens-app.oharuru.com`；Windows / Android App 的来源总是自动允许。自己部署网页版时加上你的网址，`*` 表示允许任意来源 |
+| `DRIVELENS_CORS_ORIGINS` | | 允许在浏览器里访问 API 的网页来源，逗号分隔（v0.11.0+；旧名 `CORS_ORIGINS` 仍有效）。默认只允许官方网页版 `https://drivelens-app.oharuru.com`；Windows / Android App 的来源总是自动允许。`*` 表示允许任意来源 |
+| `DRIVELENS_VAPID_PRIVATE_KEY` | | 网页推送的签名密钥（base64url 编码的 P-256 私钥，v0.12.0+）。一般不用设置：API 首次启动时会自动生成，并保存在 `drivelens` schema 里 |
+| `DRIVELENS_VAPID_SUBJECT` | | 发送通知时附带给浏览器推送服务的联系方式（`mailto:you@example.com` 或 https 网址）。默认是 DriveLens 项目页面 |
 | `RUST_LOG` | | 日志级别，默认 `info` |
 
 compose 文件里用到的 `.env` 变量：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`，可选 `DRIVELENS_DB_NAME`（默认 teslamate）、`DRIVELENS_IMAGE`（默认 `ghcr.io/zzflsxygod/drivelens-api:latest`；想固定版本时设为例如 `…:v0.15.1`）。
@@ -164,11 +166,19 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 - Android（Chrome）/ 电脑（Chrome、Edge）：「设置」页底部的「安装为应用」，或浏览器菜单 →「安装应用」。
 - iPhone / iPad（Safari）：「分享」→「添加到主屏幕」。安装后全屏、竖屏显示。
 
+**通知（drivelens-api v0.12.0+）**
+
+在“设置 → 通知”里可以为这台设备开启推送：行程结束时推送**行程小结**（距离、用时、电耗、起点 → 终点），每月 1 日（按设备时区，9 点以后）推送**月报提醒**。两种通知可以分别开关，点通知会直接打开对应的行程或月报。
+
+- 服务器每分钟检查一次 TeslaMate 数据库里有没有新结束的行程，然后自己加密发送，经过浏览器的推送服务（Google / Apple / Mozilla）。所以 API 容器需要能访问这些服务的 https 地址。
+- 不需要额外设置：签名密钥在首次启动时自动生成。密钥变了或丢了（比如换了数据库），每台设备都要重新开启一次通知。
+- iPhone / iPad：需要 iOS 16.4 以上，并且要先把 DriveLens 添加到主屏幕，再从主屏幕打开。
+- Android / 电脑：Chrome、Edge 或 Firefox。如果之前拦截过通知，请在网站设置里改为允许。
+
 **说明**
 
 - Token 保存在这个浏览器的本地存储里；在公共电脑上用完请在「设置」里清除。
 - 离线缓存只包含网页本身（HTML / JS / CSS / 图标），API 返回的数据从不缓存。
-- 自己托管网页版：从 Release 下载 `DriveLens_版本_web.zip`，解压到任意 https 静态托管（需要把所有找不到的路径回退到 `index.html`），然后把你的网址加入服务器的 `DRIVELENS_CORS_ORIGINS`。
 
 | 网页版提示 | 处理 |
 | --- | --- |

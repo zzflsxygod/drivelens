@@ -30,6 +30,7 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Journeys:** group drives into trips (with automatic suggestions), add a cover photo and notes, create a share card
 - **Monthly report:** distance, energy, charging cost, home vs. Supercharger split, daily breakdown, footprint map, 12-month trends
 - **Battery health:** degradation curve based on rated range
+- **Notifications (web app):** a trip summary when a drive ends and a monthly-report reminder on the 1st, each switchable
 - **Your names and costs:** rename places, enter charging costs manually (any currency)
 - **Languages:** English, 中文, 日本語 · light and dark theme
 

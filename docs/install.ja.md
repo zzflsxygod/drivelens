@@ -92,7 +92,9 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:パスワード@database:5432/teslamate`（compose ファイルが `.env` から組み立てます） |
 | `API_TOKEN` | ✅ | アプリ用の Bearer トークン。16 文字以上、32 文字以上を推奨 |
 | `BIND_ADDR` | | 待ち受けアドレス。イメージの既定は `0.0.0.0:8080` |
-| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せる Web のオリジン（カンマ区切り、v0.11.0 以降。旧名 `CORS_ORIGINS` も有効）。既定は公式ウェブ版 `https://drivelens-app.oharuru.com` のみ。Windows / Android アプリは常に許可されます。ウェブ版を自分でホストする場合はその URL を追加。`*` はすべて許可 |
+| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せる Web のオリジン（カンマ区切り、v0.11.0 以降。旧名 `CORS_ORIGINS` も有効）。既定は公式ウェブ版 `https://drivelens-app.oharuru.com` のみ。Windows / Android アプリは常に許可されます。`*` はすべて許可 |
+| `DRIVELENS_VAPID_PRIVATE_KEY` | | Web プッシュの署名鍵（base64url の P-256 秘密鍵、v0.12.0 以降）。通常は設定不要：API が初回起動時に生成し、`drivelens` スキーマに保存します |
+| `DRIVELENS_VAPID_SUBJECT` | | 通知と一緒にブラウザのプッシュサービスへ送る連絡先（`mailto:you@example.com` または https の URL）。既定は DriveLens のプロジェクトページ |
 | `RUST_LOG` | | ログレベル。既定は `info` |
 
 compose ファイルが使う `.env` の変数：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（既定 teslamate）、`DRIVELENS_IMAGE`（既定 `ghcr.io/zzflsxygod/drivelens-api:latest`。バージョンを固定する場合は `…:v0.15.1` など）。
@@ -164,11 +166,19 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 - Android（Chrome）/ パソコン（Chrome・Edge）：「設定」の一番下の「アプリとしてインストール」、またはブラウザのメニュー →「アプリをインストール」。
 - iPhone / iPad（Safari）：「共有」→「ホーム画面に追加」。インストール後は全画面・縦向きで表示されます。
 
+**通知（drivelens-api v0.12.0 以降）**
+
+「設定 → 通知」でこの端末のプッシュ通知をオンにできます。走行が終わると**走行サマリー**（距離・時間・電費・出発地 → 到着地）、毎月1日（端末のタイムゾーンで 9 時以降）に**月次レポート**をお知らせします。それぞれ個別にオン／オフでき、通知をタップするとその走行やレポートが開きます。
+
+- サーバーが TeslaMate のデータベースを毎分確認して走行の終了を検出し、ブラウザのプッシュサービス（Google / Apple / Mozilla）経由で暗号化して送信します。そのため API コンテナからこれらのサービスへ https で接続できる必要があります。
+- 追加の設定は不要です。署名鍵は初回起動時に自動生成されます。鍵が変わったり失われたり（データベースの作り直しなど）した場合は、各端末で通知をもう一度オンにしてください。
+- iPhone / iPad：iOS 16.4 以降で、DriveLens をホーム画面に追加し、そこから開く必要があります。
+- Android / パソコン：Chrome・Edge・Firefox。通知をブロックした場合はサイトの設定で許可してください。
+
 **補足**
 
 - トークンはこのブラウザのローカルストレージに保存されます。共用パソコンでは使用後に「設定」で消去してください。
 - オフラインキャッシュはアプリ本体（HTML / JS / CSS / アイコン）のみで、API のレスポンスはキャッシュしません。
-- ウェブ版を自分でホストする場合：リリースから `DriveLens_バージョン_web.zip` をダウンロードし、https の静的ホスティングに展開（存在しないパスは `index.html` にフォールバック）して、その URL をサーバーの `DRIVELENS_CORS_ORIGINS` に追加してください。
 
 | ウェブ版のメッセージ | 対処 |
 | --- | --- |
