@@ -4,6 +4,33 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.0.0 — 2026-10-20
+**DriveLens 1.0.0, the first stable release.**
+
+DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/teslamate). Open the web app at **https://drivelens-app.oharuru.com** on any phone or computer and add it to your home screen (PWA). It talks directly to a small read-only API on your own server, so your token and data never pass through any DriveLens service. You can also [try the demo](https://drivelens-app.oharuru.com/?demo) without a server.
+
+**Highlights**
+- **Overview:** battery level and range, odometer, software version, outside / inside temperature, current location on a map, this month at a glance.
+- **Drives and charging:** endless lists with month headers, route maps coloured by speed, charging curves, weather per drive, energy by speed band, your own place names and charging costs (any currency).
+- **Journeys:** group drives into trips (with automatic suggestions), cover photo, notes and a share card.
+- **Monthly reports:** distance, energy, charging cost, home vs. Supercharger split, daily breakdown, footprint map, 12-month trends; battery health curve.
+- **Maps:** OpenFreeMap basemaps in light and dark, place labels in your language.
+- **Push notifications:** a trip summary when a drive ends and a monthly-report reminder on the 1st, each switchable (Android, desktop, iPhone / iPad on iOS 16.4+ from the home screen).
+- **Demo mode:** every feature with a fictional car, entirely in your browser.
+- **Languages and themes:** English, 中文, 日本語; light and dark themes that follow your system or can be set in Settings; the new instrument-style “Telemetry” design.
+- **Secure access guidance:** the setup screen and install guide explain how to give your server an https address with Cloudflare Tunnel or `tailscale serve` (Tailscale).
+- **New in this version:** the “Support DriveLens” card at the bottom of Settings ([Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)).
+
+**Server / install**
+- Server: drivelens-api **0.12.0** (no update needed if you already run it). Public image `ghcr.io/zzflsxygod/drivelens-api` for amd64 and arm64.
+- New installs: [install guide](https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md) ([中文](https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.zh.md) · [日本語](https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.ja.md)), with `deploy/setup.sql` (one-time read-only database account) and `deploy/docker-compose.drivelens.yml`. TeslaMate's own tables are never modified.
+
+**Support:** DriveLens is free to use and built by one person. If it helps you, [buy me a coffee](https://buymeacoffee.com/zzflsxygod) ☕
+
+**中文摘要：** DriveLens 1.0.0 是第一个正式版。网页版 https://drivelens-app.oharuru.com ，包含首页概览、行程与充电、旅程、月度报告、地图、演示模式、推送通知（行程小结 / 月报提醒）、中英日三语、浅色 / 深色主题和全新的 Telemetry 界面；安装指南介绍了用 Cloudflare Tunnel 或 `tailscale serve` 提供 https 的方法。设置页底部新增「支持 DriveLens」（Buy Me a Coffee）。服务器保持 0.12.0，无需更新。
+
+**日本語の概要：** DriveLens 1.0.0 は最初の正式版です。ウェブ版 https://drivelens-app.oharuru.com で、概要、走行と充電、旅程、月次レポート、地図、デモモード、プッシュ通知（走行サマリー / 月次レポートのお知らせ）、日中英の 3 言語、ライト / ダークテーマ、新しい Telemetry デザインを利用できます。インストールガイドでは Cloudflare Tunnel や `tailscale serve` で https 化する方法を説明しています。「設定」の一番下に「DriveLens を応援する」（Buy Me a Coffee）を追加しました。サーバーは 0.12.0 のままで更新は不要です。
+
 ## v0.17.4 — 2026-10-20
 - Home: the three tiles on the vehicle card (odometer, software, outside / inside temperature) always stay on one line, even on small phones; temperatures are shown in whole degrees (e.g. `20° / 22°`) and long values shrink slightly to fit.
 - No server update needed.

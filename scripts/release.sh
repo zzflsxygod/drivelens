@@ -6,7 +6,9 @@
 #   3. tag vX.Y.Z → wait for the Web (PWA) build; with NATIVE_BUILDS=1 also the Windows build (creates a DRAFT release)
 #      and the Android build (attaches APK + AAB). With NATIVE_BUILDS=0 (scripts/release.conf) the draft is created here.
 #      The web app is only offered at the official URL (the web workflow deploys it to Cloudflare Pages); no web zip is attached.
-#   4. publish the draft as a prerelease (only now can users download the new app)
+#   4. publish the draft: from 1.0.0 on a plain X.Y.Z is a normal release marked Latest; 0.x versions and
+#      versions with a suffix (1.1.0-beta.1) are prereleases. DRIVELENS_PRERELEASE=1 / =0 forces either way.
+#      Release notes come from the version's section in distribution/CHANGELOG.md when the draft is created here.
 #   5. mirror it to the public repo zzflsxygod/drivelens-releases (files + release + assets, scripts/sync-public.sh):
 #      by the "Public repo sync" workflow when the RELEASES_REPO_TOKEN secret exists, otherwise from this machine
 # Usage: scripts/release.sh [api-base-url] [--skip-health]
@@ -23,6 +25,8 @@ NATIVE_BUILDS="${DRIVELENS_NATIVE_BUILDS:-${NATIVE_BUILDS:-1}}"
 VER=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' app/package.json | head -1)
 API_VER=$(grep -m1 '^version' api/Cargo.toml | cut -d'"' -f2)
 TAG="v$VER"
+if [ -n "${DRIVELENS_PRERELEASE:-}" ]; then PRE="$DRIVELENS_PRERELEASE"
+elif [[ "$VER" == 0.* || "$VER" == *-* ]]; then PRE=1; else PRE=0; fi
 for f in app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml; do
   grep -q "\"$VER\"\|= \"$VER\"" "$f" || { echo "version mismatch: $f is not $VER"; exit 1; }
 done
@@ -90,13 +94,24 @@ if [ "$NATIVE_BUILDS" = 1 ]; then
     gh release view "$TAG" --json assets -q '.assets[].name' | grep -q -- "$a\$" || { echo "   Android asset *$a missing on the draft — not publishing"; exit 1; }
   done
 else
-  gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --prerelease --verify-tag --title "DriveLens $TAG" \
-    --notes "网页版 / Web app (PWA)：在浏览器打开即可使用，可“安装到主屏幕”。需要 drivelens-api v$API_VER 以上（https + CORS，见 https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md ）。
-本版本没有新的 Windows / Android 安装包（打包暂停中），请继续使用之前版本的安装包。"
+  if ! gh release view "$TAG" >/dev/null 2>&1; then
+    NOTES=$(awk -v v="$TAG" '$0 ~ "^## "v"( |$)" {f=1; next} /^## / {if (f) exit} f' distribution/CHANGELOG.md | sed '/./,$!d')
+    NOTES="${NOTES:-网页版 / Web app (PWA): https://drivelens-app.oharuru.com}
+
+---
+Web app: https://drivelens-app.oharuru.com · server: drivelens-api v$API_VER+ (\`ghcr.io/zzflsxygod/drivelens-api\`, install guide: https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md).
+Windows / Android installers are not part of this version (packaging paused)."
+    gh release create "$TAG" --draft --prerelease="$( [ "$PRE" = 1 ] && echo true || echo false )" --verify-tag --title "DriveLens $TAG" --notes "$NOTES"
+  fi
 fi
 
-echo "== 4. publish $TAG as prerelease"
-gh release edit "$TAG" --draft=false --prerelease
+if [ "$PRE" = 1 ]; then
+  echo "== 4. publish $TAG as prerelease"
+  gh release edit "$TAG" --draft=false --prerelease
+else
+  echo "== 4. publish $TAG as a stable release (Latest)"
+  gh release edit "$TAG" --draft=false --prerelease=false --latest
+fi
 gh release view "$TAG" --json url,isDraft,isPrerelease,assets -q '.url, "draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[].name)'
 
 echo "== 5. public repo (zzflsxygod/drivelens-releases)"

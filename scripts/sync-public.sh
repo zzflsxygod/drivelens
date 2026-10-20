@@ -59,7 +59,11 @@ Windows / Android installers are not part of this version; the web app has the l
 if pub_gh release view "$TAG" -R "$PUBLIC" >/dev/null 2>&1; then
   pub_gh release edit "$TAG" -R "$PUBLIC" --title "DriveLens $TAG" --notes "$NOTES" >/dev/null
 else
-  pub_gh release create "$TAG" -R "$PUBLIC" --target main --title "DriveLens $TAG" --notes "$NOTES" --latest >/dev/null
+  if [[ "$VER" == *-* ]]; then   # 1.1.0-beta.1 etc. → prerelease; plain versions are the Latest release
+    pub_gh release create "$TAG" -R "$PUBLIC" --target main --title "DriveLens $TAG" --notes "$NOTES" --prerelease >/dev/null
+  else
+    pub_gh release create "$TAG" -R "$PUBLIC" --target main --title "DriveLens $TAG" --notes "$NOTES" --latest >/dev/null
+  fi
 fi
 if [ "$NATIVE_BUILDS" = 1 ]; then
   mkdir -p "$WORK/assets"

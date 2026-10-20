@@ -9,6 +9,9 @@ DriveLens は [TeslaMate](https://github.com/teslamate-org/teslamate) のため�
 - **バックエンドを導入する：** [インストールガイド](docs/install.ja.md) · [English](docs/install.md) · [中文](docs/install.zh.md)
 - **更新情報：** [CHANGELOG](CHANGELOG.md)（英語）· [Releases](https://github.com/zzflsxygod/drivelens-releases/releases)
 - **フィードバック：** [Issues](https://github.com/zzflsxygod/drivelens-releases/issues/new/choose)
+- **DriveLens を応援する：** [Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)
+
+**現在のバージョン：1.0.0**（最初の正式版。[リリースノート](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.0.0)）
 
 <p>
   <img src="screenshots/home-light.jpg" width="200" alt="ホーム">
@@ -32,12 +35,14 @@ DriveLens は [TeslaMate](https://github.com/teslamate-org/teslamate) のため�
 - **バッテリーの健康度：** 定格航続距離にもとづく劣化カーブ
 - **通知（Web 版）：** 走行終了時の走行サマリーと、毎月1日の月次レポートのお知らせ（個別にオン／オフ可）
 - **カスタマイズ：** 地点名の変更、充電料金の手入力（複数通貨対応）
-- **言語：** English、中文、日本語 · ライト / ダークテーマ
+- **言語：** English、中文、日本語
+- **デザイン：** 計器のようにすっきりしたデザイン。ライト / ダークテーマ（システムに合わせるか「設定」で切り替え）。スマートフォンの縦画面向けで、PC でも使えます
+- **デモモード：** 架空の車ですべての機能を試せます。サーバーは不要です
 
 ## しくみ
 
 ```
-DriveLens アプリ（ウェブ / Windows / Android）──https + トークン──> drivelens-api（ご自身のサーバー）──読み取り専用──> TeslaMate PostgreSQL
+DriveLens ウェブ版（PWA）──https + トークン──> drivelens-api（ご自身のサーバー）──読み取り専用──> TeslaMate PostgreSQL
 ```
 
 - アプリは**ご自身のサーバーに直接**接続します。トークンやデータが DriveLens のサービスを経由することはありません。ウェブ版は静的ファイルだけです。
@@ -47,7 +52,7 @@ DriveLens アプリ（ウェブ / Windows / Android）──https + トークン
 ## 前提条件
 
 - Docker Compose で TeslaMate を運用していること
-- x86_64 または ARM64 のサーバー（Raspberry Pi も可）
+- x86_64 または ARM64 のサーバー（Raspberry Pi も可）。イメージ `ghcr.io/zzflsxygod/drivelens-api` は amd64 / arm64 向けに公開されています
 - 外部から安全にサーバーへ接続する手段（Cloudflare Tunnel または Tailscale を推奨）
 
 ## クイックスタート
@@ -64,6 +69,10 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 ```
 
 あとはサーバーを https で接続できるようにし、アプリにアドレスと `DRIVELENS_API_TOKEN` を入力するだけです。各手順の説明は[インストールガイド](docs/install.ja.md)にあります。
+
+## 応援
+
+DriveLens は個人で開発・運営しており、無料で使えます。お役に立てたら [コーヒーをおごっていただけると](https://buymeacoffee.com/zzflsxygod) 嬉しいです ☕。アプリの「設定」の一番下にもリンクがあります。
 
 ## ライセンス
 

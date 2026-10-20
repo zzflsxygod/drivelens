@@ -339,7 +339,7 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 - `GET /health`（无需 Token）返回 `{"status":"ok","version":"0.5.1","api_level":7}`；`GET /api/health`（需要 Token）额外检查数据库。
 - App 启动时读取 `/health`：服务器版本过旧或正在更新时显示提示条「服务器正在更新或版本过旧…」并隐藏不支持的功能，不会崩溃。设置页显示服务器版本。
 - 自动更新：`deploy/docker-compose.drivelens.yml` 里的 `watchtower` 服务（nickfedor/watchtower，只更新带 `com.centurylinklabs.watchtower.enable=true` 标签的 drivelens-api，每 5 分钟检查一次）。
-- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建网页版（以及 `NATIVE_BUILDS=1` 时的 Windows / Android 安装包，草稿）→ 发布为预发布版本（v0.16.0 起不再附带网页版 zip，网页版只在官方网址提供）。
+- 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建网页版（以及 `NATIVE_BUILDS=1` 时的 Windows / Android 安装包，草稿）→ 发布（v1.0.0 起：`X.Y.Z` 为正式版并标记 Latest；`0.x` 或带后缀的版本如 `1.1.0-beta.1` 为预发布；`DRIVELENS_PRERELEASE=1/0` 可强制；脚本创建的草稿使用 `distribution/CHANGELOG.md` 中该版本的段落作为说明。v0.16.0 起不再附带网页版 zip，网页版只在官方网址提供）。
 
 
 ## 旅程（v0.6.0）
@@ -423,6 +423,13 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - App：引导页「安装指南」链接、设置页「帮助与反馈」（安装指南 / 版本与更新日志 / 问题反馈）都指向公开仓库，安装指南按界面语言打开对应版本（英文为默认）。
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
+
+## v1.0.0 — 第一个正式版（仅网页版）
+
+- 重新显示捐助卡片：仓库变量 `DONATE_URL=https://buymeacoffee.com/zzflsxygod`（web.yml → `VITE_DONATE_URL`），设置页最底部「支持 DriveLens」。
+- `release.sh`：从 1.0.0 起 `X.Y.Z` 发布为正式版并标记 Latest，`0.x` / 带 `-` 后缀为预发布（`DRIVELENS_PRERELEASE=1/0` 强制）；脚本创建草稿时用 CHANGELOG 中该版本的段落作为发布说明。`sync-public.sh`：带后缀的版本在公开仓库也标为预发布。
+- 公开 README（三语）更新到 1.0.0：当前版本、支持链接 / 支持一节、界面与演示模式说明、镜像 amd64 / arm64；截图按当前界面重新生成。
+- API 不变（0.12.0），无数据库迁移。
 
 ## v0.17.4 — 首页车辆卡片三格不换行（仅网页版）
 

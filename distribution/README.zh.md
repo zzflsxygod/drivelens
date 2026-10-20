@@ -9,6 +9,9 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的配套 
 - **自建后台：** [安装指南](docs/install.zh.md) · [English](docs/install.md) · [日本語](docs/install.ja.md)
 - **更新内容：** [CHANGELOG](CHANGELOG.md)（英文）· [Releases](https://github.com/zzflsxygod/drivelens-releases/releases)
 - **反馈：** [Issues](https://github.com/zzflsxygod/drivelens-releases/issues/new/choose)
+- **支持 DriveLens：** [Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)
+
+**当前版本：1.0.0**，第一个正式版（[发布说明](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.0.0)）。
 
 <p>
   <img src="screenshots/home-light.jpg" width="200" alt="首页">
@@ -32,12 +35,14 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的配套 
 - **电池健康度：** 根据额定续航计算的衰减曲线
 - **通知（网页版）：** 行程结束时推送行程小结，每月 1 日提醒查看月报，可分别开关
 - **自定义：** 修改地点名称、手动填写充电费用（支持多种货币）
-- **语言：** English、中文、日本語 · 浅色和深色主题
+- **语言：** English、中文、日本語
+- **界面：** 简洁的仪表风格设计，浅色 / 深色主题（跟随系统，也可以在设置里切换），为手机竖屏设计，电脑上也能用
+- **演示模式：** 用一辆虚构的车体验全部功能，不需要服务器
 
 ## 工作原理
 
 ```
-DriveLens App（网页版 / Windows / Android）──https + Token──> drivelens-api（你的服务器）──只读──> TeslaMate PostgreSQL
+DriveLens 网页版（PWA）──https + Token──> drivelens-api（你的服务器）──只读──> TeslaMate PostgreSQL
 ```
 
 - App **直接连接你自己的服务器**。Token 和数据不会经过任何 DriveLens 的服务，网页版只是一份静态页面。
@@ -47,7 +52,7 @@ DriveLens App（网页版 / Windows / Android）──https + Token──> drive
 ## 前提
 
 - 已经用 Docker Compose 运行 TeslaMate
-- x86_64 或 ARM64 服务器（树莓派也可以）
+- x86_64 或 ARM64 服务器（树莓派也可以）；镜像 `ghcr.io/zzflsxygod/drivelens-api` 公开提供 amd64 和 arm64 版本
 - 能从外部安全访问服务器的方式（推荐 Cloudflare Tunnel 或 Tailscale）
 
 ## 快速开始
@@ -64,6 +69,10 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 ```
 
 然后让服务器能通过 https 访问，在 App 里填写地址和 `DRIVELENS_API_TOKEN` 即可。每一步的说明见[安装指南](docs/install.zh.md)。
+
+## 支持
+
+DriveLens 由个人开发和维护，可以免费使用。如果它对你有帮助，欢迎[请开发者喝杯咖啡](https://buymeacoffee.com/zzflsxygod) ☕。App 设置页底部也有这个链接。
 
 ## 许可
 

@@ -9,6 +9,9 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Self-host the backend:** [install guide](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)
 - **What's new:** [CHANGELOG](CHANGELOG.md) · [Releases](https://github.com/zzflsxygod/drivelens-releases/releases)
 - **Feedback:** [Issues](https://github.com/zzflsxygod/drivelens-releases/issues/new/choose)
+- **Support DriveLens:** [Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)
+
+**Current version: 1.0.0**, the first stable release ([release notes](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.0.0)).
 
 <p>
   <img src="screenshots/home-light.jpg" width="200" alt="Home">
@@ -32,12 +35,14 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Battery health:** degradation curve based on rated range
 - **Notifications (web app):** a trip summary when a drive ends and a monthly-report reminder on the 1st, each switchable
 - **Your names and costs:** rename places, enter charging costs manually (any currency)
-- **Languages:** English, 中文, 日本語 · light and dark theme
+- **Languages:** English, 中文, 日本語
+- **Design:** a clean instrument-style interface, light and dark themes (follows your system or set in Settings), portrait layout for phones that also works on desktop
+- **Demo mode:** explore every feature with a fictional car, no server needed
 
 ## How it works
 
 ```
-DriveLens app (web / Windows / Android)  ──https + token──>  drivelens-api (on your server)  ──read-only──>  TeslaMate PostgreSQL
+DriveLens web app (PWA)  ──https + token──>  drivelens-api (on your server)  ──read-only──>  TeslaMate PostgreSQL
 ```
 
 - The app talks **directly to your own server**. Your token and your data never pass through any DriveLens service; the web app is only static files.
@@ -47,7 +52,7 @@ DriveLens app (web / Windows / Android)  ──https + token──>  drivelens-a
 ## Requirements
 
 - TeslaMate running with Docker Compose
-- An x86_64 or ARM64 server (Raspberry Pi works)
+- An x86_64 or ARM64 server (Raspberry Pi works); the image `ghcr.io/zzflsxygod/drivelens-api` is public for amd64 and arm64
 - A way to reach the server securely from outside (Cloudflare Tunnel or Tailscale recommended)
 
 ## Quick start
@@ -64,6 +69,10 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 ```
 
 Then make it reachable over https and enter the address and `DRIVELENS_API_TOKEN` in the app. The [install guide](docs/install.md) explains each step.
+
+## Support
+
+DriveLens is built and maintained by one person and is free to use. If it is useful to you, you can [buy me a coffee](https://buymeacoffee.com/zzflsxygod) ☕. The link is also at the bottom of Settings in the app.
 
 ## License
 
