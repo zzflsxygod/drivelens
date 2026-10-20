@@ -424,6 +424,11 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v0.17.1 — 设置「主题」文案修正（仅网页版）
+
+- 设置 › 显示：原「地图主题 / Map theme / 地図のテーマ」实际切换的是整个 App 的浅色 / 深色，改名为「主题 / Theme / テーマ」；选项为 跟随系统（默认）/ 浅色 / 深色（英文 "System default" → "Follow system"，中文「深色（夜间）」→「深色」）。地图底图始终跟随 App 主题（`map.ts` 的 `effectiveTheme()`），没有单独的地图主题设置。
+- 新用户默认 `theme` 未设置 = 跟随系统；选择跟随系统时，系统切换浅 / 深色会实时生效（界面与底图）。
+
 ## v0.17.0 — 新 UI（“Telemetry”设计系统，仅网页版）
 
 - `app/src/style.css` 整体重写（不再叠加 v0.8 渐变 / 玻璃等旧层）：tokens（浅色 / 深色两套，均达到 WCAG AA 文字对比度；浅色强调色 `#006a9e`、绿 `#047857`，深色强调色 `#00e5ff`）→ 基础 → 顶栏 / 底栏 → 控件 → 内容块 → 各页面 → 动效。背景改为纯色（修复短页面的渐变色带）。主题仍跟随系统，设置里可手动切换。

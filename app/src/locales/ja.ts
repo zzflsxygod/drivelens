@@ -56,7 +56,7 @@ const ja: Record<keyof typeof zh, string> = {
   "set.display": "表示",
   "set.language": "言語 / Language",
   "set.langAuto": "システムに従う",
-  "set.theme": "地図のテーマ",
+  "set.theme": "テーマ",
   "set.themeAuto": "システムに従う",
   "set.themeLight": "ライト",
   "set.themeDark": "ダーク",
