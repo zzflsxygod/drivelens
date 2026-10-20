@@ -15,7 +15,7 @@ import { batteryCardHTML, showBattery, type Battery } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
-import { checkServer, serverReady, onServerInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
+import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 import { installGuideUrl, RELEASES_URL, ISSUES_URL } from "./links";
 
@@ -323,21 +323,68 @@ function mountDemoBanner() {
   document.querySelector("header")!.append(b);
 }
 
+/** Settings › Server. Once a server is saved it collapses into one compact row (status dot, host, versions);
+ *  tapping it expands the address / token / save & test / check controls. Demo mode: version line only. */
+function serverSectionHTML(url: string, token: string) {
+  const title = `<div class="section-title"><span>${t("set.server")}</span></div>`;
+  const verBox = `<div class="version-box"><span class="muted">App <code>v${esc(APP_VERSION)}</code> · ${t("set.server")} <code id="srv-ver">${esc(serverLabel())}</code></span><button id="srv-check" class="ghost small">${t("set.check")}</button></div>`;
+  if (isDemo()) return title + verBox;
+  return `${title}
+    <div class="card srv-card" id="srv-card">
+      <button type="button" class="srv-head" id="srv-toggle" aria-expanded="false" aria-controls="srv-body">
+        <span class="srv-dot" id="srv-dot" aria-hidden="true"></span>
+        <span class="srv-main"><b class="srv-host" id="srv-host">${esc(hostOf(url) || t("set.srvNone"))}</b>
+          <span class="srv-meta"><span class="srv-state" id="srv-state"></span><span class="srv-ver">App v${esc(APP_VERSION)} · ${t("set.server")} <span id="srv-sv">—</span></span></span></span>
+        <svg class="srv-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </button>
+      <div class="srv-body" id="srv-body" role="region" aria-labelledby="srv-toggle"><div><div class="srv-inner">
+        ${verBox}
+        <label>${t("set.apiUrl")}<input id="url" placeholder="https://drivelens.example.com" value="${esc(url)}"></label>
+        <label>API Token<input id="token" type="password" value="${esc(token)}"></label>
+        <button id="save" class="primary">${t("set.saveTest")}</button>
+        <div id="msg"></div></div></div></div>
+    </div>
+    <div class="card demo-card"><div class="demo-card-row"><div><b>${ic("spark")} ${t("demo.title")}</b><p class="muted small">${t("demo.enterHint")}</p></div>
+      <button id="demo-enter" class="ghost small">${t("demo.enterBtn")}</button></div></div>`;
+}
+const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u; } };
+let srvTouched = false;   // the user opened / closed it himself → don't auto-expand any more
+function setServerOpen(open: boolean) {
+  const card = document.getElementById("srv-card"), btn = document.getElementById("srv-toggle");
+  if (!card || !btn) return;
+  card.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open));
+  card.querySelectorAll<HTMLElement>("#srv-body input, #srv-body button").forEach(e => { e.tabIndex = open ? 0 : -1; });
+}
+/** Refresh the compact row (and the version line) from the current /health state. */
+function paintServerHead() {
+  const v = document.getElementById("srv-ver"); if (v) v.textContent = serverLabel();
+  const dot = document.getElementById("srv-dot"), st = document.getElementById("srv-state"), sv = document.getElementById("srv-sv");
+  if (!dot || !st || !sv) return;
+  const s = loadSettings(), i = serverInfo();
+  const host = document.getElementById("srv-host"); if (host) host.textContent = hostOf(s.apiUrl || "") || t("set.srvNone");
+  const cfg = !!(s.apiUrl && s.token);
+  const k = !cfg ? "none" : i.state === "ok" || i.state === "legacy" ? "ok" : i.state === "unreachable" ? "err" : "wait";
+  dot.className = `srv-dot is-${k}`;
+  st.className = `srv-state is-${k}`;
+  st.textContent = k === "ok" ? t("set.srvOk") : k === "err" ? t("set.srvErr") : k === "none" ? t("set.srvNoneShort") : t("common.checking");
+  sv.textContent = i.state === "ok" ? `v${i.version ?? "?"}` : i.state === "legacy" ? "<0.5.1" : "—";
+  if (!srvTouched && (k === "err" || k === "none")) setServerOpen(true);
+}
+function bindServerSection(configured: boolean) {
+  const btn = document.getElementById("srv-toggle"); if (!btn) return;
+  srvTouched = false;
+  setServerOpen(!configured);
+  btn.onclick = () => { srvTouched = true; setServerOpen(btn.getAttribute("aria-expanded") !== "true"); };
+  paintServerHead();
+}
+onServerInfo(() => paintServerHead());
+
 function showSettings() {
   destroyMap();
   const s = loadSettings();
   view.innerHTML = `
     <h2 class="tb-title set-title">${t("set.title")}</h2>
-    <div class="section-title"><span>${t("set.server")}</span></div>
-    <div class="version-box"><span class="muted">App <code>v${esc(APP_VERSION)}</code> · ${t("set.server")} <code id="srv-ver">${esc(serverLabel())}</code></span><button id="srv-check" class="ghost small">${t("set.check")}</button></div>
-    ${isDemo() ? demoSettingsCard() : `
-    <div class="card set-group">
-    <label>${t("set.apiUrl")}<input id="url" placeholder="https://drivelens.example.com" value="${esc(s.apiUrl || "")}"></label>
-    <label>API Token<input id="token" type="password" value="${esc(s.token || "")}"></label>
-    <button id="save" class="primary">${t("set.saveTest")}</button>
-    <div id="msg"></div></div>
-    <div class="card demo-card"><div class="demo-card-row"><div><b>${ic("spark")} ${t("demo.title")}</b><p class="muted small">${t("demo.enterHint")}</p></div>
-      <button id="demo-enter" class="ghost small">${t("demo.enterBtn")}</button></div></div>`}
+    ${isDemo() ? demoSettingsCard() : ""}
     <div class="section-title"><span>${t("set.display")}</span></div>
     <div class="card set-group">
     <label>${t("set.language")}<select id="uilang">
@@ -362,11 +409,13 @@ function showSettings() {
     </div>
     <div id="notify-slot"></div>
     <div id="pwa-slot"></div>
+    ${serverSectionHTML(s.apiUrl || "", s.token || "")}
     ${aboutCardHTML()}
     ${supportCardHTML()}`;
   mountInstallCard();
   mountNotifications(document.getElementById("notify-slot")!);
-  (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer(); };
+  (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer().then(paintServerHead); };
+  bindServerSection(!!(s.apiUrl && s.token));
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
   const langSel = document.getElementById("lang") as HTMLSelectElement;
   themeSel.value = s.theme ?? "auto"; langSel.value = s.labelLang ?? "";
@@ -407,7 +456,7 @@ function showSettings() {
     if (!r.ok) return;   // keep the old working settings when the new ones fail
     urlIn.value = r.url;
     saveSettings({ ...loadSettings(), apiUrl: r.url, token: tokIn.value.trim() });
-    checkServer().then(() => { const v = document.getElementById("srv-ver"); if (v) v.textContent = serverLabel(); });
+    checkServer().then(paintServerHead);
     loadCars();
   };
 }

@@ -424,6 +424,12 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v0.17.3 — 设置页「服务器」折叠并移到下方（仅网页版）
+
+- 已保存服务器（地址 + Token）时，「服务器」折叠成一行：状态点（绿 = 已连接 / 红 = 无法连接 / 黄 = 检查中）+ 主机名 + 小号等宽版本号（App / 服务器）+ 箭头；点开（`button[aria-expanded]`，grid-rows 动画）显示版本行和「检查」、API 地址、Token、保存并测试连接。未配置或 `/health` 无法连接时自动展开（用户手动开合后不再自动改变）。收起时内部控件 `tabIndex=-1`。
+- 顺序：显示 → 旅程 → 通知 →（安装为应用）→ 服务器 + 演示模式卡片 → 帮助与反馈 → 支持。演示模式中：退出演示卡片仍在最上方，「服务器」只显示版本行。
+- `main.ts`：`serverSectionHTML` / `paintServerHead`（`onServerInfo` 实时刷新）/ `bindServerSection`；新文案 `set.srvOk/srvErr/srvNone/srvNoneShort`。
+
 ## v0.17.2 — https 提示说明 + Tailscale 配置（仅网页版）
 
 - 引导页「网页版需要」第一条改写（zh/en/ja `su.webHttps`）：网页版运行在 https 上，浏览器会拦截所有 http 地址（局域网 / Tailscale IP 也一样）；Tailscale 用户执行 `tailscale serve` 即可免费得到 https 地址，后面加「Tailscale 配置方法」链接（`installGuideUrl()#tailscale`）。`su.mixed`（填 http 地址时的错误）同样说明。
