@@ -11,7 +11,7 @@ DriveLens は [TeslaMate](https://github.com/teslamate-org/teslamate) のため�
 - **フィードバック：** [Issues](https://github.com/zzflsxygod/drivelens-releases/issues/new/choose)
 - **DriveLens を応援する：** [Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)
 
-**現在のバージョン：1.0.0**（最初の正式版。[リリースノート](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.0.0)）
+**現在のバージョン：1.1.0**（バッテリー健全性を TeslaMate「Battery Health」ダッシュボードと同じ方法で計算。[リリースノート](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.1.0)、drivelens-api 0.13.0 が必要）
 
 <p>
   <img src="screenshots/home-light.jpg" width="200" alt="ホーム">
@@ -32,7 +32,7 @@ DriveLens は [TeslaMate](https://github.com/teslamate-org/teslamate) のため�
 - **走行と充電：** 月見出し付きの無限スクロール、速度で色分けしたルート地図、充電カーブ、走行ごとの天気、速度帯別の電費
 - **旅程：** 複数の走行を 1 つの旅程にまとめる（自動提案あり）、カバー写真とメモ、シェアカードの作成
 - **月次レポート：** 走行距離、電力量、充電料金、自宅 / スーパーチャージャーの内訳、日別の内訳、足跡マップ、12 か月の推移
-- **バッテリーの健康度：** 定格航続距離にもとづく劣化カーブ
+- **バッテリーの健康度：** 健全性 %、現在 / 新車時の使用可能容量（kWh）、劣化とサイクル数。TeslaMate「Battery Health」ダッシュボードと同じ計算方法。走行距離別の容量グラフ
 - **通知（Web 版）：** 走行終了時の走行サマリーと、毎月1日の月次レポートのお知らせ（個別にオン／オフ可）
 - **カスタマイズ：** 地点名の変更、充電料金の手入力（複数通貨対応）
 - **言語：** English、中文、日本語

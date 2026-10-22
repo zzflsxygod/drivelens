@@ -11,7 +11,7 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的配套 
 - **反馈：** [Issues](https://github.com/zzflsxygod/drivelens-releases/issues/new/choose)
 - **支持 DriveLens：** [Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)
 
-**当前版本：1.0.0**，第一个正式版（[发布说明](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.0.0)）。
+**当前版本：1.1.0**，电池健康度改用与 TeslaMate「Battery Health」看板相同的算法（[发布说明](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.1.0)），需要 drivelens-api 0.13.0。
 
 <p>
   <img src="screenshots/home-light.jpg" width="200" alt="首页">
@@ -32,7 +32,7 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的配套 
 - **行程和充电：** 无限滚动列表和月份标题、按车速着色的路线地图、充电曲线、每段行程的天气、按车速分档的能耗
 - **旅程：** 把多段行程合并成一次旅程（有自动建议），可以设置封面照片和备注，生成分享卡片
 - **月度报告：** 里程、电量、充电费用、家充 / 超充占比、每日明细、足迹地图、12 个月趋势
-- **电池健康度：** 根据额定续航计算的衰减曲线
+- **电池健康度：** 健康度 %、当前 / 新车可用容量（kWh）、衰减与充电循环，算法与 TeslaMate「Battery Health」看板相同；容量随里程变化曲线
 - **通知（网页版）：** 行程结束时推送行程小结，每月 1 日提醒查看月报，可分别开关
 - **自定义：** 修改地点名称、手动填写充电费用（支持多种货币）
 - **语言：** English、中文、日本語

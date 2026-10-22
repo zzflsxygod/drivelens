@@ -4,6 +4,15 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.1.0 — 2026-10-22
+**Battery health now uses the same method as TeslaMate's "Battery Health" dashboard**, so DriveLens shows the same number you see in Grafana (which many owners find close to what a Tesla service centre measures).
+- **Home card:** battery health % as the big number, current and new usable capacity (kWh), degradation % and charge cycles.
+- **Battery page:** health, degradation, current / new capacity, cycles and the rated consumption factor; new charts **Capacity by mileage** and **Capacity over time** (one dot per day, half-month median line, new-capacity reference line).
+- **How it is calculated** (exactly as TeslaMate): capacity per charging sample = rated range × rated consumption ÷ usable battery level; current = average of the latest 100 charging samples; new = the highest value at the end of any charge; health = current ÷ new. The one difference: obviously wrong samples outside 20–150 kWh are ignored, so a single bad battery reading cannot distort the maximum.
+- **New capacity can be set by hand** (kWh, like TeslaMate's `custom_kwh_new`, e.g. from a service-centre report). A full-range baseline (km) you set in an earlier version is converted to kWh automatically.
+- With an older server, or too little charging data, the app keeps showing the previous range-based estimate.
+- **Server update needed:** drivelens-api **0.13.0** (`docker compose pull && docker compose up -d`, or automatic with Watchtower). Read-only as before; no database change.
+
 ## v1.0.2 — 2026-10-20
 - **Fixed on iPhone / iPad (app added to the home screen):** the area under the status bar showed a blurred, see-through band above the header. The header is now one solid bar that reaches up under the status bar (clock / notch / Dynamic Island), with the divider line only at its bottom edge; content no longer shows through while scrolling. Light and dark themes both match the status bar.
 - No server update needed.

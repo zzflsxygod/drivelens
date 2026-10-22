@@ -424,6 +424,15 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
 
+## v1.1.0 — 电池健康度与 TeslaMate「Battery Health」相同（API 0.13.0，api_level 14）
+
+- 来源：teslamate-org/teslamate `grafana/dashboards/battery-health.json`（main @ 9f4098e）的变量 `aux` 与「Battery Capacity by Mileage」两条 SQL，逐条移植到 `api/src/insights.rs` `tm_health()`，`/api/cars/:id/battery` 新增 `tm` 对象（旧字段保留）。参数：`summary`、`tz`（半月 / 每日分组，非法时用 UTC）、`new_kwh`（20–250，等同 `custom_kwh_new`）。
+- 公式：能耗系数 = `ROUND(charge_energy_added / (end_rated_range_km − start_rated_range_km), 3) × 100` 的众数（`duration_min > 10`、`end_battery_level <= 95`、两端额定续航非空、`charge_energy_added > 0`），没有时用 `cars.efficiency × 100`；采样容量 = `charges.rated_battery_range_km × 能耗系数 / charges.usable_battery_level`；合格充电 = 已结束且 `charge_energy_added >= 能耗系数`、`usable_battery_level > 0`；当前 = 最近 100 条 `charges` 行的 AVG（`ORDER BY end_date DESC, date DESC`）；新车 = 每次充电最后一行的 MAX；健康度 = `LEAST(100, 当前 / 新车 × 100)`，衰减 = `GREATEST(0, 100 − …)`，循环 = `FLOOR(SUM(charge_energy_added > 0.01) / 新车)`；每日点 = AVG(odometer)、AVG(最后一行容量)，半月 = MIN(odometer)、PERCENTILE_CONT(0.5)。
+- 唯一偏差：20–150 kWh 以外的采样当作不存在（`SANE`），否则一条 `usable_battery_level = 1` 的坏数据会让 MAX 变成几千 kWh。众数并列时取较大值（TeslaMate 不确定）。
+- 验证：`testdata/gen_battery_health.py` 生成 TeslaMate 结构的数据（260 次充电、14,934 条 charges），同一库上直接跑 Grafana 原 SQL（删掉坏行）：当前 75.01 / 最高 81.36 kWh / 能耗 15.3 / 循环 120 / 健康 92.2%，每日 237 点、半月 46 点与 API 完全一致（只差两位小数舍入）。10 倍数据（144k charges）`summary=true` 约 0.2 s。
+- App：首页卡片（健康度大字、当前 / 新车 kWh、衰减、循环、「与 TeslaMate 算法相同」）；电池页 6 个指标、「容量 · 随里程」「容量 · 随时间」（每日点 + 半月中位数 + 新车参考线）、方法说明。「新车容量（kWh）」手动值存 localStorage（`drivelens-battery-new-kwh`），客户端按同一公式重算；旧的 km 基准自动换算 `km × 能耗 / 100` 后删除，并提示一次。旧服务器（无 `tm`）或数据不足时显示原来的续航法。演示模式同样模拟 `tm`。
+- 只读 SELECT，无数据库迁移；`FEATURE_LEVEL.tmHealth = 14`，`LATEST_SERVER = 0.13.0`。
+
 ## v1.0.2 — iOS 状态栏区域的毛玻璃带（仅网页版）
 
 - 原因：PWA 使用 `apple-mobile-web-app-status-bar-style=black-translucent` + `viewport-fit=cover`，状态栏区域属于页面；顶栏 `header` 用半透明 `--glass`（.82）+ `backdrop-filter: blur(16px) saturate(1.4)`，其顶部 `padding`（`10px + --sat`）延伸到状态栏下，滚动内容透过模糊显示成一条毛玻璃带；顶部吸附元素不是实色时，iOS 自身的滚动边缘效果也会再叠一层模糊。

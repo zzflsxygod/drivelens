@@ -1,4 +1,6 @@
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
+// api_level 14: battery health with TeslaMate's "Battery Health" dashboard method (`tm` in /battery); older servers / too
+// little data fall back to the range-based estimate below.
 import { skey } from "./demo";
 import { ic } from "./icons";
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
@@ -13,7 +15,45 @@ interface BPoint { date: string; odometer_km: number | null; range100_km: number
 interface BMonth { month: string; range100_km: number; capacity_kwh: number | null; odometer_km: number | null; n: number }
 export interface Battery { points: BPoint[]; months: BMonth[]; n_points: number; first_date: string | null;
   initial_range100_km: number | null; current_range100_km: number | null; retained_pct: number | null;
-  capacity_from_range_kwh: number | null; capacity_from_energy_kwh: number | null }
+  capacity_from_range_kwh: number | null; capacity_from_energy_kwh: number | null; tm?: TmHealth }
+/** api_level 14 — see tm_health() in api/src/insights.rs for the exact formulas. */
+export interface TmHealth { method: string; efficiency_kwh_100km: number | null; efficiency_source: "derived" | "car" | null;
+  capacity_now_kwh: number | null; now_samples: number; capacity_max_kwh: number | null; capacity_new_kwh: number | null; new_source: string;
+  health_pct: number | null; degradation_pct: number | null; cycles: number | null; energy_added_kwh: number | null; charges: number;
+  points: { date: string; odometer_km: number | null; capacity_kwh: number }[];
+  half_months: { period: string; odometer_km: number | null; capacity_kwh: number; n: number }[] }
+
+// ----- new capacity (kWh, TeslaMate "custom_kwh_new") -----
+const KWH_KEY = skey("drivelens-battery-new-kwh");
+export function newKwhOverride(carId: number): number | null {
+  try { const v = JSON.parse(localStorage.getItem(KWH_KEY) || "{}")[carId]; return typeof v === "number" && v > 0 ? v : null; } catch { return null; }
+}
+const MIG_KEY = skey("drivelens-battery-kwh-migrated-");
+export function setNewKwhOverride(carId: number, kwh: number | null) {
+  localStorage.removeItem(MIG_KEY + carId);   // an explicit save / reset hides the "converted from km" note
+  let m: Record<string, number> = {}; try { m = JSON.parse(localStorage.getItem(KWH_KEY) || "{}"); } catch { /* reset */ }
+  if (kwh == null) delete m[carId]; else m[carId] = kwh;
+  localStorage.setItem(KWH_KEY, JSON.stringify(m));
+}
+export interface TmView { health: number; degradation: number; now: number; max: number | null; newKwh: number; custom: boolean; cycles: number | null; migrated: boolean }
+/** Health numbers with the user's new-capacity value applied client-side (same formulas as the dashboard / API).
+ *  A km baseline saved by ≤ 1.0.x (100 % range when new) is converted once: kWh = km × efficiency (kWh / 100 km) ÷ 100. */
+export function tmView(b: Battery, carId: number): TmView | null {
+  const tm = b.tm; if (!tm || tm.capacity_now_kwh == null) return null;
+  let migrated = false;
+  const km = baselineOverride(carId);
+  if (km && newKwhOverride(carId) == null && tm.efficiency_kwh_100km) {
+    const v = Math.round(km * tm.efficiency_kwh_100km / 100 * 10) / 10;
+    if (v >= 20 && v <= 250) { setNewKwhOverride(carId, v); localStorage.setItem(MIG_KEY + carId, "1"); }
+    setBaselineOverride(carId, null);
+  }
+  migrated = localStorage.getItem(MIG_KEY + carId) === "1" && newKwhOverride(carId) != null;
+  const ov = newKwhOverride(carId);
+  const newKwh = ov ?? tm.capacity_max_kwh; if (newKwh == null || newKwh <= 0) return null;
+  const r = tm.capacity_now_kwh * 100 / newKwh, r1 = (v: number) => Math.round(v * 10) / 10;
+  return { health: r1(Math.min(100, r)), degradation: r1(Math.max(0, 100 - r)), now: tm.capacity_now_kwh, max: tm.capacity_max_kwh, newKwh, custom: ov != null,
+    cycles: tm.energy_added_kwh != null ? Math.floor(tm.energy_added_kwh / newKwh) : null, migrated };
+}
 
 // ----- baseline (100 %) -----
 /** Factory rated full-charge range (km) as reported by Tesla's API when new — EPA figures (TeslaMate "rated").
@@ -51,6 +91,15 @@ export function baseline(b: Battery, car: Car | null, carId: number): Baseline |
 }
 
 export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
+  const v = tmView(b, carId);
+  if (v) return `<div class="section-title">${t("bat.title")} <a class="link" data-battery>${t("bat.openCurve")}</a></div>
+    <div class="card bat-card" data-battery>
+      <div class="bat-ring" style="--p:${v.health}"><b>${n(v.health, 1)}<small>%</small></b></div>
+      <div class="bat-info tm">
+        <div class="bat-kv"><div><small>${t("bat.now")}</small><b>${n(v.now, 1)}<i>kWh</i></b></div><div><small>${t("bat.new")}${v.custom ? "*" : ""}</small><b>${n(v.newKwh, 1)}<i>kWh</i></b></div>
+          <div><small>${t("bat.degr")}</small><b>${n(v.degradation, 1)}<i>%</i></b></div><div><small>${t("bat.cycles")}</small><b>${v.cycles == null ? "—" : n(v.cycles)}</b></div></div>
+        <div class="muted small-note">${t("bat.tmSame")}</div></div>
+    </div>`;
   const bl = baseline(b, car, carId);
   if (!b.n_points || !bl || bl.pct == null) return `<div class="section-title">${t("bat.title")}</div><div class="card" data-battery><div class="muted">${t("bat.notEnough")}</div></div>`;
   return `<div class="section-title">${t("bat.title")} <a class="link" data-battery>${t("bat.openCurve")}</a></div>
@@ -70,7 +119,7 @@ function fit(xs: number[], ys: number[]) {
   if (!sxx) return null; const b = sxy / sxx; return { a: my - b * mx, b };
 }
 
-function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[], o: { xLabel: (x: number) => string; yUnit: string; ref?: number }) {
+function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[], o: { xLabel: (x: number) => string; yUnit: string; ref?: number; refText?: string; lg?: [string, string]; trend?: boolean }) {
   if (pts.length < 2) return `<div class="chart-empty">${t("chart.notEnough")}</div>`;
   const W = 392, H = 200, L = 40, R = 10, T = 12, B = 24, iw = W - L - R, ih = H - T - B;
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
@@ -84,19 +133,21 @@ function scatter(pts: { x: number; y: number }[], med: { x: number; y: number }[
   [0, 0.5, 1].forEach(f => { const x = x0 + (x1 - x0) * f; g += `<text x="${X(x)}" y="${H - 6}" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}" class="ct">${o.xLabel(x)}</text>`; });
   const dots = pts.map(p => p.y >= lo && p.y <= hi ? `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="2" class="bdot"/>` : "").join("");
   const mline = med.length > 1 ? `<path d="${med.map((m, i) => `${i ? "L" : "M"}${X(m.x).toFixed(1)},${Y(m.y).toFixed(1)}`).join("")}" class="bmed"/>` : "";
-  const f = fit(xs, ys);
+  const f = o.trend === false ? null : fit(xs, ys);
   const tl = f ? `<line x1="${X(x0)}" y1="${Y(f.a + f.b * x0)}" x2="${X(x1)}" y2="${Y(f.a + f.b * x1)}" class="btrend"/>` : "";
-  const rl = o.ref != null ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" class="bref"/><text x="${W - R}" y="${Y(o.ref) - 4}" text-anchor="end" class="ct">${t("bat.ref", { v: Math.round(o.ref) })}</text>` : "";
+  const rl = o.ref != null ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" class="bref"/><text x="${W - R}" y="${Y(o.ref) - 4}" text-anchor="end" class="ct">${o.refText ?? t("bat.ref", { v: Math.round(o.ref) })}</text>` : "";
   return `<div class="chart-box"><svg viewBox="0 0 ${W} ${H}" width="100%">${g}${rl}${dots}${mline}${tl}</svg>
-    <div class="legend"><span><i class="lg-dot"></i>${t("bat.lgPoint")}</span><span><i class="lg-med"></i>${t("bat.lgMedian")}</span><span><i class="lg-trend"></i>${t("bat.lgTrend")}</span>${o.yUnit ? `<span>${o.yUnit}</span>` : ""}</div></div>`;
+    <div class="legend"><span><i class="lg-dot"></i>${o.lg?.[0] ?? t("bat.lgPoint")}</span><span><i class="lg-med"></i>${o.lg?.[1] ?? t("bat.lgMedian")}</span>${f ? `<span><i class="lg-trend"></i>${t("bat.lgTrend")}</span>` : ""}${o.yUnit ? `<span>${o.yUnit}</span>` : ""}</div></div>`;
 }
 
 export async function showBattery(view: HTMLElement, carId: number, back: () => void, car: Car | null = null) {
   view.innerHTML = `<button class="back" data-title="${t("bat.pageTitle")}">${t("common.back")}</button><div class="muted">${t("common.loading")}</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   let b: Battery;
-  try { b = await api<Battery>(`/api/cars/${carId}/battery`); }
+  try { b = await api<Battery>(`/api/cars/${carId}/battery?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}`); }
   catch (e) { view.insertAdjacentHTML("beforeend", `<div class="error">${ic("alert")} ${esc((e as Error).message)}</div>`); return; }
+  const v = tmView(b, carId);
+  if (v) { tmPage(view, b, v, carId, back, car); return; }
   const bl = baseline(b, car, carId)!;
   const tms = (d: string) => new Date(d).getTime(), day = 864e5;
   const pts = b.points.map(p => ({ x: tms(p.date), y: p.range100_km }));
@@ -138,6 +189,49 @@ export async function showBattery(view: HTMLElement, carId: number, back: () => 
     setBaselineOverride(carId, Math.round(v)); again();
   };
   const rs = view.querySelector<HTMLElement>("#bl-reset"); if (rs) rs.onclick = () => { setBaselineOverride(carId, null); again(); };
+}
+
+/** Battery page, TeslaMate method (api_level 14). */
+function tmPage(view: HTMLElement, b: Battery, v: TmView, carId: number, back: () => void, car: Car | null) {
+  const tm = b.tm!;
+  const half = (p: string) => Date.UTC(Number(p.slice(0, 4)), Number(p.slice(4, 6)) - 1, p.endsWith("1") ? 8 : 23);
+  const odo = tm.points.filter(p => p.odometer_km != null).map(p => ({ x: p.odometer_km!, y: p.capacity_kwh }));
+  const odoMed = tm.half_months.filter(h => h.odometer_km != null).map(h => ({ x: h.odometer_km!, y: h.capacity_kwh }));
+  const time = tm.points.map(p => ({ x: Date.parse(p.date + "T12:00:00Z"), y: p.capacity_kwh }));
+  const timeMed = tm.half_months.map(h => ({ x: half(h.period), y: h.capacity_kwh }));
+  const odoSpan = odo.length ? Math.max(...odo.map(p => p.x)) - Math.min(...odo.map(p => p.x)) : 0;
+  const ym = (x: number) => { const d = new Date(x); return `${d.getFullYear()}/${d.getMonth() + 1}`; };
+  const lg: [string, string] = [t("bat.lgDay"), t("bat.lgHalf")];
+  const ovv = newKwhOverride(carId);
+  view.innerHTML = `<button class="back" data-title="${t("bat.pageTitle")}">${t("common.back")}</button>
+    <div class="ov">
+      <div><small>${t("bat.health")}</small><b>${n(v.health, 1)}<i>%</i></b><div class="d neu">${t("bat.nowVsNew")}</div></div>
+      <div><small>${t("bat.degr")}</small><b class="${v.degradation > 0 ? "dn" : ""}">${n(v.degradation, 1)}<i>%</i></b><div class="d neu">${t("bat.lost", { v: n(Math.max(0, v.newKwh - v.now), 1) })}</div></div>
+      <div><small>${t("bat.now")}</small><b>${n(v.now, 1)}<i>kWh</i></b><div class="d neu">${t("bat.nowNote", { n: tm.now_samples })}</div></div>
+      <div><small>${t(v.custom ? "bat.newSet" : "bat.new")}</small><b>${n(v.newKwh, 1)}<i>kWh</i></b><div class="d neu">${v.custom && v.max != null ? t("bat.tmMax", { v: n(v.max, 1) }) : t("bat.maxNote")}</div></div>
+      <div><small>${t("bat.cycles")}</small><b>${v.cycles == null ? "—" : n(v.cycles)}</b><div class="d neu">${t("bat.added", { v: n(tm.energy_added_kwh) })}</div></div>
+      <div><small>${t("bat.eff")}</small><b>${n(tm.efficiency_kwh_100km, 1)}<i>kWh/100km</i></b><div class="d neu">${t(tm.efficiency_source === "car" ? "bat.effCar" : "bat.effDerived")}</div></div>
+    </div>
+    <div class="pane bl-box"><div class="pane-t">${t("bat.newTitle")}</div>
+      <div class="muted bl-src">${esc(v.custom ? t("bat.srcKwhManual", { v: n(v.newKwh, 1) }) : t("bat.srcKwhMax", { v: n(v.max, 1) }))}${v.migrated ? `<br>${esc(t("bat.migrated"))}` : ""}</div>
+      <div class="bl-row"><input id="bl-kwh" type="number" inputmode="decimal" min="20" max="250" step="0.1" placeholder="${t("bat.newPh")}" value="${ovv ?? ""}" aria-label="${t("bat.newPh")}">
+        <button id="bl-save" class="primary small">${t("common.save")}</button>${ovv ? `<button id="bl-reset" class="ghost small">${t("bat.reset")}</button>` : ""}</div>
+      <details class="bl-more"><summary>${t("common.details")}</summary><div class="muted small-note">${esc(t("bat.newHint"))}</div></details></div>
+    <div class="section-title">${t("bat.capOdo")}</div>${odoSpan > 100 && odo.length > 1 ? scatter(odo, odoMed, { xLabel: x => `${n(x / 1000, 0)}k km`, yUnit: "kWh", ref: v.newKwh, refText: t("bat.refNew", { v: n(v.newKwh, 1) }), lg, trend: false }) : `<div class="chart-empty">${t("bat.noOdo")}</div>`}
+    <div class="section-title">${t("bat.capTime")}</div>${scatter(time, timeMed, { xLabel: ym, yUnit: "kWh", ref: v.newKwh, refText: t("bat.refNew", { v: n(v.newKwh, 1) }), lg })}
+    <div class="muted small-note bat-method"><b>${t("bat.tmSame")}</b><br>${t("bat.tmMethod")}<br>${t("bat.tmSanity")}</div>`;
+  (view.querySelector(".back") as HTMLElement).onclick = back;
+  const again = () => showBattery(view, carId, back, car);
+  (view.querySelector("#bl-save") as HTMLElement).onclick = () => {
+    const inp = view.querySelector("#bl-kwh") as HTMLInputElement, x = Number(inp.value.replace(",", "."));
+    const box = view.querySelector(".bl-box")!; box.querySelector(".bl-err")?.remove();
+    if (!inp.value.trim() || !(x >= 20 && x <= 250)) {
+      box.querySelector(".bl-row")!.insertAdjacentHTML("afterend", `<div class="error bl-err" role="alert">${esc(t("bat.invalidKwh"))}</div>`);
+      inp.focus(); return;
+    }
+    setNewKwhOverride(carId, Math.round(x * 10) / 10); again();
+  };
+  const rs = view.querySelector<HTMLElement>("#bl-reset"); if (rs) rs.onclick = () => { setNewKwhOverride(carId, null); again(); };
 }
 
 // ---------------- report: footprint + trends ----------------

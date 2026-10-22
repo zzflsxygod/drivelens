@@ -11,7 +11,7 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Feedback:** [Issues](https://github.com/zzflsxygod/drivelens-releases/issues/new/choose)
 - **Support DriveLens:** [Buy Me a Coffee](https://buymeacoffee.com/zzflsxygod)
 
-**Current version: 1.0.0**, the first stable release ([release notes](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.0.0)).
+**Current version: 1.1.0** — battery health with the same method as TeslaMate's Battery Health dashboard ([release notes](https://github.com/zzflsxygod/drivelens-releases/releases/tag/v1.1.0)). Needs drivelens-api 0.13.0.
 
 <p>
   <img src="screenshots/home-light.jpg" width="200" alt="Home">
@@ -32,7 +32,7 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Drives and charging:** infinite lists with month headers, route maps coloured by speed, charging curves, weather per drive, energy by speed band
 - **Journeys:** group drives into trips (with automatic suggestions), add a cover photo and notes, create a share card
 - **Monthly report:** distance, energy, charging cost, home vs. Supercharger split, daily breakdown, footprint map, 12-month trends
-- **Battery health:** degradation curve based on rated range
+- **Battery health:** health %, current / new usable capacity (kWh), degradation and charge cycles, calculated exactly like TeslaMate's Battery Health dashboard; capacity-by-mileage chart
 - **Notifications (web app):** a trip summary when a drive ends and a monthly-report reminder on the 1st, each switchable
 - **Your names and costs:** rename places, enter charging costs manually (any currency)
 - **Languages:** English, 中文, 日本語

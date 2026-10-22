@@ -289,7 +289,32 @@ function battery(q: URLSearchParams) {
   return ok({ points: summary ? [] : pts, months: summary ? [] : monthsOut, n_points: pts.length, first_date: pts[0]?.date ?? null,
     initial_range100_km: initial == null ? null : r1(initial), current_range100_km: current == null ? null : r1(current),
     retained_pct: initial && current ? r1(current / initial * 100) : null, efficiency_kwh_km: eff, capacity_from_range_kwh: current != null ? r1(current * eff) : null,
-    capacity_from_energy_kwh: capNow == null ? null : r1(capNow) });
+    capacity_from_energy_kwh: capNow == null ? null : r1(capNow), tm: tmHealth(summary) });
+}
+/** api_level 14 mock of the TeslaMate "Battery Health" numbers (same formulas as tm_health() in the API, on the demo sessions:
+ *  one "last sample" per session = end rated range × efficiency ÷ end level, with a little sensor jitter). */
+function tmHealth(summary: boolean) {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const counts = new Map<number, number>();
+  for (const c of db.charges) if (c.duration_min > 10 && c.el <= 95 && c.added > 0 && c.err - c.srr !== 0) { const v = Math.round(c.added / (c.err - c.srr) * 1000) / 1000; counts.set(v, (counts.get(v) ?? 0) + 1); }
+  const mode = [...counts].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+  const eff = mode ? Math.round(mode[0] * 1000) / 10 : db.car.efficiency * 100;
+  const jit = (id: number) => (((id * 2654435761) >>> 0) % 1000 / 1000 - 0.5) * 1.2;
+  const q = db.charges.filter(c => c.end < db.now && c.added >= eff && c.el > 0).sort((a, b) => a.end - b.end)
+    .map(c => ({ c, cap: c.err * eff / c.el + jit(c.id) })).filter(x => x.cap >= 20 && x.cap <= 150);
+  if (!q.length) return { method: "teslamate-battery-health", efficiency_kwh_100km: r2(eff), efficiency_source: mode ? "derived" : "car", capacity_now_kwh: null, now_samples: 0,
+    capacity_max_kwh: null, capacity_new_kwh: null, new_source: "max", health_pct: null, degradation_pct: null, cycles: null, energy_added_kwh: null, charges: 0, points: [], half_months: [] };
+  const last = q.slice(-3), now = last.reduce((a, x) => a + x.cap, 0) / last.length, max = Math.max(...q.map(x => x.cap));
+  const tot = db.charges.filter(c => c.added > 0.01), kwh = tot.reduce((a, c) => a + c.added, 0), ratio = now * 100 / max;
+  const day = (ms: number) => tokyoDay(ms), byDay = new Map<string, typeof q>(), byHalf = new Map<string, typeof q>();
+  for (const x of q) { const d = day(x.c.end); byDay.set(d, [...(byDay.get(d) ?? []), x]); const h = d.slice(0, 4) + d.slice(5, 7) + (Number(d.slice(8, 10)) <= 15 ? "1" : "2"); byHalf.set(h, [...(byHalf.get(h) ?? []), x]); }
+  const avg = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+  const pct50 = (v: number[]) => { const s2 = [...v].sort((a, b) => a - b), i = (s2.length - 1) / 2, lo = Math.floor(i); return s2[lo] + (s2[Math.ceil(i)] - s2[lo]) * (i - lo); };
+  return { method: "teslamate-battery-health", efficiency_kwh_100km: r2(eff), efficiency_source: mode ? "derived" : "car", capacity_now_kwh: r2(now), now_samples: 100,
+    capacity_max_kwh: r2(max), capacity_new_kwh: r2(max), new_source: "max", health_pct: r1(Math.min(100, ratio)), degradation_pct: r1(Math.max(0, 100 - ratio)),
+    cycles: Math.floor(kwh / max), energy_added_kwh: r1(kwh), charges: tot.length,
+    points: summary ? [] : [...byDay].map(([d, g]) => ({ date: d, odometer_km: r1(avg(g.map(x => x.c.odometer))), capacity_kwh: r2(avg(g.map(x => x.cap))) })),
+    half_months: summary ? [] : [...byHalf].map(([h, g]) => ({ period: h, odometer_km: Math.round(Math.min(...g.map(x => x.c.odometer))), capacity_kwh: r1(pct50(g.map(x => x.cap))), n: g.length })) };
 }
 
 // ----- journeys -----

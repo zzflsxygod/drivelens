@@ -1,4 +1,5 @@
 //! api_level 12: monthly footprint (all drive routes of a month) and battery degradation. Read-only.
+//! api_level 14: TeslaMate-identical battery health (`tm` object in /battery). Read-only.
 use super::*;
 
 #[derive(Deserialize)]
@@ -68,7 +69,7 @@ pub struct BMonth { month: String, range100_km: f64, capacity_kwh: Option<f64>, 
 /// end_rated_range_km / end_battery_level × 100), monthly medians, and an energy-based capacity estimate
 /// (charge_energy_added / SoC gained, sessions gaining ≥ 30 %). Reads charging_processes (+ positions by primary key).
 #[derive(Deserialize)]
-pub struct BatParams { summary: Option<bool> }
+pub struct BatParams { summary: Option<bool>, tz: Option<String>, new_kwh: Option<f64> }
 pub async fn battery(State(s): State<AppState>, Path(id): Path<i64>, Query(q): Query<BatParams>) -> Result<Response, ApiError> {
     let eff: Option<f64> = sqlx::query_scalar("SELECT efficiency::float8 FROM cars WHERE id = $1").bind(id).fetch_optional(&s.db).await?.flatten();
     let pts = sqlx::query_as::<_, BPoint>(&format!(
@@ -101,6 +102,7 @@ pub async fn battery(State(s): State<AppState>, Path(id): Path<i64>, Query(q): Q
     let retained = match (initial, current) { (Some(a), Some(b)) if a > 0.0 => Some(r1(b / a * 100.0)), _ => None };
     let cap_now = med(pts.iter().rev().filter_map(|p| p.capacity_kwh).take(10).collect());
     let summary = q.summary.unwrap_or(false);
+    let tm = tm_health(&s, id, q.tz.clone(), q.new_kwh, summary).await?;
     let n_points = pts.len();
     let first_date = pts.first().map(|p| p.date.clone());
     let (pts, months) = if summary { (vec![], vec![]) } else { (pts, months) };
@@ -108,5 +110,100 @@ pub async fn battery(State(s): State<AppState>, Path(id): Path<i64>, Query(q): Q
         "points": pts, "months": months, "n_points": n_points, "first_date": first_date, "initial_range100_km": initial.map(r1), "current_range100_km": current.map(r1), "retained_pct": retained,
         "efficiency_kwh_km": eff, "capacity_from_range_kwh": match (current, eff) { (Some(c), Some(e)) => Some(r1(c * e)), _ => None },
         "capacity_from_energy_kwh": cap_now.map(r1),
+        "tm": tm,
     })).into_response())
+}
+
+// ---------------- api_level 14: TeslaMate "Battery Health" dashboard, ported ----------------
+// Source: teslamate-org/teslamate grafana/dashboards/battery-health.json (variable `aux` + "Battery Capacity by Mileage"),
+// main @ 9f4098e (2026-10-21). Same tables, filters and aggregates; units are always km / kWh here (the app converts).
+//  efficiency  = mode of ROUND(charge_energy_added / (end_rated_range_km − start_rated_range_km), 3) × 100 over sessions with
+//                duration_min > 10, end_battery_level ≤ 95, both rated ranges set, energy > 0; fallback cars.efficiency × 100
+//                (kWh per 100 rated km). Ties in the mode are broken by the larger value (TeslaMate leaves them unordered).
+//  sample      = charges.rated_battery_range_km × efficiency / charges.usable_battery_level   (kWh at 100 %)
+//  qualifying  = finished session (end_date set) with charge_energy_added ≥ efficiency, sample rows with usable_battery_level > 0
+//  current     = AVG(sample) over the latest 100 `charges` rows of qualifying sessions (ORDER BY end_date DESC, date DESC)
+//  max (new)   = MAX(sample) over the last row of each qualifying session; a user value (`new_kwh`) replaces it like the
+//                dashboard's custom_kwh_new
+//  health      = LEAST(100, current / new × 100); degradation = GREATEST(0, 100 − current / new × 100)
+//  cycles      = FLOOR(SUM(charge_energy_added) / new) over sessions with charge_energy_added > 0.01
+//  points      = per local day: AVG(odometer of the session position), AVG(last-row sample)   ("Battery Capacity by Mileage")
+//  half-months = per local half-month (1st–15th / 16th–end): MIN(odometer), PERCENTILE_CONT(0.5)(last-row sample)
+// THE ONE DEVIATION: samples outside 20–150 kWh (e.g. a bogus usable_battery_level of 1 %) are treated as if the row did not
+// exist (`SANE` below). TeslaMate keeps them, and one such row can make its MAX (and so the health %) meaningless.
+const SANE: &str = "(c.rated_battery_range_km IS NULL OR c.rated_battery_range_km * aux.efficiency / c.usable_battery_level BETWEEN 20 AND 150)";
+
+#[derive(FromRow, Serialize)]
+pub struct TmPoint { date: String, odometer_km: Option<f64>, capacity_kwh: f64 }
+#[derive(FromRow, Serialize)]
+pub struct TmHalf { period: String, odometer_km: Option<f64>, capacity_kwh: f64, n: i64 }
+
+async fn tm_health(s: &AppState, id: i64, tz: Option<String>, new_kwh: Option<f64>, summary: bool) -> Result<serde_json::Value, ApiError> {
+    let aux = "aux AS (
+        SELECT COALESCE(derived_efficiency, car_efficiency)::float8 AS efficiency, (derived_efficiency IS NOT NULL) AS derived
+        FROM (
+            SELECT ROUND((charge_energy_added / NULLIF(end_rated_range_km - start_rated_range_km, 0))::numeric, 3) * 100 AS derived_efficiency,
+                   COUNT(*) AS count, cars.id AS car_id, cars.efficiency * 100 AS car_efficiency
+            FROM cars
+            LEFT JOIN charging_processes ON cars.id = charging_processes.car_id AND duration_min > 10 AND end_battery_level <= 95
+                 AND start_rated_range_km IS NOT NULL AND end_rated_range_km IS NOT NULL AND charge_energy_added > 0
+            WHERE cars.id = $1
+            GROUP BY 1, 3, 4
+            ORDER BY 2 DESC, 1 DESC NULLS LAST
+            LIMIT 1
+        ) e)";
+    let last = format!("last AS (
+        SELECT DISTINCT ON (c.charging_process_id) c.charging_process_id AS cp_id, c.date,
+               (c.rated_battery_range_km * aux.efficiency / c.usable_battery_level)::float8 AS cap
+        FROM charging_processes cp JOIN charges c ON c.charging_process_id = cp.id CROSS JOIN aux
+        WHERE cp.car_id = $1 AND cp.end_date IS NOT NULL AND cp.charge_energy_added >= aux.efficiency
+              AND c.usable_battery_level > 0 AND {SANE}
+        ORDER BY c.charging_process_id, c.date DESC)");
+    let row: (Option<f64>, Option<bool>, Option<f64>, i64, Option<f64>, Option<f64>, i64) = sqlx::query_as(&format!(
+        "WITH {aux}, {last},
+         cur AS (
+            SELECT AVG(cap)::float8 AS cap, COUNT(*) AS n FROM (
+                SELECT (c.rated_battery_range_km * aux.efficiency / c.usable_battery_level)::float8 AS cap
+                FROM charging_processes cp JOIN charges c ON c.charging_process_id = cp.id CROSS JOIN aux
+                WHERE cp.car_id = $1 AND cp.end_date IS NOT NULL AND cp.charge_energy_added >= aux.efficiency
+                      AND c.usable_battery_level > 0 AND {SANE}
+                ORDER BY cp.end_date DESC, c.date DESC
+                LIMIT 100) x),
+         tot AS (SELECT SUM(charge_energy_added)::float8 AS kwh, COUNT(*) AS n FROM charging_processes WHERE car_id = $1 AND charge_energy_added > 0.01)
+         SELECT aux.efficiency, aux.derived, cur.cap, cur.n, (SELECT MAX(cap) FROM last), tot.kwh, tot.n
+         FROM (SELECT 1) b LEFT JOIN aux ON true LEFT JOIN cur ON true LEFT JOIN tot ON true")).bind(id as i32).fetch_one(&s.db).await?;
+    let (eff, derived, cur, cur_n, max, kwh, n_charges) = row;
+    let custom = new_kwh.filter(|v| v.is_finite() && *v >= 20.0 && *v <= 250.0);
+    let new = custom.or(max);
+    let ratio = match (cur, new) { (Some(c), Some(n)) if n > 0.0 => Some(c * 100.0 / n), _ => None };
+    let r1 = |v: f64| (v * 10.0).round() / 10.0;
+    let r2 = |v: f64| (v * 100.0).round() / 100.0;
+    let (points, halves): (Vec<TmPoint>, Vec<TmHalf>) = if summary || eff.is_none() { (vec![], vec![]) } else {
+        let tz = tz.unwrap_or_else(|| "UTC".into());
+        let tz_ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)").bind(&tz).fetch_one(&s.db).await?;
+        let tz = if tz_ok { tz } else { "UTC".to_string() };
+        let base = format!("WITH {aux}, {last},
+            l AS (SELECT timezone($2, timezone('UTC', cp.end_date)) AS t, p.odometer, last.cap
+                  FROM last JOIN charging_processes cp ON cp.id = last.cp_id JOIN positions p ON p.id = cp.position_id
+                  WHERE last.cap IS NOT NULL)");
+        let pts = sqlx::query_as::<_, TmPoint>(&format!("{base}
+            SELECT to_char(t, 'YYYY-MM-DD') AS date, ROUND(AVG(odometer)::numeric, 1)::float8 AS odometer_km, ROUND(AVG(cap)::numeric, 2)::float8 AS capacity_kwh
+            FROM l GROUP BY 1 ORDER BY 1")).bind(id as i32).bind(&tz).fetch_all(&s.db).await?;
+        let hs = sqlx::query_as::<_, TmHalf>(&format!("{base}
+            SELECT to_char(t, 'YYYYMM') || CASE WHEN to_char(t, 'DD')::int <= 15 THEN '1' ELSE '2' END AS period,
+                   ROUND(MIN(odometer)::numeric, 0)::float8 AS odometer_km,
+                   ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cap))::numeric, 1)::float8 AS capacity_kwh, COUNT(*) AS n
+            FROM l GROUP BY 1 ORDER BY 1")).bind(id as i32).bind(&tz).fetch_all(&s.db).await?;
+        (pts, hs)
+    };
+    Ok(serde_json::json!({
+        "method": "teslamate-battery-health",
+        "efficiency_kwh_100km": eff.map(r2), "efficiency_source": derived.map(|d| if d { "derived" } else { "car" }),
+        "capacity_now_kwh": cur.map(r2), "now_samples": cur_n,
+        "capacity_max_kwh": max.map(r2), "capacity_new_kwh": new.map(r2), "new_source": if custom.is_some() { "custom" } else { "max" },
+        "health_pct": ratio.map(|r| r1(r.min(100.0))), "degradation_pct": ratio.map(|r| r1((100.0 - r).max(0.0))),
+        "cycles": match (kwh, new) { (Some(k), Some(n)) if n > 0.0 => Some((k / n).floor() as i64), _ => None },
+        "energy_added_kwh": kwh.map(r1), "charges": n_charges,
+        "points": points, "half_months": halves,
+    }))
 }
