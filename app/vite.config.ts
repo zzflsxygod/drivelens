@@ -73,6 +73,12 @@ self.addEventListener("fetch", e => {
   if (u.origin !== self.location.origin) return;            // user's API server, map tiles: straight to the network, never cached
   if (r.headers.has("authorization")) return;               // belt and braces: never cache anything carrying a token
   if (u.pathname === "/health" || u.pathname.startsWith("/api/")) return;
+  // an address carrying api / token / key parameters is answered from the cached shell, never sent over the network
+  // (so it cannot end up in any request log); the page itself strips them (src/urlguard.ts)
+  if (r.mode === "navigate" && [...u.searchParams.keys()].some(k => ["api", "token", "key"].includes(k.toLowerCase()))) {
+    e.respondWith(caches.match("/").then(hit => hit || fetch("/")));
+    return;
+  }
   if (r.mode === "navigate") {                              // SPA: always the cached shell (network first, so updates show up)
     e.respondWith(fetch(r).then(res => res.ok ? res : caches.match("/")).catch(() => caches.match("/")));
     return;

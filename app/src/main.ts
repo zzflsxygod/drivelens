@@ -1,3 +1,4 @@
+import "./urlguard";   // first: drops ?api= / ?token= / ?key= from the address before anything else runs
 import "./style.css";
 import { ic } from "./icons";
 import { initPlatform, setRootBack } from "./platform";
@@ -884,9 +885,8 @@ document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclic
 });
 carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (document.querySelector("nav button.active") as HTMLElement).click(); };
 
-// Allow ?api=...&token=... for quick setup / testing
+// The server URL / token are never taken from the URL (removed in 1.1.1; urlguard.ts strips such parameters).
 const qp = new URLSearchParams(location.search);
-if (qp.get("api")) saveSettings({ ...loadSettings(), apiUrl: qp.get("api")!, token: qp.get("token") || "" });
 const start = qp.get("view");
 /** Deep links (?view=…) and notification taps (service worker → postMessage, see notify.ts). */
 function openView(v: string | null) {

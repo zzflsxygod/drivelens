@@ -56,7 +56,7 @@ function purgeDemoCaches() {
     if (m && DEMO_CAR in m) { delete m[DEMO_CAR]; localStorage.setItem("drivelens-battery-baseline", JSON.stringify(m)); }
   } catch { /* ignore */ }
 }
-/** Reload into a clean URL (no ?api= / ?view= of the previous session). */
+/** Reload into a clean URL (no ?view= etc. of the previous session). */
 const restart = () => location.replace(location.pathname);
 
 export function enterDemo() {

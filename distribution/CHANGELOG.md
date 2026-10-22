@@ -4,6 +4,10 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.1.1 — 2026-10-22
+- **Privacy:** removed a legacy URL parameter that could set the server address and token from the page address (`?api=…&token=…`). The app no longer reads them from the URL at all; if such a link is opened, the parameters are removed from the address bar immediately and ignored, and an installed app answers it from its local cache without sending the address over the network. Your server address and token stay only on your device and are sent only to your own server.
+- No server update needed.
+
 ## v1.1.0 — 2026-10-22
 **Battery health now uses the same method as TeslaMate's "Battery Health" dashboard**, so DriveLens shows the same number you see in Grafana (which many owners find close to what a Tesla service centre measures).
 - **Home card:** battery health % as the big number, current and new usable capacity (kWh), degradation % and charge cycles.

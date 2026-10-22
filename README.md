@@ -315,8 +315,8 @@ PGPASSWORD=secret psql -h localhost -U teslamate teslamate -f schema.sql -f samp
 
 cd ../api
 DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token-1234567890 DRIVELENS_CORS_ORIGINS=http://localhost:1420,http://localhost:4174 cargo run
-# 前端：cd app && npm run dev，然后浏览器打开
-# http://localhost:1420/?api=http://127.0.0.1:8080&token=dev-token-1234567890
+# 前端：cd app && npm run dev，浏览器打开 http://localhost:1420/，在引导页填写
+# 服务器地址 http://127.0.0.1:8080 和令牌 dev-token-1234567890（只保存在本机 localStorage）
 ```
 
 性能测试：在示例数据之后再执行 `testdata/bigdata.sql`，会生成约 300 万条 positions、6000 次行程、1500 次充电（约 30 秒）。
@@ -423,6 +423,15 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - App：引导页「安装指南」链接、设置页「帮助与反馈」（安装指南 / 版本与更新日志 / 问题反馈）都指向公开仓库，安装指南按界面语言打开对应版本（英文为默认）。
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
+
+## v1.1.1 — 去掉 URL 里的服务器地址 / 令牌参数（仅网页版）
+
+- 删除 `main.ts` 中 `?api=…&token=…` 快捷设置（开发期遗留）：App 不再从 URL 读取服务器地址或令牌。
+- 新增 `src/urlguard.ts`，作为 `main.ts` 的第一个 import 最先执行：地址栏的查询参数或 hash 中出现 `api` / `token` / `key`（不区分大小写）时立即 `history.replaceState` 去掉，其他参数（`?view=`、`?source=pwa`、`?from=push`、`?demo`）保留，不保存任何值。
+- Service Worker：带这些参数的导航请求直接返回缓存的 `/`，不发到网络（不会进入 Cloudflare Pages 的请求日志）；SW 本来也只缓存固定的 app shell 路径。
+- 本地开发改为在引导页填写服务器地址和令牌（README 开发说明已更新）；原生构建暂停，未改 Tauri 流程。
+- 测试：WebKit / Chromium 390，全新安装和已有设置下打开 `/?api=https://x&token=abc`：设置不变、URL 被清理、引导页正常；`?demo`、`?view=report|settings|drives`、`?source=pwa`、`?from=push` 正常；安装 SW 后带令牌的导航服务器端完全收不到。
+- API 不变（0.13.0），无数据库迁移。
 
 ## v1.1.0 — 电池健康度与 TeslaMate「Battery Health」相同（API 0.13.0，api_level 14）
 
