@@ -4,8 +4,16 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
-## Unreleased
-- **Server 0.14.0** (`api_level` 15) — device auth, groundwork for app 1.2.0. Existing apps keep working unchanged:
+## v1.2.0 — unreleased
+**Every device now signs in with its own token**, so a lost phone can be disconnected without changing the server token everywhere.
+- **Automatic switch:** with drivelens-api 0.14.0+, the app replaces a saved server token with a token of its own for this device the next time it starts. Nothing to do.
+- **Setup with a pairing code:** the second field now takes a **pairing code** (for example `7KQ2-M9XD`) or the server token. A connected device creates the code in **Settings → Devices → Add device**; it is valid for 10 minutes and works once. With a server token, the app exchanges it for a device token and does not keep it. Older servers keep working with the server token; a code shows a hint to update the server.
+- **Settings → Devices:** every connected device with its last use and address, a "This device" mark and a read-only badge. ⋯ renames or disconnects a device; **Disconnect all other devices** signs out everything else.
+- **Read-only devices** (for family or a car screen, optionally expiring after 7 or 30 days): everything can be viewed, and editing entry points (place names, charging costs, journeys, covers, suggestions) are hidden.
+- **Sign out of this device** (Settings): removes the connection, cached data and the notification subscription from this device and disconnects it on the server. A device that was disconnected elsewhere returns to the setup screen with a message and its cached data removed.
+- Settings → Server no longer shows the saved token; leave the field empty to keep the current connection. Switching to another server clears the old server's cached data.
+- Demo mode includes the device section (offline, nothing is sent).
+- **Server 0.14.0** (`api_level` 15) — device auth. Apps older than 1.2.0 keep working unchanged:
   - **Device tokens:** each device can get its own token (`dlt_…`); the server stores only a hash. Devices can be listed, renamed and revoked one by one (`/api/auth/devices`), so a lost phone no longer means changing `.env` on every device. Rotating `API_TOKEN` does not sign devices out.
   - **Pairing codes:** a connected device creates a short code (`XXXX-XXXX`, 10 minutes, single use) that signs a new device in without typing the server token there. Codes can create **read-only** devices, optionally expiring after a number of days.
   - **`DRIVELENS_OWNER_KEY_MODE`:** `full` (default, as before) or `pair-only` — the server token then only adds and manages devices, and is not even checked after too many failed attempts, while device tokens keep working.
