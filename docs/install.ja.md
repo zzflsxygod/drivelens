@@ -1,53 +1,51 @@
-# DriveLens インストールガイド（TeslaMate を自分で運用している方向け）
+# DriveLens インストールガイド
 
 [English](install.md) · [中文](install.zh.md) · **日本語**
 
-DriveLens は次の 2 つで構成されています。
+DriveLens は 2 つの部分でできています。
 
-- **drivelens-api**：TeslaMate サーバー上で動く小さなサービス（Docker コンテナ）。読み取り専用アカウントで TeslaMate のデータベースを読み込みます。
-- **DriveLens アプリ**：スマートフォン / PC 用のクライアント。初回起動時にサーバーの URL とトークンを入力するだけで使えます。
+- **drivelens-api**：サーバー上で TeslaMate と一緒に動く小さな Docker コンテナです。読み取り専用のアカウントで TeslaMate のデータベースを読みます。
+- **DriveLens ウェブ版**：**https://drivelens-app.oharuru.com** 。ここでサーバーのアドレスとトークンを一度入力します。
 
-> DriveLens は **TeslaMate のテーブルを一切変更しません**。TeslaMate のテーブルに対しては SELECT 権限のみで、DriveLens 独自のデータ（地点名、手入力の充電料金、旅程、カバー画像、天気キャッシュ）はすべて独立した `drivelens` スキーマに保存されます。
+> DriveLens は **TeslaMate のテーブルを変更しません**。データベースアカウントにはこれらのテーブルの読み取り権限しかありません。DriveLens 独自のデータ（場所の名前、手入力した充電料金、旅、カバー写真、プッシュの登録、天気のキャッシュ）は別の `drivelens` スキーマに保存します。
+
+目次：[前提条件](#前提条件) · [1. ファイル](#1-ファイルを-2-つダウンロード) · [2. パスワードとトークン](#2-パスワードとトークンを作る) · [3. データベースアカウント](#3-データベースアカウントを作る初回のみ) · [4. 起動](#4-drivelens-api-を起動) · [5. https](#5-サーバーに-https-のアドレスを用意する) · [6. 接続](#6-ウェブ版から接続する) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [環境変数](#環境変数) · [トラブルシューティング](#トラブルシューティング) · [アンインストール](#アンインストール)
 
 ## 前提条件
 
-- TeslaMate を Docker Compose で運用していること（公式の `docker-compose.yml`。データベースのサービス名は `database`、データベース名 / 管理ユーザーは既定で `teslamate`）。
-- サーバーは x86_64 / ARM64 のどちらでも可（Raspberry Pi など）。
-- 外部から安全にサーバーへ接続する手段：**Cloudflare Tunnel または Tailscale を推奨**（手順 5）。
+- TeslaMate が Docker Compose で動いていること（公式の `docker-compose.yml`：データベースのサービス名は `database`、データベース名と管理ユーザーは `teslamate`）。
+- x86_64 または ARM64 のサーバー（Raspberry Pi でも動きます）。イメージ `ghcr.io/zzflsxygod/drivelens-api` は linux/amd64 と linux/arm64 向けに公開しています。
+- **https** でサーバーに接続する手段：Cloudflare Tunnel（Cloudflare で管理しているドメインが必要）または Tailscale（ドメイン不要）。手順 5 を参照してください。
 
-## 1. ファイルを 2 つダウンロードする
+## 1. ファイルを 2 つダウンロード
 
-TeslaMate の compose ディレクトリ（TeslaMate の `docker-compose.yml` がある場所）で実行します。
+TeslaMate の compose ディレクトリで実行します。
 
 ```bash
-cd teslamate   # TeslaMate の docker-compose.yml がある場所
-curl -fsSLO https://raw.githubusercontent.com/zzflsxygod/drivelens-releases/main/deploy/setup.sql
-curl -fsSLO https://raw.githubusercontent.com/zzflsxygod/drivelens-releases/main/deploy/docker-compose.drivelens.yml
+cd teslamate   # TeslaMate の docker-compose.yml があるディレクトリ
+curl -fsSLO https://raw.githubusercontent.com/zzflsxygod/drivelens/main/deploy/setup.sql
+curl -fsSLO https://raw.githubusercontent.com/zzflsxygod/drivelens/main/deploy/docker-compose.drivelens.yml
 ```
-
-ソースコードは不要です。drivelens-api はビルド済みの Docker イメージ（`ghcr.io/zzflsxygod/drivelens-api`、linux/amd64 / linux/arm64 対応）で、手順 4 で Docker が自動的にダウンロードします。
 
 ```
 teslamate/
-├── docker-compose.yml               # 既存の TeslaMate の設定
-├── docker-compose.drivelens.yml     # DriveLens API サービス
-├── setup.sql                        # 初回のデータベース設定
+├── docker-compose.yml               # TeslaMate のファイル（変更不要）
+├── docker-compose.drivelens.yml     # drivelens-api のサービス
+├── setup.sql                        # 初回だけのデータベース設定
 └── .env
 ```
 
-## 2. パスワードとトークンを生成して `.env` に書く
-
-TeslaMate の compose ディレクトリで実行します。
+## 2. パスワードとトークンを作る
 
 ```bash
 echo "DRIVELENS_DB_PASS=$(openssl rand -hex 16)"  >> .env
 echo "DRIVELENS_API_TOKEN=$(openssl rand -hex 24)" >> .env
 ```
 
-- `DRIVELENS_DB_PASS`：読み取り専用データベースアカウント `drivelens_ro` のパスワード。
-- `DRIVELENS_API_TOKEN`：アプリが接続に使うトークン（**16 文字以上、32 文字以上のランダムな文字列を推奨**。短すぎると API のログとアプリに警告が出ます）。
+- `DRIVELENS_DB_PASS`：読み取り専用のデータベースアカウント `drivelens_ro` のパスワード。
+- `DRIVELENS_API_TOKEN`：アプリに入力するトークン。16 文字未満だと API は起動せず、32 文字未満や単純なものはログに警告が出ます。上のコマンドのようにランダムに生成してください。
 
-## 3. データベースアカウントを作成する（最初の 1 回のみ）
+## 3. データベースアカウントを作る（初回のみ）
 
 ```bash
 source .env
@@ -55,157 +53,156 @@ docker compose exec -T database psql -U teslamate -d teslamate \
   -v ro_pass="$DRIVELENS_DB_PASS" < setup.sql
 ```
 
-`setup.sql` は何度実行しても安全です。次の処理を行います。
+[`setup.sql`](../deploy/setup.sql) は何度実行しても安全です（2 回目以降はパスワードを更新するだけです）。内容は次のとおりです。
 
-1. ログインロール `drivelens_ro` を作成（既にあればパスワードのみ更新）
-2. TeslaMate のテーブルへの **SELECT** 権限を付与（今後の TeslaMate アップデートで追加されるテーブルも含む）
-3. `cars / addresses / drives / charging_processes` への REFERENCES 権限を付与（DriveLens のテーブルが外部キーで参照し、TeslaMate で走行が削除されると関連データも自動で消えます。**書き込み権限は含みません**）
-4. `drivelens` スキーマを作成し、所有者を `drivelens_ro` にする
+1. ログインロール `drivelens_ro` を作成します。
+2. TeslaMate のテーブルに **SELECT** 権限を付与します。今後の TeslaMate のアップデートで追加されるテーブルも含みます。
+3. `cars`、`addresses`、`drives`、`charging_processes` に REFERENCES 権限を付与します。DriveLens のテーブルが外部キーでこれらを参照でき、TeslaMate が走行を削除すると DriveLens の関連データも一緒に消えます（書き込み権限ではありません）。
+4. `drivelens_ro` が所有する `drivelens` スキーマを作成します。
 
-以降は API の起動のたびに **`drivelens` スキーマ内のテーブルが自動で作成・更新されます**（冪等）。追加の SQL 実行は不要です。
+TeslaMate のテーブルに何かを作成・変更・削除することはありません。API は起動するたびに `drivelens` スキーマの中に自分のテーブルを作成・更新するので、これ以上 SQL を実行する必要はありません。
 
-> データベース名や管理ユーザーが `teslamate` でない場合は、コマンドの `-U` / `-d` を変更し、`.env` に `DRIVELENS_DB_NAME=データベース名` を追加してください。
+> データベース名や管理ユーザーが `teslamate` でない場合は、上の `-U` / `-d` を変更し、`.env` に `DRIVELENS_DB_NAME=データベース名` を追加してください。
 
-## 4. drivelens-api を起動する
+## 4. drivelens-api を起動
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.drivelens.yml pull drivelens-api
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivelens-api
 ```
 
-イメージは小さく、数秒で起動します。ログに次のように出れば正常です。
+ログに次のように表示されれば成功です。
 
 ```
-INFO drivelens_api: all features enabled (API level 12)
+INFO drivelens_api: all features enabled (API level 14)
 INFO drivelens_api: listening on 0.0.0.0:8080
 ```
 
-`disabled features: …` や `cannot read TeslaMate tables` と表示される場合は手順 3 が成功していません。`setup.sql` を再実行してから `docker compose restart drivelens-api` を実行してください。その間も読み取り系の機能（走行、充電、レポートなど）は使えます。
+`disabled features: …` や `cannot read TeslaMate tables` と表示された場合は手順 3 が完了していません。`setup.sql` をもう一度実行し、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api` を実行してください。
 
-ローカルでの確認：`curl http://127.0.0.1:8080/health` で `{"status":"ok","version":"…","api_level":…}` が返れば OK です。
+サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":14}` を返します。
 
-### 環境変数
+compose ファイルの初期設定では API を `127.0.0.1:8080` にだけ公開するので、ほかのマシンからは接続できません。**8080 番ポートをインターネットに直接公開しないでください**。下の https の方法のどちらかを使います。
 
-| 変数 | 必須 | 説明 |
-| --- | --- | --- |
-| `DATABASE_URL` | ✅ | `postgres://drivelens_ro:パスワード@database:5432/teslamate`（compose ファイルが `.env` から組み立てます） |
-| `API_TOKEN` | ✅ | アプリ用の Bearer トークン。16 文字以上、32 文字以上を推奨 |
-| `BIND_ADDR` | | 待ち受けアドレス。イメージの既定は `0.0.0.0:8080` |
-| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せる Web のオリジン（カンマ区切り、v0.11.0 以降。旧名 `CORS_ORIGINS` も有効）。既定は公式ウェブ版 `https://drivelens-app.oharuru.com` のみ。Windows / Android アプリは常に許可されます。`*` はすべて許可 |
-| `DRIVELENS_VAPID_PRIVATE_KEY` | | Web プッシュの署名鍵（base64url の P-256 秘密鍵、v0.12.0 以降）。通常は設定不要：API が初回起動時に生成し、`drivelens` スキーマに保存します |
-| `DRIVELENS_VAPID_SUBJECT` | | 通知と一緒にブラウザのプッシュサービスへ送る連絡先（`mailto:you@example.com` または https の URL）。既定は DriveLens のプロジェクトページ |
-| `RUST_LOG` | | ログレベル。既定は `info` |
+## 5. サーバーに https のアドレスを用意する
 
-compose ファイルが使う `.env` の変数：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（既定 teslamate）、`DRIVELENS_IMAGE`（既定 `ghcr.io/zzflsxygod/drivelens-api:latest`。バージョンを固定する場合は `…:v0.15.1` など）。
+ウェブ版は https で配信しているため、ブラウザは `http://` のサーバーアドレスをブロックします（混在コンテンツ）。`http://192.168.x.x:8080` や `http://100.x.y.z:8080` のような **LAN や Tailscale の IP も同じです**。どちらかを選んでください。
 
-### アップデート
+<a id="cloudflare-tunnel"></a>
+### 方法 A：Cloudflare Tunnel（Cloudflare で管理しているドメインがある場合）
+
+1. Cloudflare Zero Trust → Networks → Tunnels でトンネルを作成し、トークンをコピーします。
+2. cloudflared を同じ compose プロジェクトで動かす場合は、`docker-compose.drivelens.yml` の `cloudflared` サービスのコメントを外し、`.env` に `CLOUDFLARE_TUNNEL_TOKEN=…` を追加して、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d cloudflared` で起動します。その後 `drivelens-api` の `ports:` は削除して構いません。
+   ホストにインストール済みの cloudflared を使うこともできます。
+3. Public Hostname（例：`drivelens.あなたのドメイン`）を追加し、サービスに `http://drivelens-api:8080`（compose 内の cloudflared）または `http://127.0.0.1:8080`（ホストの cloudflared）を指定します。
+4. サーバーのアドレスは `https://drivelens.あなたのドメイン` です。
+
+API の前に Cloudflare Access などのログインページを置かないでください。ウェブ版からのリクエストがブロックされます。API はトークンで保護されています。
+
+<a id="tailscale"></a>
+### 方法 B：Tailscale（ドメイン不要、自分の端末からだけ接続）
+
+`tailscale serve` を使うと、tailnet 内の端末からだけ接続できる https のアドレスをサーバーに用意できます。
+
+1. サーバー（ホストに通常の方法でインストール）とスマートフォン / PC に Tailscale をインストールし、同じ tailnet にログインします。
+2. Tailscale の管理画面 → [DNS](https://login.tailscale.com/admin/dns) で **MagicDNS** と **HTTPS Certificates** を有効にします（tailnet ごとに 1 回だけ）。
+3. サーバーで次を実行します。
+   ```bash
+   sudo tailscale serve --bg 8080
+   ```
+   `https://<マシン名>.<tailnet>.ts.net` を `http://127.0.0.1:8080` へ転送し、再起動後も有効なままです。アドレスは `tailscale serve status` で確認できます。compose ファイルは初期設定の `127.0.0.1:8080:8080` のままで構いません。最初の接続では証明書の発行に数秒かかることがあります。
+4. サーバーのアドレスは `https://<マシン名>.<tailnet>.ts.net`（ポートなし）です。DriveLens を使う端末は Tailscale に接続している必要があります。
+
+補足：
+
+- CORS の設定は不要です。API は初期設定で公式ウェブ版を許可しています。サーバー自身のアドレスを `DRIVELENS_CORS_ORIGINS` に入れる必要はありません。
+- Chrome / Edge では、サイトに*ローカルネットワーク上のデバイスへのアクセス*を許可するか聞かれることがあります（ts.net の名前は 100.x のアドレスを指すため）。**許可**を選んでください。ブロックしてしまった場合は、サイトの設定（アドレスバー左のアイコン）から許可し直せます。
+- 証明書によってマシン名（`<マシン名>.<tailnet>.ts.net`）が公開の Certificate Transparency ログに記録されます。気になる場合は先にマシン名を変更してください。
+- 停止するには：`sudo tailscale serve --https=443 off`。
+
+## 6. ウェブ版から接続する
+
+1. **https://drivelens-app.oharuru.com** を開きます（ようこそ画面からデモを先に試すこともできます）。
+2. 手順 5 の**サーバーの URL** と **API トークン**（`.env` の `DRIVELENS_API_TOKEN`）を入力します。
+3. 「接続をテストして始める」を押します。アプリは `/health` を確認してから、トークンでクルマの情報を読み込みます。
+
+| メッセージ | 対処 |
+| --- | --- |
+| トークンが違う（401） | `DRIVELENS_API_TOKEN` をスペースや引用符なしでコピーし直す |
+| ブラウザが http のサーバーアドレスをブロック | https のアドレスを使う（手順 5） |
+| 接続できない / タイムアウト | アドレス、トンネルや Tailscale が動いているか、証明書が有効かを確認 |
+| DriveLens の API ではない | TeslaMate や Grafana のアドレスを入力しています。drivelens-api のアドレスを入力する |
+| サーバーがこのサイトを許可していない（CORS） | drivelens-api を更新する。`DRIVELENS_CORS_ORIGINS` を設定している場合は `https://drivelens-app.oharuru.com` を含める |
+| サーバーが古い | drivelens-api を更新する（手順 8） |
+| トークンの誤りが多すぎる（429） | 10 分以内に 10 回失敗すると、その接続元はしばらく拒否されます。10 分待ってから再試行 |
+
+サーバーとトークンはあとから「設定 → サーバー」で変更できます。言語、テーマ、地図ラベルの言語、既定の通貨も設定にあります。
+
+**ホーム画面に追加：** Android や PC の Chrome / Edge では、設定の「アプリとしてインストール」またはブラウザのメニュー → インストール。iPhone / iPad（Safari）では、共有 → ホーム画面に追加。
+
+サーバーのアドレスとトークンはこのブラウザのローカルストレージにだけ保存され、ご自身のサーバーにしか送信されません。共用の PC では、ブラウザでこのサイトのデータを削除すると消去できます。オフライン用キャッシュに入るのはアプリ本体だけで、API の応答はキャッシュしません。
+
+## 7. 通知
+
+「設定 → 通知」で、使っている端末のプッシュ通知をオンにできます。走行が終わると**走行サマリー**（距離、時間、電力量、出発地 → 到着地）、毎月 1 日には**月次レポート**のお知らせ（端末のタイムゾーンで 9:00 以降）が届きます。それぞれ個別にオフにでき、通知をタップするとその走行やレポートが開きます。
+
+- サーバーが 1 分ごとに TeslaMate の終了した走行を確認し、ブラウザのプッシュサービス（Google、Apple、Mozilla）経由で、エンドツーエンドで暗号化した通知を自分で送信します。コンテナからこれらのサービスへ https で接続できる必要があります。
+- 設定は不要です。署名鍵（VAPID）は初回起動時に自動で生成され、`drivelens` スキーマに保存されます。失われた場合（データベースを作り直したときなど）は、各端末で通知をオンにし直してください。
+- iPhone / iPad：iOS 16.4 以降で、DriveLens をホーム画面に追加し、そこから開く必要があります。
+- Android / PC：Chrome、Edge、Firefox。通知をブロックした場合はサイトの設定で許可してください。
+
+## 8. 更新
+
+**自動更新（おすすめ）：** `docker-compose.drivelens.yml` の最後にある `watchtower` サービスのコメントを外し、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d watchtower` で起動します。6 時間ごとに確認し、`com.centurylinklabs.watchtower.enable=true` のラベルが付いたコンテナ、つまり drivelens-api だけを更新します。TeslaMate、データベース、Grafana には触れません。
+
+**手動更新：**
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml pull drivelens-api
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 ```
 
-データベースの構造は API の起動時に自動で更新されます。新しいバージョンと変更点は [Releases](https://github.com/zzflsxygod/drivelens-releases/releases) に掲載されます。
+API は起動時に自分のテーブルを自動で更新します。特定のバージョンに固定するには、`.env` に `DRIVELENS_IMAGE=ghcr.io/zzflsxygod/drivelens-api:v1.1.1` のように設定します。変更点は [Releases](https://github.com/zzflsxygod/drivelens/releases) をご覧ください。ウェブ版は常に最新版で、サーバーの更新が必要なときはお知らせします。
 
-**自動アップデート（任意）**：`docker-compose.drivelens.yml` の末尾にある `watchtower` サービスのコメントを外して、もう一度 `up -d` を実行します。`com.centurylinklabs.watchtower.enable=true` ラベルの付いたコンテナ（drivelens-api には付いています）だけを 6 時間ごとに更新します。
+## 環境変数
 
-## 5. 外部から安全に接続する（どちらか一方）
+drivelens-api が読み取る変数：
 
-**ポート 8080 をインターネットに直接公開しないでください**（https がないとトークンが平文で送られます）。
+| 変数 | 必須 | 説明 |
+| --- | --- | --- |
+| `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`。compose ファイルが `.env` から組み立てます |
+| `API_TOKEN` | ✅ | アプリ用のトークン（16 文字以上、32 文字以上のランダムな文字列を推奨）。compose ファイルは `DRIVELENS_API_TOKEN` から取ります |
+| `BIND_ADDR` | | 待ち受けアドレス。イメージ内では `0.0.0.0:8080` |
+| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せるウェブのオリジン（カンマ区切り）。`*` はすべて許可。初期設定は公式ウェブ版のみ（と、一時停止中のネイティブアプリのオリジン）。旧名の `CORS_ORIGINS` も使えます |
+| `DRIVELENS_VAPID_PRIVATE_KEY` | | プッシュの署名鍵（base64url P-256）。通常は設定不要で、初回起動時に生成してデータベースに保存します |
+| `DRIVELENS_VAPID_SUBJECT` | | プッシュサービスに送る連絡先（`mailto:you@example.com` または https の URL）。初期値は DriveLens のプロジェクトページ |
+| `RUST_LOG` | | ログレベル。初期値は `info` |
 
-### 方法 A：Cloudflare Tunnel（独自ドメインがある場合におすすめ）
+`.env`（`docker-compose.drivelens.yml` が使用）：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（初期値 `teslamate`）、`DRIVELENS_IMAGE`（初期値 `ghcr.io/zzflsxygod/drivelens-api:latest`）、`CLOUDFLARE_TUNNEL_TOKEN`（cloudflared サービス用）。
 
-1. Cloudflare Zero Trust → Networks → Tunnels でトンネルを作成し、トークンをコピーします。
-2. `docker-compose.drivelens.yml` の `cloudflared` の部分のコメントを外し、`.env` に `CLOUDFLARE_TUNNEL_TOKEN=…` を追加します。この場合 `drivelens-api` の `ports:` は削除できます。
-3. トンネルの Public Hostname に `drivelens.あなたのドメイン` → `http://drivelens-api:8080` を追加します（cloudflared をホストに直接入れている場合は `http://127.0.0.1:8080`）。
-4. アプリには `https://drivelens.あなたのドメイン` を入力します。
+## トラブルシューティング
 
-<a id="tailscale"></a>
-### 方法 B：Tailscale（ドメインがない / 公開したくない場合）
+- **`password authentication failed for user "drivelens_ro"`**：`DRIVELENS_DB_PASS` が `setup.sql` 実行時のパスワードと違います。手順 3 をもう一度実行し（パスワードが更新されます）、drivelens-api を再起動してください。
+- **`API_TOKEN must be at least 16 characters`**（コンテナが再起動を繰り返す）または **`API_TOKEN looks weak`**：`openssl rand -hex 24` で新しいトークンを作って `.env` に書き、`up -d drivelens-api` をもう一度実行して、アプリにも新しいトークンを入力してください。
+- **`cannot read TeslaMate tables`** または **`disabled features: …`**：データベースアカウントの設定が不完全です。`setup.sql`（手順 3）をもう一度実行し、drivelens-api を再起動してください。`disabled features` だけの場合、走行・充電・レポートはその間も使えます。
+- **設定画面でサーバーに接続できない**：まずサーバー上で `curl http://127.0.0.1:8080/health` が動くことを確認し、次にトンネル（`docker compose … logs cloudflared`）や `tailscale serve status` を確認してください。
+- **`/health` は動くがデータを読み込めない**：間にリバースプロキシがある場合は、`Authorization` ヘッダーをそのまま転送する必要があります。
+- **通知が届かない**：その端末の「設定 → 通知」、ブラウザの通知の許可、コンテナが https でインターネットに接続できるかを確認してください。
 
-ウェブ版は https で配信されているため、ブラウザは `http://` のサーバーアドレスをブロックします。**LAN や Tailscale の IP**（`http://100.x.y.z:8080` など）**も同様です**（混在コンテンツ）。`tailscale serve` を使えば、自分の tailnet からだけ接続できる https のアドレスを無料で用意できます：
+## アンインストール
 
-1. サーバー（ホストに通常どおりインストール）とスマートフォン / パソコンに Tailscale を入れ、同じ tailnet にログインします。
-2. Tailscale 管理コンソール → [DNS](https://login.tailscale.com/admin/dns) で **MagicDNS** と **HTTPS Certificates** を有効にします（tailnet ごとに 1 回）。
-3. サーバーで次を実行します：
+1. コンテナを停止して削除します。
    ```bash
-   sudo tailscale serve --bg 8080
+   docker compose -f docker-compose.yml -f docker-compose.drivelens.yml rm -sf drivelens-api
    ```
-   `https://マシン名.tailnet名.ts.net` → `http://127.0.0.1:8080` に転送され、再起動後も自動で再開します。アドレスは `tailscale serve status` で確認できます。compose は既定の `127.0.0.1:8080:8080` のままで、ポートの変更は不要です。初回アクセス時は証明書の発行に数秒かかることがあります。
-4. DriveLens には `https://マシン名.tailnet名.ts.net`（ポートなし）を入力します。使う端末は Tailscale に接続しておいてください。
-
-- **CORS**：追加の設定は不要です。API は公式ウェブ版を標準で許可しています。API 自身のアドレスを `DRIVELENS_CORS_ORIGINS` に書く必要はありません。
-- **Chrome / Edge** で「ローカル ネットワーク上のデバイスへのアクセス」の許可を求められることがあります（ts.net のアドレスが 100.x の IP を指すため）。**許可**を選んでください。ブロックしてしまった場合は、サイトの設定（アドレスバーの鍵アイコン）で許可し直します。
-- 証明書の発行により、マシン名（`マシン名.tailnet名.ts.net`）が公開の Certificate Transparency ログに記録されます。気になる場合は先にマシン名を変更してください。
-- 停止するには：`sudo tailscale serve --https=443 off`。
-
-> セキュリティ対策：トークンは定数時間で比較。同じ IP から 10 分以内に 10 回認証に失敗すると一時的に拒否（HTTP 429）。TeslaMate のテーブルへのアクセスは読み取りのみ。
-
-## 6. アプリをインストールして設定する
-
-1. ウェブ版 **https://drivelens-app.oharuru.com** を開きます（スマートフォンでも PC でも使え、ホーム画面に追加できます。手順 7 参照）。または [Releases](https://github.com/zzflsxygod/drivelens-releases/releases) ページから Windows / Android アプリをインストールします（対応するインストーラーがある場合）。
-2. 初回起動時に「DriveLens へようこそ」が表示されます（言語はシステムに合わせて選ばれ、右上で切り替えられます）。
-   - **サーバーの URL**：手順 5 の URL（例：`https://drivelens.example.com`）
-   - **API トークン**：`.env` の `DRIVELENS_API_TOKEN`
-3. 「接続をテストして始める」をタップします。アプリはまず `/health` を確認し、次にトークンを使って車両を読み込みます。失敗した場合は原因が表示されます。
-
-| 表示 | 対処 |
-| --- | --- |
-| トークンが正しくありません（401） | `DRIVELENS_API_TOKEN` を空白や引用符を含めずにコピーし直す |
-| 接続できません / タイムアウト | URL と、トンネルまたは Tailscale が動いているかを確認。ウェブ版は `https://` のアドレスが必要（Cloudflare Tunnel、または `tailscale serve` の `https://…ts.net`） |
-| DriveLens API ではありません | TeslaMate / Grafana の URL を入力しています。drivelens-api の URL に変更 |
-| サーバーが古すぎます | 「アップデート」の手順で drivelens-api を更新 |
-| トークンの誤りが多すぎる（429） | 10 分待ってから再試行 |
-
-サーバーの URL とトークンは、あとから「設定」でいつでも変更できます（新しい設定はテストに成功した場合のみ保存されます）。アプリの言語、地図の表記言語、デフォルトの通貨は端末の設定に合わせて選ばれ、「設定」で変更することもできます。
-
-## 7. ウェブ版（PWA）
-
-アプリをインストールしたくない場合は、ブラウザで **https://drivelens-app.oharuru.com** を開き、サーバーアドレスとトークンを入力するだけで使えます（先にデモを試すこともできます）。ウェブ版は静的ファイルだけで、ブラウザが**ご自身の** drivelens-api に直接アクセスします。トークンやデータがウェブのホストを経由することはありません。
-
-**サーバーの条件**
-
-- **drivelens-api v0.11.0 以降**：公式ウェブ版からのアクセス（CORS）を標準で許可します。`DRIVELENS_CORS_ORIGINS` を設定している場合は `https://drivelens-app.oharuru.com` も含めてください。例：
-  ```yaml
-  environment:
-    - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
-  ```
-- **https が必須**：https のページから `http://` のアドレスにはアクセスできません（混在コンテンツ）。Cloudflare Tunnel（方法 A）ならそのまま使えます。Tailscale の場合は `tailscale serve` を有効にして `https://マシン名.tailnet名.ts.net` を使い、`http://100.x.y.z:8080` は使わないでください（[方法 B](#tailscale) を参照）。
-- API の前に Cloudflare Access などのログイン画面を置かないでください。ブラウザのクロスオリジン通信がブロックされます。
-
-**ホーム画面に追加**
-
-- Android（Chrome）/ パソコン（Chrome・Edge）：「設定」の一番下の「アプリとしてインストール」、またはブラウザのメニュー →「アプリをインストール」。
-- iPhone / iPad（Safari）：「共有」→「ホーム画面に追加」。インストール後は全画面・縦向きで表示されます。
-
-**通知（drivelens-api v0.12.0 以降）**
-
-「設定 → 通知」でこの端末のプッシュ通知をオンにできます。走行が終わると**走行サマリー**（距離・時間・電費・出発地 → 到着地）、毎月1日（端末のタイムゾーンで 9 時以降）に**月次レポート**をお知らせします。それぞれ個別にオン／オフでき、通知をタップするとその走行やレポートが開きます。
-
-- サーバーが TeslaMate のデータベースを毎分確認して走行の終了を検出し、ブラウザのプッシュサービス（Google / Apple / Mozilla）経由で暗号化して送信します。そのため API コンテナからこれらのサービスへ https で接続できる必要があります。
-- 追加の設定は不要です。署名鍵は初回起動時に自動生成されます。鍵が変わったり失われたり（データベースの作り直しなど）した場合は、各端末で通知をもう一度オンにしてください。
-- iPhone / iPad：iOS 16.4 以降で、DriveLens をホーム画面に追加し、そこから開く必要があります。
-- Android / パソコン：Chrome・Edge・Firefox。通知をブロックした場合はサイトの設定で許可してください。
-
-**補足**
-
-- トークンはこのブラウザのローカルストレージに保存されます。共用パソコンでは使用後に「設定」で消去してください。
-- オフラインキャッシュはアプリ本体（HTML / JS / CSS / アイコン）のみで、API のレスポンスはキャッシュしません。
-
-| ウェブ版のメッセージ | 対処 |
-| --- | --- |
-| サーバーがこのサイトを許可していない（CORS） | drivelens-api を v0.11.0 以降に更新し、`DRIVELENS_CORS_ORIGINS` を確認 |
-| http のサーバーアドレスはブロックされる | https のアドレスを使う（Cloudflare Tunnel / [`tailscale serve`](#tailscale)） |
-| 接続できない（証明書 / ドメイン） | ドメイン、トンネルの稼働、証明書の有効性を確認 |
-
-## よくある質問
-
-- **ログに `password authentication failed for user "drivelens_ro"` と出る**：`.env` の `DRIVELENS_DB_PASS` と `setup.sql` 実行時のパスワードが一致していません。手順 3 をもう一度実行してください（パスワードが更新されます）。
-- **ログに `API_TOKEN looks weak` と出る**：トークンが短いか単純すぎます。`openssl rand -hex 24` で生成した値に変更し、アプリの設定も更新してください。
-- **アンインストール**：`drivelens-api` コンテナを停止・削除し、必要であれば管理ユーザーで
-  `DROP SCHEMA drivelens CASCADE; DROP OWNED BY drivelens_ro; DROP ROLE drivelens_ro;` を実行します。TeslaMate のデータには影響しません。
+   （DriveLens のために `cloudflared` / `watchtower` を有効にした場合はそれらも）その後、`docker-compose.drivelens.yml`、`setup.sql`、`.env` の `DRIVELENS_*` の行を削除します。
+2. 必要なら DriveLens のデータとアカウントを削除します（TeslaMate のデータには影響しません）。
+   ```bash
+   docker compose exec -T database psql -U teslamate -d teslamate \
+     -c "DROP SCHEMA drivelens CASCADE" -c "DROP OWNED BY drivelens_ro" -c "DROP ROLE drivelens_ro"
+   ```
+3. Tailscale を使っていた場合：`sudo tailscale serve --https=443 off`。
 
 ## フィードバック
 
-不具合や機能の要望は [Issues](https://github.com/zzflsxygod/drivelens-releases/issues) へお寄せください。サーバーの URL やトークンは書き込まないでください。
+不具合や機能の要望は [Issues](https://github.com/zzflsxygod/drivelens/issues) へお寄せください。サーバーのアドレスやトークンは絶対に投稿しないでください。

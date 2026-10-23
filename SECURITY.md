@@ -22,7 +22,7 @@ Only the latest release is supported. drivelens-api is normally kept up to date 
 - **No telemetry, analytics or tracking.** DriveLens does not collect usage data, crash reports or identifiers.
 - Your TeslaMate data stays on your server. The app requests it directly from your drivelens-api; there is no DriveLens backend in between.
 - The only third-party requests the app makes are for map tiles (OpenFreeMap, falling back to OpenStreetMap).
-- Your own drivelens-api fetches weather for journeys from Open-Meteo using coordinates rounded to 0.1° (about 10 km) and dates; no token or identifier is sent. Web push notifications are sent by your own server through your browser's push service (for example Google, Apple or Mozilla) and are encrypted end to end.
+- Your own drivelens-api fetches weather for your drives from Open-Meteo using coordinates rounded to 0.1° (about 10 km) and dates; no token or identifier is sent. Web push notifications are sent by your own server through your browser's push service (for example Google, Apple or Mozilla) and are encrypted end to end.
 - drivelens-api only has read access to TeslaMate's tables and never modifies them.
 
 ## Scope notes
