@@ -74,13 +74,13 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivel
 ログに次のように表示されれば成功です。
 
 ```
-INFO drivelens_api: all features enabled (API level 14)
+INFO drivelens_api: all features enabled (API level 15)
 INFO drivelens_api: listening on 0.0.0.0:8080
 ```
 
 `disabled features: …` や `cannot read TeslaMate tables` と表示された場合は手順 3 が完了していません。`setup.sql` をもう一度実行し、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api` を実行してください。
 
-サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":14}` を返します。
+サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":15}` を返します。
 
 compose ファイルの初期設定では API を `127.0.0.1:8080` にだけ公開するので、ほかのマシンからは接続できません。**8080 番ポートをインターネットに直接公開しないでください**。下の https の方法のどちらかを使います。
 
@@ -134,7 +134,7 @@ API の前に Cloudflare Access などのログインページを置かないで
 | DriveLens の API ではない | TeslaMate や Grafana のアドレスを入力しています。drivelens-api のアドレスを入力する |
 | サーバーがこのサイトを許可していない（CORS） | drivelens-api を更新する。`DRIVELENS_CORS_ORIGINS` を設定している場合は `https://drivelens-app.oharuru.com` を含める |
 | サーバーが古い | drivelens-api を更新する（手順 8） |
-| トークンの誤りが多すぎる（429） | 10 分以内に 10 回失敗すると、その接続元はしばらく拒否されます。10 分待ってから再試行 |
+| トークンの誤りが多すぎる（429） | 10 分以内に 10 回失敗すると、しばらく 429 になります。10 分待ってから再試行。接続済みの端末はそのまま使えます |
 
 サーバーとトークンはあとから「設定 → サーバー」で変更できます。言語、テーマ、地図ラベルの言語、既定の通貨も設定にあります。
 
@@ -171,12 +171,13 @@ drivelens-api が読み取る変数：
 | 変数 | 必須 | 説明 |
 | --- | --- | --- |
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`。compose ファイルが `.env` から組み立てます |
-| `API_TOKEN` | ✅ | アプリ用のトークン（16 文字以上、32 文字以上のランダムな文字列を推奨）。compose ファイルは `DRIVELENS_API_TOKEN` から取ります |
+| `API_TOKEN` | ✅ | サーバーのトークン（オーナーキー）：端末の最初のサインインと端末の管理に使います（16 文字以上、32 文字以上のランダムな文字列を推奨）。compose ファイルは `DRIVELENS_API_TOKEN` から取ります |
+| `DRIVELENS_OWNER_KEY_MODE` | | `full`（既定）：サーバーのトークンはこれまでどおりすべてのリクエストで有効。`pair-only`：サーバーのトークンは端末の追加と管理（`/api/auth/*`）だけに使え、それ以外は 403 `owner_key_pair_only`。失敗が多すぎると 10 分間はトークンを評価すらしないため、推測しても無駄になり、ご自身の端末はそのまま使えます。端末認証が必要で、使えない場合は `full` に戻してログにエラーを出します |
 | `BIND_ADDR` | | 待ち受けアドレス。イメージ内では `0.0.0.0:8080` |
 | `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せるウェブのオリジン（カンマ区切り）。`*` はすべて許可。初期設定は公式ウェブ版のみ（と、一時停止中のネイティブアプリのオリジン）。旧名の `CORS_ORIGINS` も使えます |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | プッシュの署名鍵（base64url P-256）。通常は設定不要で、初回起動時に生成してデータベースに保存します |
 | `DRIVELENS_VAPID_SUBJECT` | | プッシュサービスに送る連絡先（`mailto:you@example.com` または https の URL）。初期値は DriveLens のプロジェクトページ |
-| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` にすると、ログイン失敗回数の制限で `CF-Connecting-IP` / `X-Forwarded-For` からクライアントを区別します（ローカル / プライベートアドレスから来たリクエスト、つまりトンネルやリバースプロキシ経由のものだけ）。既定はオフ：接続元アドレスで数えるため、トンネルの後ろではすべてのクライアントが 1 つの制限を共有します。どちらの場合も正しいトークンはブロックされません |
+| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` にすると、ログイン失敗回数の制限で `CF-Connecting-IP` / `X-Forwarded-For` からクライアントを区別します（ローカル / プライベートアドレスから来たリクエスト、つまりトンネルやリバースプロキシ経由のものだけ）。既定はオフ：接続元アドレスで数えるため、トンネルの後ろではすべてのクライアントが 1 つの制限を共有します。端末トークンは常に評価されるため、接続済みの端末が締め出されることはありません。既定のモードでは正しいサーバーのトークンも受け付けます |
 | `DRIVELENS_PUSH_HOSTS` | | 通知用に追加で許可するプッシュサービスのホスト（カンマ区切り）。独自のプッシュサーバーを使うブラウザ向けです。Chrome / Edge、Firefox、Safari のプッシュサービスは常に許可されます |
 | `RUST_LOG` | | ログレベル。初期値は `info` |
 
@@ -189,6 +190,8 @@ drivelens-api が読み取る変数：
 - **`cannot read TeslaMate tables`** または **`disabled features: …`**：データベースアカウントの設定が不完全です。`setup.sql`（手順 3）をもう一度実行し、drivelens-api を再起動してください。`disabled features` だけの場合、走行・充電・レポートはその間も使えます。
 - **設定画面でサーバーに接続できない**：まずサーバー上で `curl http://127.0.0.1:8080/health` が動くことを確認し、次にトンネル（`docker compose … logs cloudflared`）や `tailscale serve status` を確認してください。
 - **`/health` は動くがデータを読み込めない**：間にリバースプロキシがある場合は、`Authorization` ヘッダーをそのまま転送する必要があります。
+- **403 `owner_key_pair_only`**：サーバーが `DRIVELENS_OWNER_KEY_MODE=pair-only` で動いているため、サーバーのトークンは端末の追加と管理にしか使えません。アプリ 1.2.0 以上は自動で対応します。スクリプトから使う場合は `POST /api/auth/devices` で端末トークンを作るか、この変数を外してください。
+- **429（失敗が多すぎる）**：同じ接続元から 10 分以内に 10 回失敗しました。10 分待ってください。接続済みの端末はそのまま使えます。`pair-only` ではその間サーバーのトークンを評価しません（全接続元の合計で 50 回失敗したときも同様）。
 - **通知が届かない**：その端末の「設定 → 通知」、ブラウザの通知の許可、コンテナが https でインターネットに接続できるかを確認してください。
 
 ## アンインストール

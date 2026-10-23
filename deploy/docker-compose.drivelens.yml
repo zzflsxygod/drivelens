@@ -21,6 +21,9 @@ services:
       # web app https://drivelens-app.oharuru.com (the paused native apps are always allowed). Normally leave this unset;
       # * = any origin. The web app needs an https server address (Cloudflare Tunnel / tailscale serve).
       # - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
+      # Optional (v0.14.0+): `full` (default) = the server token works for every request; `pair-only` = it only adds /
+      # manages devices (/api/auth/*) and is not even checked after too many failures. See docs/install.md → Devices.
+      # - DRIVELENS_OWNER_KEY_MODE=full
     # cloudflared in this compose project (service below) → you can remove `ports`, nothing is published
     # cloudflared or `tailscale serve` on the host → keep this loopback-only port (never publish 8080 publicly)
     ports:

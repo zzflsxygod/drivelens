@@ -74,13 +74,13 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivel
 The log should show:
 
 ```
-INFO drivelens_api: all features enabled (API level 14)
+INFO drivelens_api: all features enabled (API level 15)
 INFO drivelens_api: listening on 0.0.0.0:8080
 ```
 
 If it shows `disabled features: …` or `cannot read TeslaMate tables`, step 3 did not work: run `setup.sql` again, then `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api`.
 
-Check on the server: `curl http://127.0.0.1:8080/health` returns `{"status":"ok","version":"…","api_level":14}`.
+Check on the server: `curl http://127.0.0.1:8080/health` returns `{"status":"ok","version":"…","api_level":15}`.
 
 By default the compose file publishes the API on `127.0.0.1:8080` only, so it is not reachable from other machines. **Don't expose port 8080 to the internet**; use one of the https options below.
 
@@ -134,7 +134,7 @@ Notes:
 | Isn't a DriveLens API | You entered the TeslaMate or Grafana address; use the drivelens-api address |
 | Server does not allow this site (CORS) | Update drivelens-api; if you set `DRIVELENS_CORS_ORIGINS`, include `https://drivelens-app.oharuru.com` |
 | Server is too old | Update drivelens-api (step 8) |
-| Too many wrong tokens (429) | 10 failed attempts within 10 minutes block that address for a while; wait 10 minutes |
+| Too many wrong tokens (429) | After 10 failed attempts within 10 minutes the server answers 429 for a while; wait 10 minutes. Devices that are already connected keep working |
 
 You can change the server and token later in Settings → Server. Language, theme, map label language and default currency are in Settings too.
 
@@ -171,12 +171,13 @@ Read by drivelens-api:
 | Variable | Required | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`; the compose file builds it from `.env` |
-| `API_TOKEN` | ✅ | The token for the app (16+ characters, 32+ random characters recommended); the compose file takes it from `DRIVELENS_API_TOKEN` |
+| `API_TOKEN` | ✅ | The server token (owner key): signs in a device for the first time and manages devices (16+ characters, 32+ random characters recommended); the compose file takes it from `DRIVELENS_API_TOKEN` |
+| `DRIVELENS_OWNER_KEY_MODE` | | `full` (default): the server token works for every request, as before. `pair-only`: the server token only works for adding and managing devices (`/api/auth/*`, anything else answers 403 `owner_key_pair_only`), and after too many failures it is not even checked until the 10-minute window ends — guessing it becomes useless while your devices keep working. Needs device auth; otherwise the API falls back to `full` and logs an error |
 | `BIND_ADDR` | | Listen address; `0.0.0.0:8080` in the image |
 | `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser; `*` = any. Default: the official web app only (plus the origins of the paused native apps). The older name `CORS_ORIGINS` also works |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | Push signing key (base64url P-256). Normally unset: generated on first start and kept in the database |
 | `DRIVELENS_VAPID_SUBJECT` | | Contact sent to push services (`mailto:you@example.com` or an https URL). Default: the DriveLens project page |
-| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = for the failed-login limit, take the client address from `CF-Connecting-IP` / `X-Forwarded-For` (only for requests that come from a local/private address, i.e. your tunnel or proxy). Default: off — the connection's own address is used, so behind a tunnel all clients share one limit. A correct token is never blocked either way |
+| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = for the failed-login limit, take the client address from `CF-Connecting-IP` / `X-Forwarded-For` (only for requests that come from a local/private address, i.e. your tunnel or proxy). Default: off — the connection's own address is used, so behind a tunnel all clients share one limit. Device tokens are always checked, so connected devices are never locked out; in the default mode a correct server token is accepted too |
 | `DRIVELENS_PUSH_HOSTS` | | Extra push-service hosts allowed for notifications (comma-separated), for browsers that use their own push server. The push services of Chrome/Edge, Firefox and Safari are always allowed |
 | `RUST_LOG` | | Log level, default `info` |
 
@@ -189,6 +190,8 @@ In `.env` (used by `docker-compose.drivelens.yml`): `DRIVELENS_DB_PASS`, `DRIVEL
 - **`cannot read TeslaMate tables`** or **`disabled features: …`**: the database account is incomplete. Run `setup.sql` again (step 3) and restart drivelens-api. With only `disabled features`, drives, charging and reports keep working meanwhile.
 - **The setup screen says the server is unreachable**: on the server, `curl http://127.0.0.1:8080/health` must work. Then check the tunnel (`docker compose … logs cloudflared`) or `tailscale serve status`.
 - **`/health` works but loading data fails**: a reverse proxy in between must pass the `Authorization` header unchanged.
+- **403 `owner_key_pair_only`**: the server runs with `DRIVELENS_OWNER_KEY_MODE=pair-only`, so the server token only adds and manages devices. Apps 1.2.0+ handle this by themselves; for scripts, create a device token with `POST /api/auth/devices` or remove the variable.
+- **429 (too many failed attempts)**: 10 failures within 10 minutes from one address. Wait 10 minutes. Connected devices keep working; with `pair-only` the server token is not checked during that time (also after 50 failures from all addresses together).
 - **No notifications**: check Settings → Notifications on that device, the browser's notification permission, and that the container can reach the internet over https.
 
 ## Uninstall

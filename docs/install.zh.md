@@ -74,13 +74,13 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivel
 日志里应该看到：
 
 ```
-INFO drivelens_api: all features enabled (API level 14)
+INFO drivelens_api: all features enabled (API level 15)
 INFO drivelens_api: listening on 0.0.0.0:8080
 ```
 
 如果出现 `disabled features: …` 或 `cannot read TeslaMate tables`，说明第 3 步没有成功：重新执行 `setup.sql`，然后 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api`。
 
-在服务器上检查：`curl http://127.0.0.1:8080/health` 返回 `{"status":"ok","version":"…","api_level":14}`。
+在服务器上检查：`curl http://127.0.0.1:8080/health` 返回 `{"status":"ok","version":"…","api_level":15}`。
 
 compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问不到。**不要把 8080 端口直接暴露到公网**，请用下面的 https 方式之一。
 
@@ -134,7 +134,7 @@ compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问�
 | 不是 DriveLens API | 你填的是 TeslaMate 或 Grafana 的地址，请填 drivelens-api 的地址 |
 | 服务器不允许此网站（CORS） | 更新 drivelens-api；如果设置了 `DRIVELENS_CORS_ORIGINS`，需要包含 `https://drivelens-app.oharuru.com` |
 | 服务器版本太旧 | 更新 drivelens-api（第 8 步） |
-| Token 错误次数过多（429） | 10 分钟内失败 10 次，该地址会被暂时拒绝；等 10 分钟再试 |
+| Token 错误次数过多（429） | 10 分钟内失败 10 次后，服务器会暂时返回 429；等 10 分钟再试。已连接的设备不受影响 |
 
 服务器地址和 Token 之后可以在「设置 → 服务器」里修改。语言、主题、地图标注语言和默认币种也在设置里。
 
@@ -171,12 +171,13 @@ drivelens-api 读取的变量：
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`；compose 文件根据 `.env` 生成 |
-| `API_TOKEN` | ✅ | App 使用的 Token（至少 16 个字符，建议 32 个以上随机字符）；compose 文件取自 `DRIVELENS_API_TOKEN` |
+| `API_TOKEN` | ✅ | 服务器 Token（主密钥）：用于设备首次登录和管理设备（至少 16 个字符，建议 32 个以上随机字符）；compose 文件取自 `DRIVELENS_API_TOKEN` |
+| `DRIVELENS_OWNER_KEY_MODE` | | `full`（默认）：服务器 Token 对所有请求都有效，和以前一样。`pair-only`：服务器 Token 只能用来添加和管理设备（`/api/auth/*`，其他请求返回 403 `owner_key_pair_only`），失败次数过多后在 10 分钟内连检查都不做，猜测它就没有意义了，而你的设备照常可用。需要设备认证可用，否则 API 会退回 `full` 并在日志里报错 |
 | `BIND_ADDR` | | 监听地址；镜像内为 `0.0.0.0:8080` |
 | `DRIVELENS_CORS_ORIGINS` | | 允许从浏览器调用 API 的网页来源，逗号分隔；`*` 表示任意来源。默认只允许官方网页版（以及已暂停的原生 App 的来源）。旧名称 `CORS_ORIGINS` 仍然有效 |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | 推送签名密钥（base64url P-256）。通常不用设置：第一次启动时自动生成并保存在数据库里 |
 | `DRIVELENS_VAPID_SUBJECT` | | 发给推送服务的联系方式（`mailto:you@example.com` 或 https 网址）。默认是 DriveLens 项目页 |
-| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = 登录失败次数限制按 `CF-Connecting-IP` / `X-Forwarded-For` 区分客户端（只认来自本机 / 内网地址的请求，即你的隧道或反向代理）。默认关闭：按连接本身的地址计算，隧道后面所有客户端共用一个限制。无论哪种，正确的 Token 都不会被拦截 |
+| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = 登录失败次数限制按 `CF-Connecting-IP` / `X-Forwarded-For` 区分客户端（只认来自本机 / 内网地址的请求，即你的隧道或反向代理）。默认关闭：按连接本身的地址计算，隧道后面所有客户端共用一个限制。设备 Token 始终会被检查，已连接的设备不会被拦在外面；默认模式下正确的服务器 Token 也会被接受 |
 | `DRIVELENS_PUSH_HOSTS` | | 额外允许的推送服务主机（逗号分隔），用于使用自有推送服务器的浏览器。Chrome / Edge、Firefox、Safari 的推送服务始终允许 |
 | `RUST_LOG` | | 日志级别，默认 `info` |
 
@@ -189,6 +190,8 @@ drivelens-api 读取的变量：
 - **`cannot read TeslaMate tables`** 或 **`disabled features: …`**：数据库账号设置不完整。重新执行 `setup.sql`（第 3 步）并重启 drivelens-api。如果只是 `disabled features`，行程、充电和报告在此期间仍然可用。
 - **设置页提示连不上服务器**：先在服务器上确认 `curl http://127.0.0.1:8080/health` 正常，再检查 Tunnel（`docker compose … logs cloudflared`）或 `tailscale serve status`。
 - **`/health` 正常但读取数据失败**：中间如果有反向代理，必须原样转发 `Authorization` 请求头。
+- **403 `owner_key_pair_only`**：服务器设置了 `DRIVELENS_OWNER_KEY_MODE=pair-only`，服务器 Token 只能添加和管理设备。App 1.2.0 以上会自动处理；如果是脚本，用 `POST /api/auth/devices` 换一个设备 Token，或者去掉这个变量。
+- **429（失败次数过多）**：同一地址 10 分钟内失败 10 次。等 10 分钟再试。已连接的设备不受影响；`pair-only` 模式下这段时间内不检查服务器 Token（所有地址合计失败 50 次时也一样）。
 - **收不到通知**：检查该设备上的「设置 → 通知」、浏览器的通知权限，以及容器能否通过 https 访问互联网。
 
 ## 卸载

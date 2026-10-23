@@ -20,6 +20,8 @@ Only the latest release is supported. drivelens-api is normally kept up to date 
 
 - DriveLens **never sends your server URL or your API token anywhere except your own server.** They are stored only on your device (in the browser's localStorage) and are only used for requests to the server you entered. They are never put in URLs, and DriveLens will not add features that share them with anyone else.
 - **No telemetry, analytics or tracking.** DriveLens does not collect usage data, crash reports or identifiers.
+- **Device tokens (drivelens-api 0.14.0+):** each device gets its own random token (`dlt_…`, 256 bits). The server stores only its SHA-256 hash; apps 1.2.0+ exchange the server token (`API_TOKEN`) for a device token and do not keep it. Pairing codes are short-lived (10 minutes), single use, stored only as hashes and rate-limited separately. Tokens and codes are never written to logs.
+- **Revoking:** a device can be revoked at any time (`DELETE /api/auth/devices/:id`), which takes effect immediately and also removes its push subscriptions. Read-only devices can view data but cannot change anything except their own notification settings and name.
 - Your TeslaMate data stays on your server. The app requests it directly from your drivelens-api; there is no DriveLens backend in between.
 - The only third-party requests the app makes are for map tiles (OpenFreeMap, falling back to OpenStreetMap).
 - Your own drivelens-api fetches weather for your drives from Open-Meteo using coordinates rounded to 0.1° (about 10 km) and dates; no token or identifier is sent. Web push notifications are sent by your own server through your browser's push service (for example Google, Apple or Mozilla) and are encrypted end to end.
@@ -27,4 +29,4 @@ Only the latest release is supported. drivelens-api is normally kept up to date 
 
 ## Scope notes
 
-drivelens-api is designed to run behind HTTPS (Cloudflare Tunnel, Tailscale Serve or a reverse proxy) and to be protected by a long random API token. Problems that require an attacker to already have that token, or that come from exposing PostgreSQL or the API over plain HTTP against the install guide, are generally out of scope, but reports are still welcome.
+drivelens-api is designed to run behind HTTPS (Cloudflare Tunnel, Tailscale Serve or a reverse proxy) and to be protected by a long random server token (`API_TOKEN`) and per-device tokens. With `DRIVELENS_OWNER_KEY_MODE=pair-only` the server token only works for device management and is not evaluated while a client is over the failure limit. Problems that require an attacker to already have the server token or a valid device token, or that come from exposing PostgreSQL or the API over plain HTTP against the install guide, are generally out of scope, but reports are still welcome.

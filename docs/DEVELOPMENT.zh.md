@@ -61,7 +61,7 @@ cd app && npm run build && npm run build:web            # 两者都会先跑 npm
 
 ## API
 
-除 `/health` 外都需要 `Authorization: Bearer <API_TOKEN>`。`GET /health` 返回 `{"status","version","api_level"}`（当前 `api_level` 14）；`GET /api/health` 额外检查数据库和各功能是否可用。
+除 `/health` 和 `POST /api/auth/pair` 外都需要 `Authorization: Bearer <token>`：服务器 Token（主密钥，`API_TOKEN`）或设备 Token（`dlt_…`，0.14.0 起）。`GET /health` 返回 `{"status","version","api_level"}`（当前 `api_level` 15）；`GET /api/health` 额外检查数据库和各功能是否可用。
 
 | 接口 | 说明 |
 |---|---|
@@ -76,7 +76,14 @@ cd app && npm run build && npm run build:web            # 两者都会先跑 npm
 | `GET/PUT/DELETE /api/addresses/...` | 自定义地点名称 |
 | `/api/journeys…` | 旅程（合并多段行程）、建议、忽略、封面、天气、车速分档 |
 | `/api/push/…` | 网页推送：`key`、`subscription`、`subscription/status`、`unsubscribe`、`test` |
+| `GET /api/auth/me` | 当前身份：`{kind:"owner"\|"device", device, device_auth, owner_key_mode}` |
+| `POST /api/auth/devices` | 用服务器 Token 换设备 Token（仅限服务器 Token）：`{name}` → 201 `{token, device}` |
+| `GET /api/auth/devices`、`PATCH/DELETE /api/auth/devices/:id`、`DELETE /api/auth/devices?except=current` | 设备列表、改名、解除、解除其他所有设备（服务器 Token 或 full 设备） |
+| `PATCH/DELETE /api/auth/devices/current` | 改本设备的名字、退出本设备（任何设备） |
+| `POST /api/auth/pairings` | 生成配对码：`{scope:"full"\|"read", device_ttl_days?}` → 201 `{code:"XXXX-XXXX", expires_at}`（10 分钟、一次性） |
+| `POST /api/auth/pair` | **无需认证**：`{code, name}` → 201 `{token, device}`；错误 400 `{code:"invalid_code"}`，失败过多 429 |
 
+- 设备认证（`api/src/auth.rs`）：数据库只保存 Token / 配对码的 SHA-256；`read` 设备只能 GET/HEAD，外加 `/api/push/*` 和 `PATCH/DELETE /api/auth/devices/current`（否则 403 `{code:"read_only"}`）。`DRIVELENS_OWNER_KEY_MODE=pair-only` 时服务器 Token 只能访问 `/api/auth/*`（否则 403 `{code:"owner_key_pair_only"}`）。建不了表（没有 CREATE 权限）时 `device_auth:false`，服务器 Token 照常可用，其他 `/api/auth/*` 返回 503 `{code:"device_auth_unavailable"}`。需要数据库的测试：`DRIVELENS_TEST_DATABASE_URL=postgres://… cargo test`（未设置时跳过）。
 - App 按 `api_level` 决定显示哪些功能（`app/src/version.ts` 的 `FEATURE_LEVEL`）。新增需要服务器支持的功能时：API 的 `API_LEVEL` 加 1，前端加对应的 `FEATURE_LEVEL`，旧服务器上隐藏该功能并提示更新。
 - 环境变量见安装指南的「环境变量」一节（`DATABASE_URL`、`API_TOKEN`、`BIND_ADDR`、`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_TRUST_PROXY_HEADERS`、`DRIVELENS_PUSH_HOSTS`、`DRIVELENS_VAPID_*`、`RUST_LOG`）。
 
