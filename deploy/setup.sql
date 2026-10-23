@@ -8,7 +8,10 @@
 --   * creates the login role drivelens_ro with SELECT only on TeslaMate's tables (public schema) —
 --     DriveLens never writes to TeslaMate's tables;
 --   * creates a separate drivelens schema owned by drivelens_ro; the API creates / upgrades its own tables there
---     on every start (idempotent), e.g. place aliases, costs, journeys and the web-push tables (push_subscriptions, push_state).
+--     on every start (idempotent), e.g. place aliases, costs, journeys, the web-push tables (push_subscriptions, push_state)
+--     and the device-auth tables (devices, pairing_codes; API 0.14.0+);
+--   * hands drivelens tables that an admin created with the older SQL files over to drivelens_ro, so the API can
+--     upgrade them itself (e.g. API 0.14.0 adds push_subscriptions.device_id).
 -- (Older drivelens-init.sql / drivelens-v0.x.sql files are no longer needed; servers that ran them need no changes.)
 
 SELECT format('CREATE ROLE drivelens_ro LOGIN PASSWORD %L', :'ro_pass')
@@ -26,3 +29,7 @@ GRANT REFERENCES ON public.cars, public.addresses, public.drives, public.chargin
 
 CREATE SCHEMA IF NOT EXISTS drivelens AUTHORIZATION drivelens_ro;
 GRANT USAGE, CREATE ON SCHEMA drivelens TO drivelens_ro;
+-- tables created by an admin with the older drivelens-init.sql / drivelens-v0.x.sql files: the API role becomes their
+-- owner (only objects in the drivelens schema; TeslaMate's tables are not touched)
+SELECT format('ALTER TABLE drivelens.%I OWNER TO drivelens_ro', tablename) FROM pg_tables
+WHERE schemaname = 'drivelens' AND tableowner <> 'drivelens_ro' \gexec
