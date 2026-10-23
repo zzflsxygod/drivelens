@@ -58,7 +58,8 @@ docker compose exec -T database psql -U teslamate -d teslamate \
 1. ログインロール `drivelens_ro` を作成します。
 2. TeslaMate のテーブルに **SELECT** 権限を付与します。今後の TeslaMate のアップデートで追加されるテーブルも含みます。
 3. `cars`、`addresses`、`drives`、`charging_processes` に REFERENCES 権限を付与します。DriveLens のテーブルが外部キーでこれらを参照でき、TeslaMate が走行を削除すると DriveLens の関連データも一緒に消えます（書き込み権限ではありません）。
-4. `drivelens_ro` が所有する `drivelens` スキーマを作成します。
+4. `drivelens` スキーマを作成し、`drivelens_ro` にその `USAGE` と `CREATE` 権限を付与します（スキーマが既にある場合も）。
+5. 古い SQL ファイルで管理者が作成した DriveLens のテーブルの所有者を `drivelens_ro` に変更します（`drivelens` スキーマ内のテーブルのみ）。
 
 TeslaMate のテーブルに何かを作成・変更・削除することはありません。API は起動するたびに `drivelens` スキーマの中に自分のテーブルを作成・更新するので、これ以上 SQL を実行する必要はありません。
 
@@ -159,7 +160,7 @@ drivelens-api 0.14.0 以上とアプリ 1.2.0 以上では、スマホ・タブ�
 - **サーバーのトークンを変える**（漏れた可能性があるとき）：`.env` に新しい `DRIVELENS_API_TOKEN` を書き、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api` を実行します。端末トークンの端末は接続されたままです。サーバーのトークンを使い続けている 1.2.0 より前のアプリだけ、新しいトークンの入力が必要です。
 - さらに守りを固めるには：`DRIVELENS_OWNER_KEY_MODE=pair-only` で、サーバーのトークンを端末の追加と管理にしか使えなくできます（[環境変数](#環境変数)を参照）。
 
-端末の一覧には、ほかの DriveLens のテーブルと同じく `drivelens` スキーマの `CREATE` 権限が必要です（`deploy/setup.sql` が設定します）。権限がない場合、API はログに `device auth disabled` と出し、ほかの機能はこれまでどおりサーバーのトークンで動きます。
+端末の一覧には、`drivelens` スキーマの `CREATE` 権限と、DriveLens のテーブルを `drivelens_ro` が所有していることが必要です（`deploy/setup.sql` が設定します）。満たしていない場合、API はログに `device auth disabled` と出し、ほかの機能はこれまでどおりサーバーのトークンで動きます。1 回だけの修正方法は [0.14.0 へのアップデート](#0140-へのアップデート) をご覧ください。
 
 ## 7. 通知
 
@@ -182,6 +183,25 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 ```
 
 API は起動時に自分のテーブルを自動で更新します。特定のバージョンに固定するには、`.env` に `DRIVELENS_IMAGE=ghcr.io/zzflsxygod/drivelens-api:v1.1.1` のように設定します。変更点は [Releases](https://github.com/zzflsxygod/drivelens/releases) をご覧ください。ウェブ版は常に最新版で、サーバーの更新が必要なときはお知らせします。
+
+### 0.14.0 へのアップデート
+
+古い SQL ファイル（または 0.14.0 より前の `setup.sql`）で設定したサーバーでは、`drivelens` スキーマとテーブルが TeslaMate の管理者のものになっていて、`drivelens_ro` にスキーマの `CREATE` 権限がないことがあります。この場合、端末認証はオフのままです（ログに `device auth disabled`）。ほかの機能はサーバーのトークンでこれまでどおり動きます。1 回だけ修正してください。最新の `setup.sql` をダウンロードして手順 3 をもう一度実行するか、次の 2 つの文だけを実行し、再起動してログを確認します。
+
+```bash
+docker compose exec -T database psql -U teslamate -d teslamate <<'SQL'
+GRANT USAGE, CREATE ON SCHEMA drivelens TO drivelens_ro;
+DO $$ DECLARE t text; BEGIN
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'drivelens' AND tableowner <> 'drivelens_ro' LOOP
+    EXECUTE format('ALTER TABLE drivelens.%I OWNER TO drivelens_ro', t);
+  END LOOP;
+END $$;
+SQL
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivelens-api | grep 'device auth'
+```
+
+ログに `device auth enabled: N device(s)` と出れば完了です。
 
 ## 環境変数
 

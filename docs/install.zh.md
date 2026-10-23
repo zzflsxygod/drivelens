@@ -58,7 +58,8 @@ docker compose exec -T database psql -U teslamate -d teslamate \
 1. 创建登录角色 `drivelens_ro`；
 2. 授予 TeslaMate 各表的 **SELECT** 权限，包括以后 TeslaMate 升级新增的表；
 3. 授予 `cars`、`addresses`、`drives`、`charging_processes` 的 REFERENCES 权限，让 DriveLens 的表可以用外键引用它们，TeslaMate 删除行程时 DriveLens 的相关数据也会一起清理（这不是写权限）；
-4. 创建由 `drivelens_ro` 拥有的 `drivelens` schema。
+4. 创建 `drivelens` schema，并授予 `drivelens_ro` 该 schema 的 `USAGE` 和 `CREATE` 权限（schema 已存在时也会授予）；
+5. 把管理员用旧 SQL 文件创建的 DriveLens 表的所有者改为 `drivelens_ro`（只涉及 `drivelens` schema 里的表）。
 
 它不会在 TeslaMate 的表里新建、修改或删除任何东西。API 每次启动时会在 `drivelens` schema 里自动创建和升级自己的表，之后不需要再执行任何 SQL。
 
@@ -159,7 +160,7 @@ drivelens-api 0.14.0 以上配合 App 1.2.0 以上时，每台手机、平板或
 - **更换服务器 Token**（怀疑泄露时）：把新的 `DRIVELENS_API_TOKEN` 写进 `.env`，执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`。使用设备 Token 的设备保持连接，只有还在用服务器 Token 的旧版 App（1.2.0 之前）需要填新 Token。
 - 可选加固：`DRIVELENS_OWNER_KEY_MODE=pair-only` 让服务器 Token 只能用来添加和管理设备（见[环境变量](#环境变量)）。
 
-设备列表和 DriveLens 的其他表一样，需要 `drivelens` schema 的 `CREATE` 权限（`deploy/setup.sql` 会设置好）。没有这个权限时 API 会在日志里输出 `device auth disabled`，其他功能照常使用服务器 Token。
+设备列表需要 `drivelens` schema 的 `CREATE` 权限，并且 DriveLens 的表属于 `drivelens_ro`（`deploy/setup.sql` 会设置好）。不满足时 API 会在日志里输出 `device auth disabled`，其他功能照常使用服务器 Token；一次性的修复方法见[升级到 0.14.0](#升级到-0140)。
 
 ## 7. 通知
 
@@ -182,6 +183,25 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 ```
 
 API 启动时会自动升级自己的表。想固定在某个版本，可以在 `.env` 里设置例如 `DRIVELENS_IMAGE=ghcr.io/zzflsxygod/drivelens-api:v1.1.1`。更新说明见 [Releases](https://github.com/zzflsxygod/drivelens/releases)。网页版始终是最新版本，服务器需要更新时会提示你。
+
+### 升级到 0.14.0
+
+如果服务器是用旧的 SQL 文件（或 0.14.0 之前的 `setup.sql`）设置的，`drivelens` schema 和表可能属于 TeslaMate 的管理员账号，`drivelens_ro` 也可能没有该 schema 的 `CREATE` 权限。这时设备认证不会开启（日志里有 `device auth disabled`），其他功能照常使用服务器 Token。只需修复一次：下载最新的 `setup.sql` 重新执行第 3 步，或者只执行下面两条语句，然后重启并查看日志：
+
+```bash
+docker compose exec -T database psql -U teslamate -d teslamate <<'SQL'
+GRANT USAGE, CREATE ON SCHEMA drivelens TO drivelens_ro;
+DO $$ DECLARE t text; BEGIN
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'drivelens' AND tableowner <> 'drivelens_ro' LOOP
+    EXECUTE format('ALTER TABLE drivelens.%I OWNER TO drivelens_ro', t);
+  END LOOP;
+END $$;
+SQL
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivelens-api | grep 'device auth'
+```
+
+日志里应出现 `device auth enabled: N device(s)`。
 
 ## 环境变量
 

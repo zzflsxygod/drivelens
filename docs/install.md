@@ -58,7 +58,8 @@ docker compose exec -T database psql -U teslamate -d teslamate \
 1. creates the login role `drivelens_ro`;
 2. grants **SELECT** on TeslaMate's tables, including tables that future TeslaMate upgrades add;
 3. grants REFERENCES on `cars`, `addresses`, `drives` and `charging_processes`, so DriveLens tables can point to them with foreign keys and DriveLens data is cleaned up when TeslaMate deletes a drive (this is not write access);
-4. creates the `drivelens` schema, owned by `drivelens_ro`.
+4. creates the `drivelens` schema and grants `drivelens_ro` `USAGE` and `CREATE` on it (also when the schema already exists);
+5. makes `drivelens_ro` the owner of DriveLens tables that an admin created with older SQL files (only tables in the `drivelens` schema).
 
 It does not create, change or delete anything in TeslaMate's tables. On every start the API creates and upgrades its own tables in the `drivelens` schema; no further SQL is ever needed.
 
@@ -159,7 +160,7 @@ With drivelens-api 0.14.0+ and app 1.2.0+ every phone, tablet or browser has its
 - **Change the server token** (if it may have leaked): put a new `DRIVELENS_API_TOKEN` into `.env` and run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`. Devices with a device token stay connected. Only apps older than 1.2.0, which still use the server token, need the new one.
 - Optional hardening: `DRIVELENS_OWNER_KEY_MODE=pair-only` makes the server token usable only for adding and managing devices (see [Environment variables](#environment-variables)).
 
-The device list needs `CREATE` on the `drivelens` schema, like the other DriveLens tables (`deploy/setup.sql` sets this up). Without it the API logs `device auth disabled` and everything keeps working with the server token as before.
+The device list needs `CREATE` on the `drivelens` schema and DriveLens tables owned by `drivelens_ro` (`deploy/setup.sql` sets this up). Without it the API logs `device auth disabled` and everything keeps working with the server token as before; see [Upgrading to 0.14.0](#upgrading-to-0140) for the one-time fix.
 
 ## 7. Notifications
 
@@ -182,6 +183,25 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 ```
 
 The API upgrades its own tables on start. To stay on a version, set e.g. `DRIVELENS_IMAGE=ghcr.io/zzflsxygod/drivelens-api:v1.1.1` in `.env`. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases). The web app always runs the latest version and tells you when the server should be updated.
+
+### Upgrading to 0.14.0
+
+If your server was set up with the older SQL files (or `setup.sql` from before 0.14.0), the `drivelens` schema and tables may belong to the TeslaMate admin and `drivelens_ro` may lack `CREATE` on the schema. Then device auth stays off (the log shows `device auth disabled`); everything else keeps working with the server token. Fix it once: download the current `setup.sql` and run step 3 again, or run just these two statements, then restart and check the log:
+
+```bash
+docker compose exec -T database psql -U teslamate -d teslamate <<'SQL'
+GRANT USAGE, CREATE ON SCHEMA drivelens TO drivelens_ro;
+DO $$ DECLARE t text; BEGIN
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'drivelens' AND tableowner <> 'drivelens_ro' LOOP
+    EXECUTE format('ALTER TABLE drivelens.%I OWNER TO drivelens_ro', t);
+  END LOOP;
+END $$;
+SQL
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivelens-api | grep 'device auth'
+```
+
+The log should now show `device auth enabled: N device(s)`.
 
 ## Environment variables
 

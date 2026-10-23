@@ -4,7 +4,7 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
-## v1.2.0 — unreleased
+## v1.2.0 — 2026-10-23
 **Every device now signs in with its own token**, so a lost phone can be disconnected without changing the server token everywhere.
 - **Automatic switch:** with drivelens-api 0.14.0+, the app replaces a saved server token with a token of its own for this device the next time it starts. Nothing to do.
 - **Setup with a pairing code:** the second field now takes a **pairing code** (for example `7KQ2-M9XD`) or the server token. A connected device creates the code in **Settings → Devices → Add device**; it is valid for 10 minutes and works once. With a server token, the app exchanges it for a device token and does not keep it. Older servers keep working with the server token; a code shows a hint to update the server.
@@ -18,7 +18,8 @@ The API upgrades its own `drivelens` schema on start; no manual SQL is needed af
   - **Pairing codes:** a connected device creates a short code (`XXXX-XXXX`, 10 minutes, single use) that signs a new device in without typing the server token there. Codes can create **read-only** devices, optionally expiring after a number of days.
   - **`DRIVELENS_OWNER_KEY_MODE`:** `full` (default, as before) or `pair-only` — the server token then only adds and manages devices, and is not even checked after too many failed attempts, while device tokens keep working.
   - Removing a device also removes its notifications. The server token is compared in constant time regardless of its length.
-  - **Database:** two new tables in the `drivelens` schema (`devices`, `pairing_codes`) and a `device_id` column on `push_subscriptions`, created by the API on start. Servers where the API account cannot create tables keep working as before (device auth is then off); re-running `setup.sql` enables it.
+  - **Database:** two new tables in the `drivelens` schema (`devices`, `pairing_codes`) and a `device_id` column on `push_subscriptions`, created by the API on start. Servers where the API account cannot create tables keep working as before with the server token, but device auth stays off (the log says `device auth disabled`).
+  - **Upgrade note:** if your server was set up with the older SQL files, the `drivelens` tables may be owned by the TeslaMate admin and `drivelens_ro` may lack `CREATE` on the schema. Re-run the current [`setup.sql`](https://github.com/zzflsxygod/drivelens/blob/main/deploy/setup.sql) once as the admin (or just `GRANT USAGE, CREATE ON SCHEMA drivelens TO drivelens_ro;` and the table-ownership handover, see [install guide, Upgrading to 0.14.0](https://github.com/zzflsxygod/drivelens/blob/main/docs/install.md#upgrading-to-0140)), then restart drivelens-api; the log then shows `device auth enabled`.
 
 ## v1.1.2 — 2026-10-23
 - **DriveLens is now open source** under the [GNU AGPL-3.0-or-later](https://github.com/zzflsxygod/drivelens/blob/main/LICENSE). Source code, install guide, releases and issues are all in one place: [zzflsxygod/drivelens](https://github.com/zzflsxygod/drivelens). The old `drivelens-releases` repository is retired.

@@ -7,12 +7,15 @@
 -- What it does:
 --   * creates the login role drivelens_ro with SELECT only on TeslaMate's tables (public schema) —
 --     DriveLens never writes to TeslaMate's tables;
---   * creates a separate drivelens schema owned by drivelens_ro; the API creates / upgrades its own tables there
+--   * creates a separate drivelens schema (owned by drivelens_ro when it is new) and grants drivelens_ro USAGE and CREATE
+--     on it, also when an admin created the schema earlier; the API creates / upgrades its own tables there
 --     on every start (idempotent), e.g. place aliases, costs, journeys, the web-push tables (push_subscriptions, push_state)
 --     and the device-auth tables (devices, pairing_codes; API 0.14.0+);
 --   * hands drivelens tables that an admin created with the older SQL files over to drivelens_ro, so the API can
 --     upgrade them itself (e.g. API 0.14.0 adds push_subscriptions.device_id).
--- (Older drivelens-init.sql / drivelens-v0.x.sql files are no longer needed; servers that ran them need no changes.)
+-- Upgrading to API 0.14.0 from an install made with older SQL files: re-run this file once (or just the GRANT on schema
+-- drivelens and the ownership handover below), then restart the API; otherwise device auth stays disabled.
+-- (Older drivelens-init.sql / drivelens-v0.x.sql files are no longer needed.)
 
 SELECT format('CREATE ROLE drivelens_ro LOGIN PASSWORD %L', :'ro_pass')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'drivelens_ro') \gexec
