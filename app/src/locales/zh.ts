@@ -185,7 +185,6 @@ const zh = {
   "about.title": "帮助与反馈",
   "su.guide": "还没部署服务器？查看安装指南",
   "su.url": "服务器地址",
-  "su.tokenPh": "服务器 .env 里的 DRIVELENS_API_TOKEN",
   "su.show": "显示输入内容",
   "su.go": "测试连接并开始",
   "su.foot": "Token 只保存在本机。推荐用 Cloudflare Tunnel（https）或 Tailscale 访问服务器，不要把 8080 端口直接暴露到公网。以后可以在「设置」里修改。",

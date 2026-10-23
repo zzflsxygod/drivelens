@@ -186,7 +186,6 @@ const ja: Record<keyof typeof zh, string> = {
   "about.title": "ヘルプとフィードバック",
   "su.guide": "サーバーがまだの方はインストールガイドへ",
   "su.url": "サーバーの URL",
-  "su.tokenPh": "サーバーの .env にある DRIVELENS_API_TOKEN",
   "su.show": "入力内容を表示",
   "su.go": "接続をテストして始める",
   "su.foot": "トークンはこの端末にのみ保存されます。ポート 8080 をインターネットに直接公開せず、Cloudflare Tunnel（https）か Tailscale 経由での接続をおすすめします。あとから「設定」で変更できます。",

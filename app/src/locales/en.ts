@@ -186,7 +186,6 @@ const en: Record<keyof typeof zh, string> = {
   "about.title": "Help & feedback",
   "su.guide": "No server yet? Read the install guide",
   "su.url": "Server URL",
-  "su.tokenPh": "DRIVELENS_API_TOKEN from the server's .env",
   "su.show": "Show what I typed",
   "su.go": "Test connection & start",
   "su.foot": "The token is stored only on this device. Reach your server through Cloudflare Tunnel (https) or Tailscale rather than exposing port 8080 to the internet. You can change this later in Settings.",
