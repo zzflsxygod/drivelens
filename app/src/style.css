@@ -607,6 +607,44 @@ table.split { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: c
 .nt-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .nt-txt b { font-size: 14.5px; font-weight: 600; color: var(--text); }
 .nt-txt small { font-size: 12px; line-height: 1.4; }
+/* Settings › Devices (device auth) */
+.dev-row { display: flex; align-items: center; gap: 12px; padding: 10px 6px 10px 12px; border-radius: 10px; }
+.dev-row + .dev-row { border-top: 1px solid var(--line); border-radius: 0; }
+.dev-row.cur .nt-ico { background: var(--accent); color: var(--accent-ink); }
+.dev-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dev-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.dev-name b { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.dev-txt small { font-size: 12px; line-height: 1.4; font-family: var(--font); overflow-wrap: anywhere; }
+.dev-tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: var(--r-pill); white-space: nowrap; }
+.dev-tag.cur { background: var(--accent-soft); color: var(--accent); }
+.dev-tag.ro { background: var(--warn-soft); color: var(--warn); }
+.dev-more { flex: none; width: 38px; height: 38px; border-radius: 50%; border: 1px solid transparent; background: none; color: var(--muted); font-size: 18px; line-height: 1; }
+.dev-more:hover, .dev-more.open { background: var(--hover); color: var(--accent); border-color: var(--line-2); }
+.dev-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+.dev-msg { margin: 0; padding: 0 12px 12px; }
+.dev-signout-card { margin-top: 14px; }
+.dev-signout { width: 100%; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; }
+.dev-signout .about-ico { background: var(--red-soft); color: var(--red); }
+.dev-signout > span:nth-child(2) { color: var(--red); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+.dev-signout small { font-size: 12px; font-weight: 400; line-height: 1.4; }
+.srv-device { margin: 4px 0 0; }
+.srv-device:empty { display: none; }
+.pair-sheet .seg-tabs { margin: 12px 0 6px; }
+.pair-sheet label { display: block; margin: 12px 0; }
+.pair-code { margin: 10px 0 4px; padding: 16px 8px; text-align: center; font-family: var(--mono); font-size: clamp(30px, 10vw, 44px); font-weight: 700; letter-spacing: .12em;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); border-radius: var(--r-lg); background: var(--accent-soft); color: var(--text);
+  user-select: all; -webkit-user-select: all; font-variant-numeric: tabular-nums; }
+.pair-code.expired { color: var(--faint); text-decoration: line-through; background: var(--sub); border-color: var(--line-2); }
+.pair-left { text-align: center; font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+.pair-steps { margin: 12px 0 6px; padding-left: 20px; line-height: 1.6; color: var(--text-2); }
+.pair-steps code { font-family: var(--mono); overflow-wrap: anywhere; }
+#pd-new { margin-top: 10px; }
+#pd-new[hidden], .pair-sheet [hidden] { display: none; }
+.primary.danger { background: var(--red); color: #fff; }
+.primary.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--red) 88%, var(--text)); }
+.cost-cell.ro { cursor: default; }
+.su-notice { margin: 14px 0 0; padding: 10px 12px; border-radius: var(--r-md); line-height: 1.5; }
+.su-credhint { margin: -6px 0 10px; }
 /* switch over a real checkbox (keyboard + screen readers keep working) */
 .nt-switch { position: relative; flex: none; width: 46px; height: 28px; }
 .nt-switch input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }

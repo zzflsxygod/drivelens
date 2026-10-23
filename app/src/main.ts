@@ -18,7 +18,7 @@ import { initPlatform, setRootBack } from "./platform";
 import { initWeb, installMode, promptInstall, onInstallChange, isWeb } from "./pwa";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
-import { testConnection, renderResult, showSetupWizard } from "./setup";
+import { testConnection, renderResult, showSetupWizard, normalizeUrl } from "./setup";
 import { ICON } from "./toolbar";
 import { initUI, popMenu, closeMenus } from "./ui";
 import { initSheets, focusField } from "./sheets";
@@ -31,8 +31,9 @@ import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journ
 import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
-import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
-import { canWrite } from "./auth";
+import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, SIGNED_OUT_EVENT, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { canWrite, saveConnection, forgetServer, isLeaving, initDeviceAuth, onMeChange } from "./auth";
+import { mountDevices, signOutCardHTML, bindSignOut, thisDeviceText } from "./devices";
 import { installGuideUrl, RELEASES_URL, ISSUES_URL, SOURCE_URL, THIRD_PARTY_URL } from "./links";
 
 const view = document.getElementById("view")!;
@@ -341,7 +342,7 @@ function mountDemoBanner() {
 
 /** Settings › Server. Once a server is saved it collapses into one compact row (status dot, host, versions);
  *  tapping it expands the address / token / save & test / check controls. Demo mode: version line only. */
-function serverSectionHTML(url: string, token: string) {
+function serverSectionHTML(url: string) {
   const title = `<div class="section-title"><span>${t("set.server")}</span></div>`;
   const verBox = `<div class="version-box"><span class="muted">App <code>v${esc(APP_VERSION)}</code> · ${t("set.server")} <code id="srv-ver">${esc(serverLabel())}</code></span><button id="srv-check" class="ghost small">${t("set.check")}</button></div>`;
   if (isDemo()) return title + verBox;
@@ -356,7 +357,8 @@ function serverSectionHTML(url: string, token: string) {
       <div class="srv-body" id="srv-body" role="region" aria-labelledby="srv-toggle"><div><div class="srv-inner">
         ${verBox}
         <label>${t("set.apiUrl")}<input id="url" placeholder="https://drivelens.example.com" value="${esc(url)}"></label>
-        <label>API Token<input id="token" type="password" value="${esc(token)}"></label>
+        <p class="muted small srv-device" id="srv-device">${esc(thisDeviceText())}</p>
+        <label>${t("set.cred")}<input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(t(url ? "set.credKeep" : "su.credPh"))}"></label>
         <button id="save" class="primary">${t("set.saveTest")}</button>
         <div id="msg"></div></div></div></div>
     </div>
@@ -425,11 +427,15 @@ function showSettings() {
     </div>
     <div id="notify-slot"></div>
     <div id="pwa-slot"></div>
-    ${serverSectionHTML(s.apiUrl || "", s.token || "")}
+    ${serverSectionHTML(s.apiUrl || "")}
+    <div id="dev-slot"></div>
+    ${signOutCardHTML()}
     ${aboutCardHTML()}
     ${supportCardHTML()}`;
   mountInstallCard();
   mountNotifications(document.getElementById("notify-slot")!);
+  mountDevices(document.getElementById("dev-slot")!, leftServer);
+  bindSignOut(leftServer);
   (document.getElementById("srv-check") as HTMLElement).onclick = () => { document.getElementById("srv-ver")!.textContent = t("common.checking"); checkServer().then(paintServerHead); };
   bindServerSection(!!(s.apiUrl && s.token));
   const themeSel = document.getElementById("theme") as HTMLSelectElement;
@@ -468,12 +474,15 @@ function showSettings() {
     const msg = document.getElementById("msg")!;
     const urlIn = document.getElementById("url") as HTMLInputElement, tokIn = document.getElementById("token") as HTMLInputElement;
     msg.innerHTML = `<div class="muted">${t("set.testing")}</div>`;
-    const r = await testConnection(urlIn.value, tokIn.value.trim());
+    const cur = realServer(), typed = tokIn.value.trim();
+    // empty field = re-test the saved connection; a different server always needs its own code / token
+    if (!typed && cur.apiUrl && normalizeUrl(urlIn.value) !== cur.apiUrl) { msg.innerHTML = `<div class="error">${esc(t("set.credNeeded"))}</div>`; return; }
+    const r = await testConnection(urlIn.value, typed, typed ? undefined : { token: cur.token, tokenKind: cur.tokenKind, deviceId: cur.deviceId, deviceScope: cur.deviceScope });
     msg.innerHTML = renderResult(r);
-    if (!r.ok) return;   // keep the old working settings when the new ones fail
-    urlIn.value = r.url;
-    saveSettings({ ...loadSettings(), apiUrl: r.url, token: tokIn.value.trim() });
-    checkServer().then(paintServerHead);
+    if (!r.ok || !r.creds) return;   // keep the old working settings when the new ones fail
+    urlIn.value = r.url; tokIn.value = "";
+    saveConnection({ apiUrl: r.url, ...r.creds });
+    checkServer().then(i => { paintServerHead(); return initDeviceAuth(i.level ?? 0); }).then(() => { if (document.getElementById("dev-slot")) showSettings(); });
     loadCars();
   };
 }
@@ -850,6 +859,19 @@ onServerInfo(() => {
   renderBanner(); applyFeatureGates();
   // a feature screen showing a 404 may now be explained
 });
+// ---------------- Device auth: signed out (revoked elsewhere / expired) ----------------
+const LEFT_NOTICE = "drivelens-left-notice";
+/** After sign-out / revocation: a fresh start into the setup wizard (no in-memory data of the old server survives). */
+function leftServer(notice = "") {
+  if (notice) sessionStorage.setItem(LEFT_NOTICE, notice);
+  location.replace(location.pathname);
+}
+window.addEventListener(SIGNED_OUT_EVENT, () => {
+  if (isLeaving() || isDemo()) return;
+  void forgetServer().then(() => leftServer(t("dev.revokedNotice")));
+});
+onMeChange(() => { const el = document.getElementById("srv-device"); if (el) el.textContent = thisDeviceText(); });
+
 let lastCheck = 0;
 window.addEventListener("drivelens-server-error", () => {
   if (Date.now() - lastCheck < 10000) return; lastCheck = Date.now();
@@ -922,6 +944,8 @@ function openView(v: string | null) {
 initNotificationClicks(v => { if (loadSettings().apiUrl && !document.body.classList.contains("setup-mode")) { closeMenus(); document.querySelector(".modal")?.remove(); openView(v); } });
 // a later reload must not reopen the notification target (but keep it while the first service-worker install may still reload the page)
 if (qp.get("from") === "push" && navigator.serviceWorker?.controller) history.replaceState(null, "", location.pathname);
+const startServer = () => checkServer().then(i => initDeviceAuth(i.level ?? 0));
 if (!loadSettings().apiUrl) {
-  showSetupWizard(view, () => { checkServer(); loadCars(); showHome(); });
-} else { checkServer(); loadCars(); openView(start); }
+  const notice = sessionStorage.getItem(LEFT_NOTICE) ?? ""; sessionStorage.removeItem(LEFT_NOTICE);
+  showSetupWizard(view, () => { void startServer(); loadCars(); showHome(); }, notice);
+} else { void startServer(); loadCars(); openView(start); }
