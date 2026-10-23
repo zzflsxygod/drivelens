@@ -9,7 +9,7 @@ DriveLens has two parts:
 
 > DriveLens **never modifies TeslaMate's tables**. Its database account can only read them. DriveLens' own data (place names, manual charging costs, journeys, covers, push subscriptions, weather cache, connected devices) lives in a separate `drivelens` schema.
 
-Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)
+Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) · [Appendix: LAN only](#lan-selfhost)
 
 ## Requirements
 
@@ -88,6 +88,8 @@ By default the compose file publishes the API on `127.0.0.1:8080` only, so it is
 ## 5. Give the server an https address
 
 The web app is served over https, so browsers block `http://` server addresses (mixed content), **including LAN and Tailscale IPs** such as `http://192.168.x.x:8080` or `http://100.x.y.z:8080`. Pick one option:
+
+> LAN-only over http (self-hosting the web app, unofficial): see [Appendix: LAN-only use](#lan-selfhost).
 
 <a id="cloudflare-tunnel"></a>
 ### Option A: Cloudflare Tunnel (you have a domain on Cloudflare)
@@ -250,3 +252,112 @@ In `.env` (used by `docker-compose.drivelens.yml`): `DRIVELENS_DB_PASS`, `DRIVEL
 ## Feedback
 
 Bugs and feature requests: [Issues](https://github.com/zzflsxygod/drivelens/issues). Please never post your server address or token.
+
+<a id="lan-selfhost"></a>
+## Appendix: LAN-only use (self-hosting the web app over http, unofficial)
+
+> ⚠️ **Unofficial, unsupported and untested. Use at your own risk.** The supported way is the web app at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) with an https server address (step 5). Problems with this setup cannot be supported.
+
+If you only use DriveLens on your home LAN and want neither Cloudflare Tunnel nor Tailscale, you can build the web app yourself and serve it over http from **the same address (same origin)** as drivelens-api: Caddy serves the web app files and forwards `/api/` and `/health` to drivelens-api. Because it is the same origin, `DRIVELENS_CORS_ORIGINS` is not needed.
+
+**What does not work over http, and caveats**
+
+- **Push notifications:** not available (Settings → Notifications says "Notifications need the web app to be opened over https.").
+- **Offline start** (service worker): not available; the app does not open when the server is unreachable.
+- **Install as an app** (Chrome / Edge / Android): not available. On iPhone / iPad, "Add to Home Screen" works as a shortcut.
+- **Share card:** "Copy image" and "Share…" are not shown; "Save image" works.
+- **No encryption:** your token and driving data travel in plain text on the LAN, so anyone on the same network could read them. Use it only on a home network you trust.
+- **Map:** map tiles (OpenFreeMap / OpenStreetMap) are loaded from the internet.
+- **Never expose the ports to the internet** (no port forwarding on your router).
+- The web app does not update itself (see Updating below).
+
+### Build the web app
+
+With git and Docker you can build in the `node:22` image without installing Node.js. Set `TAG` to the latest release from [Releases](https://github.com/zzflsxygod/drivelens/releases) (the same version as your server).
+
+```bash
+cd teslamate
+TAG=v1.2.0   # replace with the latest release
+git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
+  sh -c "npm ci && npm run build:web"
+mkdir -p drivelens-web && cp -a drivelens-src/app/dist-web/. drivelens-web/
+```
+
+With Node.js installed (22, i.e. 22.12+, or 20.19+): `cd drivelens-src/app && npm ci && npm run build:web`. The output is `app/dist-web/`. No environment variables are needed. `dist-web/_headers` is for Cloudflare Pages and is ignored by Caddy (the Caddyfile below covers what is needed).
+
+### Caddy
+
+Create `teslamate/Caddyfile.drivelens`:
+
+```caddyfile
+:80 {
+	encode zstd gzip
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy drivelens-api:8080
+	}
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@other not path /assets/*
+		header @other Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+	}
+}
+```
+
+Add this under `services:` in `docker-compose.drivelens.yml` (`drivelens-api` can keep its default `127.0.0.1:8080:8080` port):
+
+```yaml
+  drivelens-web:
+    image: caddy:2
+    restart: always
+    depends_on:
+      - drivelens-api
+    ports:
+      - "8081:80"   # or "192.168.1.10:8081:80" to listen on the LAN address only
+    volumes:
+      - ./Caddyfile.drivelens:/etc/caddy/Caddyfile:ro
+      - ./drivelens-web:/srv:ro
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-web
+```
+
+Downloading `docker-compose.drivelens.yml` again removes this addition.
+
+Optional: behind Caddy every device appears to come from the same address. To count failed sign-ins per device, add `- DRIVELENS_TRUST_PROXY_HEADERS=true` to the `environment:` of `drivelens-api`.
+
+### Connect
+
+1. Open `http://<server LAN IP>:8081` in the browser (e.g. `http://192.168.1.10:8081`; a fixed IP for the server, set in your router, helps).
+2. In **Server URL**, enter **the same address**, `http://192.168.1.10:8081`. Do not leave out `http://` (without it the app assumes `https://`).
+3. In **Pairing code or server token**, enter the server token (`DRIVELENS_API_TOKEN`) or a pairing code from Settings → Devices → Add device on a connected device, then press **Test connection & start**.
+4. The warning "This is an unencrypted http connection: …" is expected here. The "The web app needs" box on the welcome screen (https required) is about the official web app.
+
+The official web app has a different address, so its connection is stored separately. You can change the address later in Settings → Server → **API URL**.
+
+### Updating
+
+After updating the server (drivelens-api), rebuild the web app from the same release tag. With Watchtower the server is always on the latest release, so use the latest tag (to keep both in step, pin `DRIVELENS_IMAGE` in `.env` to the same tag).
+
+```bash
+cd teslamate
+TAG=v1.2.1   # the new release
+rm -rf drivelens-src
+git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
+  sh -c "npm ci && npm run build:web"
+rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
+```
+
+Do not delete the `drivelens-web` folder itself (the container would lose its mount; if you did, run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`). Reload the page to get the new version. A web app older or newer than the server generally still works, and the app tells you when a feature needs a server update.

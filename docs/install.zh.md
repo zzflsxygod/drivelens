@@ -9,7 +9,7 @@ DriveLens 由两部分组成：
 
 > DriveLens **绝不修改 TeslaMate 的表**，它的数据库账号对这些表只有读取权限。DriveLens 自己的数据（地点名称、手动录入的充电费用、旅程、封面、推送订阅、天气缓存、已连接的设备）放在独立的 `drivelens` schema 里。
 
-目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载)
+目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载) · [附录：只在局域网内使用](#lan-selfhost)
 
 ## 前提条件
 
@@ -88,6 +88,8 @@ compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问�
 ## 5. 给服务器配 https 地址
 
 网页版运行在 https 上，所以浏览器会拦截 `http://` 的服务器地址（混合内容），**局域网和 Tailscale 的 IP 也一样**，比如 `http://192.168.x.x:8080`、`http://100.x.y.z:8080`。二选一：
+
+> 只想在局域网内用 http（自行托管网页版，非官方）：见[附录：只在局域网内使用](#lan-selfhost)。
 
 <a id="cloudflare-tunnel"></a>
 ### 方式 A：Cloudflare Tunnel（有托管在 Cloudflare 上的域名）
@@ -250,3 +252,112 @@ drivelens-api 读取的变量：
 ## 反馈
 
 问题和功能建议请提交到 [Issues](https://github.com/zzflsxygod/drivelens/issues)。请不要贴出你的服务器地址或 Token。
+
+<a id="lan-selfhost"></a>
+## 附录：只在局域网内使用（自行托管网页版，http，非官方）
+
+> ⚠️ **非官方、不在支持范围内、未经测试，风险自负。** 官方的使用方式是网页版 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) 加上第 5 步的 https 地址。这种部署方式出现的问题无法提供支持。
+
+如果只在家里局域网使用，也不想用 Cloudflare Tunnel 或 Tailscale，可以自己构建网页版，并和 drivelens-api 从**同一个地址（同源）**通过 http 提供：由 Caddy 提供网页版文件，并把 `/api/` 和 `/health` 转发给 drivelens-api。因为是同源，不需要设置 `DRIVELENS_CORS_ORIGINS`。
+
+**http 下不可用的功能和注意事项**
+
+- **推送通知**：不可用（「设置 → 通知」会显示「通知需要通过 https 打开网页版。」）。
+- **离线启动**（Service Worker）：不可用；连不上服务器时应用本身也打不开。
+- **安装为应用**（Chrome / Edge / Android）：不可用。iPhone / iPad 的「添加到主屏幕」可以作为快捷方式使用。
+- **分享卡片**：不显示「复制图片」和「分享…」，「保存图片」可以用。
+- **不加密**：Token 和行车数据在局域网内明文传输，同一网络里的人可能看到。只在可信的家庭网络里使用。
+- **地图**：地图瓦片（OpenFreeMap / OpenStreetMap）需要从互联网加载。
+- **不要把端口暴露到互联网**（不要在路由器上做端口转发）。
+- 网页版不会自动更新（见下面的「更新」）。
+
+### 构建网页版
+
+有 git 和 Docker 就可以用 `node:22` 镜像构建，不用安装 Node.js。`TAG` 填 [Releases](https://github.com/zzflsxygod/drivelens/releases) 里的最新版本（和服务器同一个版本）。
+
+```bash
+cd teslamate
+TAG=v1.2.0   # 换成 Releases 里的最新版本
+git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
+  sh -c "npm ci && npm run build:web"
+mkdir -p drivelens-web && cp -a drivelens-src/app/dist-web/. drivelens-web/
+```
+
+如果直接用 Node.js（22，即 22.12 以上，或 20.19 以上）：`cd drivelens-src/app && npm ci && npm run build:web`。产物在 `app/dist-web/`。不需要环境变量。`dist-web/_headers` 是给 Cloudflare Pages 用的，Caddy 不读它（需要的设置已经写在下面的 Caddyfile 里）。
+
+### Caddy 配置
+
+创建 `teslamate/Caddyfile.drivelens`：
+
+```caddyfile
+:80 {
+	encode zstd gzip
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy drivelens-api:8080
+	}
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@other not path /assets/*
+		header @other Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+	}
+}
+```
+
+在 `docker-compose.drivelens.yml` 的 `services:` 下加上（`drivelens-api` 的 `ports:` 保持默认的 `127.0.0.1:8080:8080` 即可）：
+
+```yaml
+  drivelens-web:
+    image: caddy:2
+    restart: always
+    depends_on:
+      - drivelens-api
+    ports:
+      - "8081:80"   # 只监听局域网 IP 的话写成 "192.168.1.10:8081:80"
+    volumes:
+      - ./Caddyfile.drivelens:/etc/caddy/Caddyfile:ro
+      - ./drivelens-web:/srv:ro
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-web
+```
+
+重新下载 `docker-compose.drivelens.yml` 会把这段覆盖掉。
+
+可选：经过 Caddy 后所有设备看起来都来自同一个地址。想按设备分别统计登录失败次数，可以在 `drivelens-api` 的 `environment:` 里加上 `- DRIVELENS_TRUST_PROXY_HEADERS=true`。
+
+### 连接
+
+1. 在浏览器打开 `http://<服务器局域网 IP>:8081`（例如 `http://192.168.1.10:8081`；最好在路由器上给服务器固定 IP）。
+2. 「服务器地址」填**同一个地址** `http://192.168.1.10:8081`。不要省略 `http://`（省略的话会被当成 `https://`）。
+3. 「配对码或服务器 Token」填服务器 Token（`DRIVELENS_API_TOKEN`），或者已连接设备在「设置 → 设备 → 添加设备」里生成的配对码，然后点「测试连接并开始」。
+4. 会出现「这是未加密的 http 连接：…」的提示，这种部署下属于正常。欢迎页上的「网页版需要」（要求 https）说的是官方网页版。
+
+官方网页版的地址不同，所以连接信息是分开保存的。之后可以在「设置 → 服务器」的「API 地址」里修改地址。
+
+### 更新
+
+更新服务器（drivelens-api）后，用同一个版本的 tag 重新构建网页版。用 Watchtower 的话服务器总是最新版本，网页版也用最新的 tag（想保持一致，可以在 `.env` 里用 `DRIVELENS_IMAGE` 把服务器固定到同一个 tag）。
+
+```bash
+cd teslamate
+TAG=v1.2.1   # 新版本
+rm -rf drivelens-src
+git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
+  sh -c "npm ci && npm run build:web"
+rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
+```
+
+不要删除 `drivelens-web` 文件夹本身（容器的挂载会失效；如果已经删了，执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`）。刷新页面就是新版本。网页版比服务器旧或新时一般也能用，需要更新服务器的功能应用会提示。

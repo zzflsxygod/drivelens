@@ -9,7 +9,7 @@ DriveLens は 2 つの部分でできています。
 
 > DriveLens は **TeslaMate のテーブルを変更しません**。データベースアカウントにはこれらのテーブルの読み取り権限しかありません。DriveLens 独自のデータ（場所の名前、手入力した充電料金、旅、カバー写真、プッシュの登録、天気のキャッシュ、接続済みの端末）は別の `drivelens` スキーマに保存します。
 
-目次：[前提条件](#前提条件) · [1. ファイル](#1-ファイルを-2-つダウンロード) · [2. パスワードとトークン](#2-パスワードとトークンを作る) · [3. データベースアカウント](#3-データベースアカウントを作る初回のみ) · [4. 起動](#4-drivelens-api-を起動) · [5. https](#5-サーバーに-https-のアドレスを用意する) · [6. 接続](#6-ウェブ版から接続する) · [端末](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [環境変数](#環境変数) · [トラブルシューティング](#トラブルシューティング) · [アンインストール](#アンインストール)
+目次：[前提条件](#前提条件) · [1. ファイル](#1-ファイルを-2-つダウンロード) · [2. パスワードとトークン](#2-パスワードとトークンを作る) · [3. データベースアカウント](#3-データベースアカウントを作る初回のみ) · [4. 起動](#4-drivelens-api-を起動) · [5. https](#5-サーバーに-https-のアドレスを用意する) · [6. 接続](#6-ウェブ版から接続する) · [端末](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [環境変数](#環境変数) · [トラブルシューティング](#トラブルシューティング) · [アンインストール](#アンインストール) · [付録：LAN 内だけで使う](#lan-selfhost)
 
 ## 前提条件
 
@@ -88,6 +88,8 @@ compose ファイルの初期設定では API を `127.0.0.1:8080` にだけ公�
 ## 5. サーバーに https のアドレスを用意する
 
 ウェブ版は https で配信しているため、ブラウザは `http://` のサーバーアドレスをブロックします（混在コンテンツ）。`http://192.168.x.x:8080` や `http://100.x.y.z:8080` のような **LAN や Tailscale の IP も同じです**。どちらかを選んでください。
+
+> LAN 内だけで http で使いたい場合（ウェブ版を自分でホストする非公式の方法）は、[付録：LAN 内だけで使う](#lan-selfhost)を参照してください。
 
 <a id="cloudflare-tunnel"></a>
 ### 方法 A：Cloudflare Tunnel（Cloudflare で管理しているドメインがある場合）
@@ -250,3 +252,112 @@ drivelens-api が読み取る変数：
 ## フィードバック
 
 不具合や機能の要望は [Issues](https://github.com/zzflsxygod/drivelens/issues) へお寄せください。サーバーのアドレスやトークンは絶対に投稿しないでください。
+
+<a id="lan-selfhost"></a>
+## 付録：LAN 内だけで使う（ウェブ版を自分でホスト、http・非公式）
+
+> ⚠️ **非公式・サポート対象外・未検証の手順です。自己責任でお使いください。** 公式の使い方は、ウェブ版 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) と手順 5 の https のアドレスです。この構成での不具合はサポートできません。
+
+自宅の LAN からだけ使い、Cloudflare Tunnel も Tailscale も使わない場合は、ウェブ版を自分でビルドし、drivelens-api と**同じアドレス（同一オリジン）**から http で配信する方法があります。Caddy がウェブ版のファイルを配信し、`/api/` と `/health` を drivelens-api に転送します。同一オリジンなので `DRIVELENS_CORS_ORIGINS` の設定は不要です。
+
+**http では使えないもの・注意点**
+
+- **プッシュ通知**：使えません（「設定 → 通知」に「通知を使うには Web 版を https で開く必要があります。」と表示されます）。
+- **オフライン起動**（Service Worker）：使えません。サーバーに接続できないとアプリ自体が開きません。
+- **アプリとしてインストール**（Chrome / Edge / Android）：できません。iPhone / iPad の「ホーム画面に追加」はショートカットとして使えます。
+- **シェアカード**：「画像をコピー」と「共有…」は表示されません。「画像を保存」は使えます。
+- **暗号化なし**：トークンと走行データは LAN 内を平文で流れます。同じネットワークの人に盗み見られるおそれがあるため、信頼できる自宅のネットワークだけで使ってください。
+- **地図**：地図タイル（OpenFreeMap / OpenStreetMap）はインターネットから読み込みます。
+- **ポートをインターネットに公開しないでください**（ルーターでポート開放しない）。
+- ウェブ版は自動では更新されません（下の「更新」を参照）。
+
+### ウェブ版をビルド
+
+git と Docker があれば、Node.js をインストールせずに `node:22` イメージでビルドできます。`TAG` には [Releases](https://github.com/zzflsxygod/drivelens/releases) の最新版（サーバーと同じバージョン）を指定します。
+
+```bash
+cd teslamate
+TAG=v1.2.0   # Releases の最新版に置き換える
+git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
+  sh -c "npm ci && npm run build:web"
+mkdir -p drivelens-web && cp -a drivelens-src/app/dist-web/. drivelens-web/
+```
+
+Node.js を直接使う場合は 22（22.12 以上、または 20.19 以上）で `cd drivelens-src/app && npm ci && npm run build:web` を実行します。成果物は `app/dist-web/` です。環境変数は不要です。`dist-web/_headers` は Cloudflare Pages 用で Caddy では使われません（必要な設定は下の Caddyfile に入っています）。
+
+### Caddy の設定
+
+`teslamate/Caddyfile.drivelens` を作ります。
+
+```caddyfile
+:80 {
+	encode zstd gzip
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy drivelens-api:8080
+	}
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@other not path /assets/*
+		header @other Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+	}
+}
+```
+
+`docker-compose.drivelens.yml` の `services:` に次を追加します（`drivelens-api` の `ports:` は初期設定の `127.0.0.1:8080:8080` のままで構いません）。
+
+```yaml
+  drivelens-web:
+    image: caddy:2
+    restart: always
+    depends_on:
+      - drivelens-api
+    ports:
+      - "8081:80"   # LAN の IP だけで待ち受けるなら "192.168.1.10:8081:80"
+    volumes:
+      - ./Caddyfile.drivelens:/etc/caddy/Caddyfile:ro
+      - ./drivelens-web:/srv:ro
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-web
+```
+
+`docker-compose.drivelens.yml` をダウンロードし直すと、この追加分は消えます。
+
+任意：Caddy 経由ではすべての端末が同じ接続元に見えるため、ログイン失敗の回数制限を端末ごとに数えたい場合は `drivelens-api` の `environment:` に `- DRIVELENS_TRUST_PROXY_HEADERS=true` を追加します。
+
+### 接続
+
+1. ブラウザで `http://<サーバーの LAN IP>:8081` を開きます（例：`http://192.168.1.10:8081`。サーバーの IP はルーターで固定しておくと安心です）。
+2. 「サーバーの URL」に**同じアドレス** `http://192.168.1.10:8081` を入力します。`http://` は省略しないでください（省略すると `https://` とみなされます）。
+3. 「ペアリングコード または サーバーのトークン」にサーバーのトークン（`DRIVELENS_API_TOKEN`）か、接続済みの端末の「設定 → 端末 → 端末を追加」で発行したペアリングコードを入力し、「接続をテストして始める」を押します。
+4. 「暗号化されていない http 接続です。…」という警告が出ますが、この構成では想定どおりです。ようこそ画面の「ウェブ版に必要なもの」（https が必要という説明）は公式ウェブ版向けの内容です。
+
+公式ウェブ版とはアドレスが違うため、接続情報は別々に保存されます。アドレスはあとから「設定 → サーバー」の「API の URL」で変更できます。
+
+### 更新
+
+サーバー（drivelens-api）を更新したら、ウェブ版も同じリリースのタグでビルドし直します。Watchtower を使う場合は常に最新版になるので、ウェブ版も最新のタグにしてください（バージョンを揃えたい場合は `.env` の `DRIVELENS_IMAGE` で同じタグに固定します）。
+
+```bash
+cd teslamate
+TAG=v1.2.1   # 新しいリリース
+rm -rf drivelens-src
+git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
+  sh -c "npm ci && npm run build:web"
+rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
+```
+
+`drivelens-web` フォルダー自体は削除しないでください（コンテナのマウントが外れます。消してしまった場合は `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`）。ブラウザでページを再読み込みすると新しい版になります。ウェブ版がサーバーより古い・新しい場合も基本的には動き、サーバーの更新が必要な機能はアプリが知らせます。
