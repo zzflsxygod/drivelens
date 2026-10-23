@@ -17,6 +17,10 @@ updates:
       # first, so the upgrade is done by hand later. Minor/patch updates of 0.8 still come in.
       - dependency-name: sqlx
         update-types: [version-update:semver-major]
+      # getrandom generates the device tokens and pairing codes; 0.3+ changed the API (getrandom::fill), so the
+      # major upgrade is done by hand with a review. Minor/patch updates of 0.2 still come in.
+      - dependency-name: getrandom
+        update-types: [version-update:semver-major]
   - package-ecosystem: cargo
     directory: /app/src-tauri
     schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
