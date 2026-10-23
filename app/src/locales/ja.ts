@@ -453,7 +453,7 @@ const ja: Record<keyof typeof zh, string> = {
   "su.webHttps": "https のサーバーアドレス。ウェブ版は https で動いているため、ブラウザは http のアドレスをすべてブロックします（LAN や Tailscale の IP も同様）。Cloudflare Tunnel を使うか、Tailscale ならサーバーで tailscale serve を実行すると無料で https のアドレスを取得できます。",
   "su.webTsGuide": "Tailscale の設定方法",
   "su.webCors": "サーバーがこのサイトからのアクセス（CORS）を許可していること：drivelens-api v0.11.0 以降は公式ウェブ版を標準で許可します",
-  "su.footWeb": "トークンはこのブラウザにのみ保存されます（ウェブのホストには送信されません）。共用パソコンでは使用後に「設定」で消去してください。",
+  "su.footWeb": "トークンはこのブラウザにのみ保存されます（ウェブのホストには送信されません）。共用パソコンでは、使用後にブラウザの設定でこのサイトのデータを削除して消去してください。",
   "api.offline": "この端末はオフラインです",
   "api.network": "サーバーに接続できません。ネットワークとサーバーの稼働を確認してください",
   "api.networkWeb": "サーバーに接続できません：オフライン、サーバー停止中、またはサーバーがこのサイトを許可していない（CORS、drivelens-api v0.11.0 以降が必要）可能性があります",

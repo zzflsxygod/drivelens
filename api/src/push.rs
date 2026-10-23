@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use web_push_native::{jwt_simple::algorithms::{ECDSAP256PublicKeyLike, ES256KeyPair}, p256::PublicKey, Auth, WebPushBuilder};
 
 const MISSING: &str = "push tables drivelens.push_subscriptions / drivelens.push_state are missing or not writable; run deploy/drivelens-v0.16.0.sql as the TeslaMate DB admin (picked up within a minute, no restart needed)";
-const DEFAULT_SUBJECT: &str = "https://github.com/zzflsxygod/drivelens-releases";
+const DEFAULT_SUBJECT: &str = "https://github.com/zzflsxygod/drivelens";
 /// Poll interval for finished drives / due monthly reminders.
 const TICK: std::time::Duration = std::time::Duration::from_secs(60);
 /// Drives that ended longer ago than this are marked as seen without a notification (API was down, catch-up).

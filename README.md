@@ -10,17 +10,17 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Web app:** https://drivelens-app.oharuru.com (phones and desktops, can be installed to the home screen)
 - **Try it without a server:** [demo mode](https://drivelens-app.oharuru.com/?demo) (a fictional car, no server needed)
 - **Set up your server:** [install guide](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)
-- **What's new:** [CHANGELOG](distribution/CHANGELOG.md) · [Releases](https://github.com/zzflsxygod/drivelens/releases)
+- **What's new:** [CHANGELOG](CHANGELOG.md) · [Releases](https://github.com/zzflsxygod/drivelens/releases)
 
 <p>
-  <img src="distribution/screenshots/home-light.jpg" width="200" alt="Home">
-  <img src="distribution/screenshots/drives.jpg" width="200" alt="Drives">
-  <img src="distribution/screenshots/journey.jpg" width="200" alt="Journey">
+  <img src="docs/screenshots/home-light.jpg" width="200" alt="Home">
+  <img src="docs/screenshots/drives.jpg" width="200" alt="Drives">
+  <img src="docs/screenshots/journey.jpg" width="200" alt="Journey">
 </p>
 <p>
-  <img src="distribution/screenshots/report.jpg" width="200" alt="Monthly report">
-  <img src="distribution/screenshots/share-card.jpg" width="200" alt="Share card">
-  <img src="distribution/screenshots/home-dark.jpg" width="200" alt="Dark mode">
+  <img src="docs/screenshots/report.jpg" width="200" alt="Monthly report">
+  <img src="docs/screenshots/share-card.jpg" width="200" alt="Share card">
+  <img src="docs/screenshots/home-dark.jpg" width="200" alt="Dark mode">
 </p>
 
 <sub>Screenshots from demo mode (fictional data).</sub>

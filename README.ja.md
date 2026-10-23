@@ -10,17 +10,17 @@ DriveLens は [TeslaMate](https://github.com/teslamate-org/teslamate) のため�
 - **ウェブ版：** https://drivelens-app.oharuru.com （スマートフォンでも PC でも使え、ホーム画面に追加できます）
 - **サーバーなしで試す：** [デモモード](https://drivelens-app.oharuru.com/?demo)（架空のクルマ、サーバー不要）
 - **サーバーの設定：** [インストールガイド](docs/install.ja.md) · [English](docs/install.md) · [中文](docs/install.zh.md)
-- **更新情報：** [CHANGELOG](distribution/CHANGELOG.md)（英語）· [Releases](https://github.com/zzflsxygod/drivelens/releases)
+- **更新情報：** [CHANGELOG](CHANGELOG.md)（英語）· [Releases](https://github.com/zzflsxygod/drivelens/releases)
 
 <p>
-  <img src="distribution/screenshots/home-light.jpg" width="200" alt="ホーム">
-  <img src="distribution/screenshots/drives.jpg" width="200" alt="走行">
-  <img src="distribution/screenshots/journey.jpg" width="200" alt="旅">
+  <img src="docs/screenshots/home-light.jpg" width="200" alt="ホーム">
+  <img src="docs/screenshots/drives.jpg" width="200" alt="走行">
+  <img src="docs/screenshots/journey.jpg" width="200" alt="旅">
 </p>
 <p>
-  <img src="distribution/screenshots/report.jpg" width="200" alt="月次レポート">
-  <img src="distribution/screenshots/share-card.jpg" width="200" alt="シェアカード">
-  <img src="distribution/screenshots/home-dark.jpg" width="200" alt="ダークモード">
+  <img src="docs/screenshots/report.jpg" width="200" alt="月次レポート">
+  <img src="docs/screenshots/share-card.jpg" width="200" alt="シェアカード">
+  <img src="docs/screenshots/home-dark.jpg" width="200" alt="ダークモード">
 </p>
 
 <sub>スクリーンショットはデモモード（架空のデータ）です。</sub>

@@ -452,7 +452,7 @@ const zh = {
   "su.webHttps": "https 的服务器地址。网页版运行在 https 上，浏览器会拦截所有 http 地址，局域网和 Tailscale 的 IP 也一样。可以用 Cloudflare Tunnel；用 Tailscale 的话，在服务器上执行 tailscale serve 就能免费得到 https 地址。",
   "su.webTsGuide": "Tailscale 配置方法",
   "su.webCors": "服务器需要允许本网站跨域访问（CORS）：drivelens-api v0.11.0 以上默认允许官方网页版",
-  "su.footWeb": "Token 只保存在这个浏览器里（不会上传到网页服务器）。在公共电脑上用完请到「设置」里清除。",
+  "su.footWeb": "Token 只保存在这个浏览器里（不会上传到网页服务器）。在公共电脑上用完后，请在浏览器设置里清除本网站的数据来删除它。",
   "api.offline": "设备当前没有联网",
   "api.network": "无法连接服务器，请检查网络和服务器是否在运行",
   "api.networkWeb": "无法连接服务器：可能是网络断开、服务器离线，或服务器没有允许本网站跨域访问（CORS，需要 drivelens-api v0.11.0 以上）",

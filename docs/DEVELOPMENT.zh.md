@@ -65,7 +65,7 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 
 ## 安装（v0.10.0 起）
 
-**新用户请看安装指南：[English](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)**（公开版在 https://github.com/zzflsxygod/drivelens-releases ）：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
+**新用户请看安装指南：[English](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)**（1.1.2 起只在本仓库维护）：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
 下面的「部署方式一 / 二」是早期的手动步骤（旧 SQL 文件仍保留，已部署的服务器无需任何改动）。
 
 ## 部署方式一（推荐）：Docker + TeslaMate 同一个 Compose + Cloudflare Tunnel
@@ -77,7 +77,7 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 - **在服务器上直接构建（最简单）**：`git clone` 本仓库后执行 `docker build -t ghcr.io/zzflsxygod/drivelens-api:latest api/`，ARM 服务器上构建出来的就是 arm64 镜像。
 - **GitHub Actions 自动构建并推送到 GHCR**：工作流文件在 `deploy/github-actions-docker.yml`，把它移动到 `.github/workflows/docker.yml` 并推送即可启用（推送 workflow 文件需要 token 带 `workflow` 权限，例如先执行 `gh auth refresh -s workflow`）。之后每次推送到 main 或打 `v*` tag 都会构建 amd64 + arm64 镜像。
 
-> 用 GHCR 的话：仓库是私有的，镜像默认也是私有，服务器上需要先 `docker login ghcr.io -u zzflsxygod`（密码用一个只有 `read:packages` 权限的 Personal Access Token）。
+> 镜像 `ghcr.io/zzflsxygod/drivelens-api` 现在是公开的，`docker pull` 不需要登录。
 
 ### 1. 设置密码和 Token
 
@@ -340,6 +340,7 @@ DATABASE_URL=postgres://teslamate:secret@localhost/teslamate API_TOKEN=dev-token
 - App 启动时读取 `/health`：服务器版本过旧或正在更新时显示提示条「服务器正在更新或版本过旧…」并隐藏不支持的功能，不会崩溃。设置页显示服务器版本。
 - 自动更新：`deploy/docker-compose.drivelens.yml` 里的 `watchtower` 服务（nickfedor/watchtower，只更新带 `com.centurylinklabs.watchtower.enable=true` 标签的 drivelens-api，每 5 分钟检查一次）。
 - 发布流程：`scripts/release.sh [https://你的域名]` —— 推送 main → 等 Docker 镜像构建成功 → 等服务器 `/health` 显示新版本 → 打 tag 构建网页版（以及 `NATIVE_BUILDS=1` 时的 Windows / Android 安装包，草稿）→ 发布（v1.0.0 起：`X.Y.Z` 为正式版并标记 Latest；`0.x` 或带后缀的版本如 `1.1.0-beta.1` 为预发布；`DRIVELENS_PRERELEASE=1/0` 可强制；脚本创建的草稿使用 `distribution/CHANGELOG.md` 中该版本的段落作为说明。v0.16.0 起不再附带网页版 zip，网页版只在官方网址提供）。
+- 1.1.2 起：Release 和发布说明只放在本仓库（zzflsxygod/drivelens），发布说明取自根目录 `CHANGELOG.md` 中对应版本的段落；不再同步到 drivelens-releases（`scripts/sync-public.sh`、`.github/workflows/public-sync.yml` 已删除）。
 
 
 ## 旅程（v0.6.0）
@@ -413,7 +414,9 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - API 0.11.0：`DRIVELENS_CORS_ORIGINS`（旧名 `CORS_ORIGINS`），默认允许官方网页版 + Tauri App 来源，`*` = 任意；预检缓存 10 分钟，支持 Private Network Access。api_level 不变（12），无数据库迁移。
 - Windows / Android 打包暂停（workflow 只能手动运行；`scripts/release.conf` 的 `NATIVE_BUILDS=0`），v0.15.x 的 Release 附带过 `DriveLens_版本_web.zip`，v0.16.0 起不再附带。
 
-## v0.15.1 — 公开发布仓库 drivelens-releases
+## v0.15.1 — 公开发布仓库 drivelens-releases（1.1.2 起停用）
+
+> 1.1.2 起本仓库按 AGPL-3.0-or-later 开源，安装指南、CHANGELOG、截图（`docs/screenshots/`）、Issue 模板（`.github/ISSUE_TEMPLATE/`）都在本仓库；`distribution/`、`sync-public.sh`、`public-sync.yml` 已删除。以下为当时的记录。
 
 源码仓库保持私有；面向用户的内容放在公开仓库 **https://github.com/zzflsxygod/drivelens-releases** ：
 - README（English 默认 + README.zh.md / README.ja.md）、截图（演示模式）、CHANGELOG、LICENSE（v1.1.1 之前为免费专有软件；开源后改为 AGPL-3.0-or-later）、Issue 模板。
@@ -423,6 +426,14 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - App：引导页「安装指南」链接、设置页「帮助与反馈」（安装指南 / 版本与更新日志 / 问题反馈）都指向公开仓库，安装指南按界面语言打开对应版本（英文为默认）。
 - 镜像 `ghcr.io/zzflsxygod/drivelens-api` 需要在 GitHub 包设置里改为 Public，其他用户才能匿名 `docker pull`。
 
+
+## v1.1.2 — 开源（AGPL-3.0-or-later）+ 链接迁移到主仓库（API 0.13.1）
+
+- 用户可见内容全部移到本仓库：`CHANGELOG.md`（根目录，`release.sh` 从这里取发布说明）、`docs/screenshots/`、`.github/ISSUE_TEMPLATE/`；删除 `distribution/`。
+- 删除 `scripts/sync-public.sh` 和 `.github/workflows/public-sync.yml`；`release.sh` 去掉第 5 步（同步 drivelens-releases），发布说明里的安装指南链接指向本仓库。
+- `app/src/links.ts`：`PUBLIC_REPO` = `https://github.com/zzflsxygod/drivelens`（安装指南含 `#tailscale`、版本与更新日志、问题反馈）。
+- 引导页 `su.footWeb` 文案修正：设置里没有清除 Token 的按钮，改为「在浏览器设置里清除本网站的数据」。
+- API 0.13.1：`DRIVELENS_VAPID_SUBJECT` 默认值改为本仓库地址；api_level 不变（14），无数据库变更。
 
 ## v1.1.1 — 去掉 URL 里的服务器地址 / 令牌参数（仅网页版）
 

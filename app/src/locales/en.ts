@@ -453,7 +453,7 @@ const en: Record<keyof typeof zh, string> = {
   "su.webHttps": "An https server address. The web app runs on https, so browsers block any http address, including LAN and Tailscale IPs. Use Cloudflare Tunnel, or on Tailscale run tailscale serve on the server to get a free https address.",
   "su.webTsGuide": "Tailscale setup",
   "su.webCors": "The server must allow this site (CORS): drivelens-api v0.11.0+ allows the official web app by default",
-  "su.footWeb": "The token is stored only in this browser (never sent to the web host). On a shared computer, clear it in Settings when you're done.",
+  "su.footWeb": "The token is stored only in this browser (never sent to the web host). On a shared computer, remove it when you're done by clearing this site's data in the browser settings.",
   "api.offline": "This device is offline",
   "api.network": "Can't reach the server. Check your network and that the server is running",
   "api.networkWeb": "Can't reach the server: you may be offline, the server may be down, or it doesn't allow this site (CORS, needs drivelens-api v0.11.0+)",

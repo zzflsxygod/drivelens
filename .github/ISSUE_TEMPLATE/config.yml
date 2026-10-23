@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Install guide
-    url: https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md
+    url: https://github.com/zzflsxygod/drivelens/blob/main/docs/install.md
     about: Setting up drivelens-api on your TeslaMate server (English · 中文 · 日本語)
   - name: Demo mode
     url: https://drivelens-app.oharuru.com/?demo

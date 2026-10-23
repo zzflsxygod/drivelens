@@ -10,17 +10,17 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的第三�
 - **网页版：** https://drivelens-app.oharuru.com （手机、电脑都能用，可以添加到主屏幕）
 - **没有服务器也能试用：** [演示模式](https://drivelens-app.oharuru.com/?demo)（虚构的车辆，不需要服务器）
 - **部署服务器：** [安装指南](docs/install.zh.md) · [English](docs/install.md) · [日本語](docs/install.ja.md)
-- **更新内容：** [CHANGELOG](distribution/CHANGELOG.md)（英文）· [Releases](https://github.com/zzflsxygod/drivelens/releases)
+- **更新内容：** [CHANGELOG](CHANGELOG.md)（英文）· [Releases](https://github.com/zzflsxygod/drivelens/releases)
 
 <p>
-  <img src="distribution/screenshots/home-light.jpg" width="200" alt="首页">
-  <img src="distribution/screenshots/drives.jpg" width="200" alt="行程">
-  <img src="distribution/screenshots/journey.jpg" width="200" alt="旅程">
+  <img src="docs/screenshots/home-light.jpg" width="200" alt="首页">
+  <img src="docs/screenshots/drives.jpg" width="200" alt="行程">
+  <img src="docs/screenshots/journey.jpg" width="200" alt="旅程">
 </p>
 <p>
-  <img src="distribution/screenshots/report.jpg" width="200" alt="月度报告">
-  <img src="distribution/screenshots/share-card.jpg" width="200" alt="分享卡片">
-  <img src="distribution/screenshots/home-dark.jpg" width="200" alt="深色模式">
+  <img src="docs/screenshots/report.jpg" width="200" alt="月度报告">
+  <img src="docs/screenshots/share-card.jpg" width="200" alt="分享卡片">
+  <img src="docs/screenshots/home-dark.jpg" width="200" alt="深色模式">
 </p>
 
 <sub>截图来自演示模式（虚构数据）。</sub>

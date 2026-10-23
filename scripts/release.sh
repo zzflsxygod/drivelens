@@ -8,9 +8,8 @@
 #      The web app is only offered at the official URL (the web workflow deploys it to Cloudflare Pages); no web zip is attached.
 #   4. publish the draft: from 1.0.0 on a plain X.Y.Z is a normal release marked Latest; 0.x versions and
 #      versions with a suffix (1.1.0-beta.1) are prereleases. DRIVELENS_PRERELEASE=1 / =0 forces either way.
-#      Release notes come from the version's section in distribution/CHANGELOG.md when the draft is created here.
-#   5. mirror it to the public repo zzflsxygod/drivelens-releases (files + release + assets, scripts/sync-public.sh):
-#      by the "Public repo sync" workflow when the RELEASES_REPO_TOKEN secret exists, otherwise from this machine
+#      Release notes come from the version's section in CHANGELOG.md when the draft is created here.
+#      Releases live only in this repo (zzflsxygod/drivelens); the old drivelens-releases mirror is retired.
 # Usage: scripts/release.sh [api-base-url] [--skip-health]
 #   api-base-url defaults to $DRIVELENS_URL, else the first line of scripts/.release.local (gitignored, per machine)
 # Steps are idempotent: re-running after a failure continues where it stopped.
@@ -95,11 +94,11 @@ if [ "$NATIVE_BUILDS" = 1 ]; then
   done
 else
   if ! gh release view "$TAG" >/dev/null 2>&1; then
-    NOTES=$(awk -v v="$TAG" '$0 ~ "^## "v"( |$)" {f=1; next} /^## / {if (f) exit} f' distribution/CHANGELOG.md | sed '/./,$!d')
+    NOTES=$(awk -v v="$TAG" '$0 ~ "^## "v"( |$)" {f=1; next} /^## / {if (f) exit} f' CHANGELOG.md | sed '/./,$!d')
     NOTES="${NOTES:-网页版 / Web app (PWA): https://drivelens-app.oharuru.com}
 
 ---
-Web app: https://drivelens-app.oharuru.com · server: drivelens-api v$API_VER+ (\`ghcr.io/zzflsxygod/drivelens-api\`, install guide: https://github.com/zzflsxygod/drivelens-releases/blob/main/docs/install.md).
+Web app: https://drivelens-app.oharuru.com · server: drivelens-api v$API_VER+ (\`ghcr.io/zzflsxygod/drivelens-api\`, install guide: https://github.com/zzflsxygod/drivelens/blob/main/docs/install.md).
 Windows / Android installers are not part of this version (packaging paused)."
     gh release create "$TAG" --draft --prerelease="$( [ "$PRE" = 1 ] && echo true || echo false )" --verify-tag --title "DriveLens $TAG" --notes "$NOTES"
   fi
@@ -114,10 +113,3 @@ else
 fi
 gh release view "$TAG" --json url,isDraft,isPrerelease,assets -q '.url, "draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[].name)'
 
-echo "== 5. public repo (zzflsxygod/drivelens-releases)"
-if gh secret list 2>/dev/null | grep -q '^RELEASES_REPO_TOKEN'; then
-  # the release "published" event starts the sync workflow (wait_run matches on the tag's commit)
-  wait_run public-sync.yml "$TAG" || { echo "   public sync workflow failed — run scripts/sync-public.sh $TAG"; exit 1; }
-else
-  scripts/sync-public.sh "$TAG"
-fi

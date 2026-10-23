@@ -1,8 +1,8 @@
-// Public places for users (the source repo is private). Everything user-facing links to the public
-// distribution repo: install guide (per UI language), releases (installers + changelog), issues (feedback).
+// Public places for users: the open-source main repo (AGPL-3.0-or-later) hosts the install guide
+// (per UI language), releases + changelog and issues (feedback).
 import { currentLang } from "./i18n";
 
-export const PUBLIC_REPO = "https://github.com/zzflsxygod/drivelens-releases";
+export const PUBLIC_REPO = "https://github.com/zzflsxygod/drivelens";
 /** English is the default page; Chinese / Japanese have their own files. */
 export function installGuideUrl(): string {
   const l = currentLang();

@@ -1,8 +1,15 @@
 # Changelog
 
 User-facing changes in DriveLens. "Server" means the drivelens-api Docker image; when a version says
-*no server update needed*, only the app changed. Downloads: [Releases](https://github.com/zzflsxygod/drivelens-releases/releases).
+*no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
+
+## v1.1.2 — 2026-10-23
+- **DriveLens is now open source** under the [GNU AGPL-3.0-or-later](https://github.com/zzflsxygod/drivelens/blob/main/LICENSE). Source code, install guide, releases and issues are all in one place: [zzflsxygod/drivelens](https://github.com/zzflsxygod/drivelens). The old `drivelens-releases` repository is retired.
+- **Links updated:** the install guide (including the Tailscale section), "Releases & changelog" and feedback links in the app now open the main repository.
+- **Install guide rewritten** (English, 中文, 日本語): https via Cloudflare Tunnel or `tailscale serve`, notifications, automatic updates with Watchtower, environment variables, troubleshooting and uninstall.
+- **Text fix:** the setup screen said the saved token could be cleared in Settings. It now explains the actual way: clear this site's data in the browser settings.
+- **Server 0.13.1** (optional): the default contact sent to browser push services now points to the main repository. Nothing else changed; 0.13.0 keeps working.
 
 ## v1.1.1 — 2026-10-22
 - **Privacy:** removed a legacy URL parameter that could set the server address and token from the page address (`?api=…&token=…`). The app no longer reads them from the URL at all; if such a link is opened, the parameters are removed from the address bar immediately and ignored, and an installed app answers it from its local cache without sending the address over the network. Your server address and token stay only on your device and are sent only to your own server.
