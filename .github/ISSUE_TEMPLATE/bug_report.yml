@@ -38,7 +38,7 @@ body:
     id: server-version
     attributes:
       label: drivelens-api version
-      description: "Settings → server version, or https://your-server/health (only the version number, not the URL)"
+      description: "Settings → server version, or `https://your-server/health` (only the version number, not the URL)"
       placeholder: "0.11.0"
   - type: input
     id: device

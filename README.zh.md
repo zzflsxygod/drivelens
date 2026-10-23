@@ -7,7 +7,7 @@
 
 DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的第三方应用。你自己服务器上的一个小型只读 API（**drivelens-api**）读取 TeslaMate 数据库，DriveLens 网页版用简洁的、以手机为主的界面展示车辆状态、行程、充电、旅程、月度报告和电池健康度。
 
-- **网页版：** https://drivelens-app.oharuru.com （手机、电脑都能用，可以添加到主屏幕）
+- **网页版：** [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) （手机、电脑都能用，可以添加到主屏幕）
 - **没有服务器也能试用：** [演示模式](https://drivelens-app.oharuru.com/?demo)（虚构的车辆，不需要服务器）
 - **部署服务器：** [安装指南](docs/install.zh.md) · [English](docs/install.md) · [日本語](docs/install.ja.md)
 - **更新内容：** [CHANGELOG](CHANGELOG.md)（英文）· [Releases](https://github.com/zzflsxygod/drivelens/releases)
@@ -62,9 +62,9 @@ docker compose exec -T database psql -U teslamate -d teslamate -v ro_pass="$DRIV
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 ```
 
-然后给服务器配一个 https 地址（[Cloudflare Tunnel](docs/install.zh.md#cloudflare-tunnel) 或 [Tailscale](docs/install.zh.md#tailscale)），打开 https://drivelens-app.oharuru.com ，填入这个地址和 `DRIVELENS_API_TOKEN`。每一步的说明见[安装指南](docs/install.zh.md)。
+然后给服务器配一个 https 地址（[Cloudflare Tunnel](docs/install.zh.md#cloudflare-tunnel) 或 [Tailscale](docs/install.zh.md#tailscale)），打开 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) ，填入这个地址和 `DRIVELENS_API_TOKEN`。每一步的说明见[安装指南](docs/install.zh.md)。
 
-DriveLens 的使用方式是官方网页版 https://drivelens-app.oharuru.com ；自行部署网页版不在官方支持范围内。
+DriveLens 的使用方式是官方网页版 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) ；自行部署网页版不在官方支持范围内。
 
 ## 隐私
 

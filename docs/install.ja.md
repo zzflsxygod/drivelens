@@ -5,7 +5,7 @@
 DriveLens は 2 つの部分でできています。
 
 - **drivelens-api**：サーバー上で TeslaMate と一緒に動く小さな Docker コンテナです。読み取り専用のアカウントで TeslaMate のデータベースを読みます。
-- **DriveLens ウェブ版**：**https://drivelens-app.oharuru.com** 。ここでサーバーのアドレスとトークンを一度入力します。
+- **DriveLens ウェブ版**：**[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** 。ここでサーバーのアドレスとトークンを一度入力します。
 
 > DriveLens は **TeslaMate のテーブルを変更しません**。データベースアカウントにはこれらのテーブルの読み取り権限しかありません。DriveLens 独自のデータ（場所の名前、手入力した充電料金、旅、カバー写真、プッシュの登録、天気のキャッシュ）は別の `drivelens` スキーマに保存します。
 
@@ -122,7 +122,7 @@ API の前に Cloudflare Access などのログインページを置かないで
 
 ## 6. ウェブ版から接続する
 
-1. **https://drivelens-app.oharuru.com** を開きます（ようこそ画面からデモを先に試すこともできます）。
+1. **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** を開きます（ようこそ画面からデモを先に試すこともできます）。
 2. 手順 5 の**サーバーの URL** と **API トークン**（`.env` の `DRIVELENS_API_TOKEN`）を入力します。
 3. 「接続をテストして始める」を押します。アプリは `/health` を確認してから、トークンでクルマの情報を読み込みます。
 

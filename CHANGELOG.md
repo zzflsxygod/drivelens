@@ -37,7 +37,7 @@ The API upgrades its own `drivelens` schema on start; no manual SQL is needed af
 ## v1.0.0 — 2026-10-20
 **DriveLens 1.0.0, the first stable release.**
 
-DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/teslamate). Open the web app at **https://drivelens-app.oharuru.com** on any phone or computer and add it to your home screen (PWA). It talks directly to a small read-only API on your own server, so your token and data never pass through any DriveLens service. You can also [try the demo](https://drivelens-app.oharuru.com/?demo) without a server.
+DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/teslamate). Open the web app at **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** on any phone or computer and add it to your home screen (PWA). It talks directly to a small read-only API on your own server, so your token and data never pass through any DriveLens service. You can also [try the demo](https://drivelens-app.oharuru.com/?demo) without a server.
 
 **Highlights**
 - **Overview:** battery level and range, odometer, software version, outside / inside temperature, current location on a map, this month at a glance.
@@ -57,9 +57,9 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 
 **Support:** DriveLens is free to use and built by one person. If it helps you, [buy me a coffee](https://buymeacoffee.com/zzflsxygod) ☕
 
-**中文摘要：** DriveLens 1.0.0 是第一个正式版。网页版 https://drivelens-app.oharuru.com ，包含首页概览、行程与充电、旅程、月度报告、地图、演示模式、推送通知（行程小结 / 月报提醒）、中英日三语、浅色 / 深色主题和全新的 Telemetry 界面；安装指南介绍了用 Cloudflare Tunnel 或 `tailscale serve` 提供 https 的方法。设置页底部新增「支持 DriveLens」（Buy Me a Coffee）。服务器保持 0.12.0，无需更新。
+**中文摘要：** DriveLens 1.0.0 是第一个正式版。网页版 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) ，包含首页概览、行程与充电、旅程、月度报告、地图、演示模式、推送通知（行程小结 / 月报提醒）、中英日三语、浅色 / 深色主题和全新的 Telemetry 界面；安装指南介绍了用 Cloudflare Tunnel 或 `tailscale serve` 提供 https 的方法。设置页底部新增「支持 DriveLens」（Buy Me a Coffee）。服务器保持 0.12.0，无需更新。
 
-**日本語の概要：** DriveLens 1.0.0 は最初の正式版です。ウェブ版 https://drivelens-app.oharuru.com で、概要、走行と充電、旅程、月次レポート、地図、デモモード、プッシュ通知（走行サマリー / 月次レポートのお知らせ）、日中英の 3 言語、ライト / ダークテーマ、新しい Telemetry デザインを利用できます。インストールガイドでは Cloudflare Tunnel や `tailscale serve` で https 化する方法を説明しています。「設定」の一番下に「DriveLens を応援する」（Buy Me a Coffee）を追加しました。サーバーは 0.12.0 のままで更新は不要です。
+**日本語の概要：** DriveLens 1.0.0 は最初の正式版です。ウェブ版 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) で、概要、走行と充電、旅程、月次レポート、地図、デモモード、プッシュ通知（走行サマリー / 月次レポートのお知らせ）、日中英の 3 言語、ライト / ダークテーマ、新しい Telemetry デザインを利用できます。インストールガイドでは Cloudflare Tunnel や `tailscale serve` で https 化する方法を説明しています。「設定」の一番下に「DriveLens を応援する」（Buy Me a Coffee）を追加しました。サーバーは 0.12.0 のままで更新は不要です。
 
 ## v0.17.4 — 2026-10-20
 - Home: the three tiles on the vehicle card (odometer, software, outside / inside temperature) always stay on one line, even on small phones; temperatures are shown in whole degrees (e.g. `20° / 22°`) and long values shrink slightly to fit.
@@ -89,17 +89,17 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 ## v0.16.0 — 2026-10-20
 - **Notifications** (web app): Settings → Notifications. A **trip summary** when a drive ends (distance, time, energy, from → to) and a **monthly report** reminder on the 1st; each can be turned off separately, and tapping a notification opens that trip or report. Includes a "send test notification" button. iPhone / iPad: iOS 16.4+, added to the Home Screen.
 - Server 0.12.0: sends the notifications (detects finished drives every minute, read-only). It creates two new tables in the `drivelens` schema by itself; no configuration needed (see the install guide, section 7).
-- The web app is offered only at https://drivelens-app.oharuru.com (no more web zip in the releases).
+- The web app is offered only at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) (no more web zip in the releases).
 
 ## v0.15.1 — 2026-10-20
 - Public home for DriveLens: this repository (install guide, setup files, changelog, issue tracker).
 - The install guide no longer needs the source code: the server runs the prebuilt image `ghcr.io/zzflsxygod/drivelens-api`.
 - App: install-guide link in the setup screen and a new "Help & feedback" section in Settings (install guide in your language, releases, feedback).
-- Web app: `?demo` opens demo mode directly (https://drivelens-app.oharuru.com/?demo).
+- Web app: `?demo` opens demo mode directly ([https://drivelens-app.oharuru.com/?demo](https://drivelens-app.oharuru.com/?demo)).
 - No server update needed.
 
 ## v0.15.0 — 2026-10-20
-- **Web app (PWA)** at https://drivelens-app.oharuru.com: works in any modern browser and can be installed to the home screen (also on iPhone / iPad). Share cards are downloaded or shared with the system share sheet; cover photos are picked from files.
+- **Web app (PWA)** at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com): works in any modern browser and can be installed to the home screen (also on iPhone / iPad). Share cards are downloaded or shared with the system share sheet; cover photos are picked from files.
 - The setup screen explains the web requirements (https, CORS) and tells apart blocked cross-origin requests, http addresses, certificate / connection errors and being offline.
 - Server 0.11.0: `DRIVELENS_CORS_ORIGINS` (allows the official web app and the Windows / Android apps by default). No database changes.
 

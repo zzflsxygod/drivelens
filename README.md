@@ -7,7 +7,7 @@
 
 DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/teslamate). A small read-only API on your own server (**drivelens-api**) reads your TeslaMate database, and the DriveLens web app shows your car, drives, charging, journeys, monthly reports and battery health in a clean, mobile-first interface.
 
-- **Web app:** https://drivelens-app.oharuru.com (phones and desktops, can be installed to the home screen)
+- **Web app:** [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) (phones and desktops, can be installed to the home screen)
 - **Try it without a server:** [demo mode](https://drivelens-app.oharuru.com/?demo) (a fictional car, no server needed)
 - **Set up your server:** [install guide](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)
 - **What's new:** [CHANGELOG](CHANGELOG.md) · [Releases](https://github.com/zzflsxygod/drivelens/releases)
@@ -62,9 +62,9 @@ docker compose exec -T database psql -U teslamate -d teslamate -v ro_pass="$DRIV
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 ```
 
-Then give the server an https address ([Cloudflare Tunnel](docs/install.md#cloudflare-tunnel) or [Tailscale](docs/install.md#tailscale)), open https://drivelens-app.oharuru.com and enter that address and `DRIVELENS_API_TOKEN`. The [install guide](docs/install.md) explains every step.
+Then give the server an https address ([Cloudflare Tunnel](docs/install.md#cloudflare-tunnel) or [Tailscale](docs/install.md#tailscale)), open [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) and enter that address and `DRIVELENS_API_TOKEN`. The [install guide](docs/install.md) explains every step.
 
-The official web app at https://drivelens-app.oharuru.com is the supported way to use DriveLens; self-hosting the web app is not officially supported.
+The official web app at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) is the supported way to use DriveLens; self-hosting the web app is not officially supported.
 
 ## Privacy
 

@@ -285,7 +285,7 @@ Linux 需先安装：`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana
 
 ### 网页版 / PWA（v0.15.0 起）
 
-- `cd app && npm run build:web` → `app/dist-web/`（同一套代码；运行时检测 Tauri / 浏览器，构建时 `--mode web` 额外生成 `manifest.webmanifest`、只缓存 App 外壳的 `sw.js`、图标和 Cloudflare Pages 用的 `_headers`）。本地预览：`npm run preview:web`（http://localhost:4174）。
+- `cd app && npm run build:web` → `app/dist-web/`（同一套代码；运行时检测 Tauri / 浏览器，构建时 `--mode web` 额外生成 `manifest.webmanifest`、只缓存 App 外壳的 `sw.js`、图标和 Cloudflare Pages 用的 `_headers`）。本地预览：`npm run preview:web`（[http://localhost:4174](http://localhost:4174)）。
 - 构建变量：`VITE_DONATE_URL`（设置页底部「支持 DriveLens」卡片的链接，为空则不显示）、`VITE_DONATE_WEB_ONLY=1`（只在网页版显示）、`VITE_WEB_ORIGIN`（默认 `https://drivelens-app.oharuru.com`）。
 - 官方地址 `https://drivelens-app.oharuru.com`：`.github/workflows/web.yml` 每次构建都上传 artifact，打 tag（或手动运行并勾选 deploy）时在有 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets 的情况下部署到 Cloudflare Pages（项目名默认 `drivelens-app`，可用仓库变量 `CF_PAGES_PROJECT` 修改；`DONATE_URL` 变量即 `VITE_DONATE_URL`）。没有 secrets 时跳过部署。
 - API 默认 CORS 只允许官方网页版和 Tauri App（`DRIVELENS_CORS_ORIGINS` 可改，见 docs/install.md）。
@@ -408,7 +408,7 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 
 ## v0.15.0 — 网页版（PWA）+ API 0.11.0（可配置 CORS）
 
-- 网页版：`npm run build:web` 生成可安装的 PWA（manifest、竖屏、主题色、apple-touch-icon、只缓存 App 外壳的 service worker，API 响应从不缓存）。官方地址 https://drivelens-app.oharuru.com（部署见上文「网页版 / PWA」）。
+- 网页版：`npm run build:web` 生成可安装的 PWA（manifest、竖屏、主题色、apple-touch-icon、只缓存 App 外壳的 service worker，API 响应从不缓存）。官方地址 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)（部署见上文「网页版 / PWA」）。
 - 网页版设置向导说明 https + CORS 要求，并区分 CORS 被拒、混合内容（http）、无法连接 / 证书、离线等错误。分享卡片用下载 / Web Share，封面照片用文件选择（仍转 JPG ≤1600px）。演示模式在网页版可用。
 - 设置页底部「支持 DriveLens」卡片（`VITE_DONATE_URL`，为空时隐藏）；网页版显示「安装为应用」。
 - API 0.11.0：`DRIVELENS_CORS_ORIGINS`（旧名 `CORS_ORIGINS`），默认允许官方网页版 + Tauri App 来源，`*` = 任意；预检缓存 10 分钟，支持 Private Network Access。api_level 不变（12），无数据库迁移。
@@ -418,7 +418,7 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 
 > 1.1.2 起本仓库按 AGPL-3.0-or-later 开源，安装指南、CHANGELOG、截图（`docs/screenshots/`）、Issue 模板（`.github/ISSUE_TEMPLATE/`）都在本仓库；`distribution/`、`sync-public.sh`、`public-sync.yml` 已删除。以下为当时的记录。
 
-源码仓库保持私有；面向用户的内容放在公开仓库 **https://github.com/zzflsxygod/drivelens-releases** ：
+源码仓库保持私有；面向用户的内容放在公开仓库 **[https://github.com/zzflsxygod/drivelens-releases](https://github.com/zzflsxygod/drivelens-releases)** ：
 - README（English 默认 + README.zh.md / README.ja.md）、截图（演示模式）、CHANGELOG、LICENSE（v1.1.1 之前为免费专有软件；开源后改为 AGPL-3.0-or-later）、Issue 模板。
 - `docs/install.md`（English）/ `install.zh.md` / `install.ja.md`、`deploy/setup.sql`、`deploy/docker-compose.drivelens.yml`（默认使用预构建镜像 `ghcr.io/zzflsxygod/drivelens-api:latest`，不再需要源码）。
 - 这些文件的来源：本仓库 `distribution/`（README、LICENSE、CHANGELOG、截图、Issue 模板）+ `docs/install*.md` + `deploy/setup.sql` + `deploy/docker-compose.drivelens.yml`。

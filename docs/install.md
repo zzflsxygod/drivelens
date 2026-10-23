@@ -5,7 +5,7 @@
 DriveLens has two parts:
 
 - **drivelens-api**, a small Docker container next to TeslaMate on your server. It reads the TeslaMate database through a read-only account.
-- **The DriveLens web app** at **https://drivelens-app.oharuru.com**. You enter your server address and token there once.
+- **The DriveLens web app** at **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)**. You enter your server address and token there once.
 
 > DriveLens **never modifies TeslaMate's tables**. Its database account can only read them. DriveLens' own data (place names, manual charging costs, journeys, covers, push subscriptions, weather cache) lives in a separate `drivelens` schema.
 
@@ -122,7 +122,7 @@ Notes:
 
 ## 6. Connect the web app
 
-1. Open **https://drivelens-app.oharuru.com** (or try the demo first from the welcome screen).
+1. Open **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** (or try the demo first from the welcome screen).
 2. Enter the **server URL** from step 5 and the **API token** (`DRIVELENS_API_TOKEN` from `.env`).
 3. Tap **Test connection & start**. The app checks `/health`, then loads your cars with the token.
 

@@ -7,7 +7,7 @@
 
 DriveLens は [TeslaMate](https://github.com/teslamate-org/teslamate) のためのサードパーティアプリです。ご自身のサーバーで動く小さな読み取り専用 API（**drivelens-api**）が TeslaMate のデータベースを読み、DriveLens ウェブ版がクルマの状態、走行、充電、旅、月次レポート、バッテリー健全性を、スマートフォン向けのすっきりした画面で表示します。
 
-- **ウェブ版：** https://drivelens-app.oharuru.com （スマートフォンでも PC でも使え、ホーム画面に追加できます）
+- **ウェブ版：** [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) （スマートフォンでも PC でも使え、ホーム画面に追加できます）
 - **サーバーなしで試す：** [デモモード](https://drivelens-app.oharuru.com/?demo)（架空のクルマ、サーバー不要）
 - **サーバーの設定：** [インストールガイド](docs/install.ja.md) · [English](docs/install.md) · [中文](docs/install.zh.md)
 - **更新情報：** [CHANGELOG](CHANGELOG.md)（英語）· [Releases](https://github.com/zzflsxygod/drivelens/releases)
@@ -62,9 +62,9 @@ docker compose exec -T database psql -U teslamate -d teslamate -v ro_pass="$DRIV
 docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
 ```
 
-次にサーバーへ https のアドレスを用意し（[Cloudflare Tunnel](docs/install.ja.md#cloudflare-tunnel) または [Tailscale](docs/install.ja.md#tailscale)）、https://drivelens-app.oharuru.com を開いてそのアドレスと `DRIVELENS_API_TOKEN` を入力します。各手順は[インストールガイド](docs/install.ja.md)で説明しています。
+次にサーバーへ https のアドレスを用意し（[Cloudflare Tunnel](docs/install.ja.md#cloudflare-tunnel) または [Tailscale](docs/install.ja.md#tailscale)）、[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) を開いてそのアドレスと `DRIVELENS_API_TOKEN` を入力します。各手順は[インストールガイド](docs/install.ja.md)で説明しています。
 
-DriveLens は公式ウェブ版 https://drivelens-app.oharuru.com でお使いください。ウェブ版のセルフホストは公式サポートの対象外です。
+DriveLens は公式ウェブ版 [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) でお使いください。ウェブ版のセルフホストは公式サポートの対象外です。
 
 ## プライバシー
 

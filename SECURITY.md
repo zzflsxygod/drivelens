@@ -14,7 +14,7 @@ You should get a first reply within a few days. Once a fix is released, the advi
 
 ## Supported versions
 
-Only the latest release is supported. drivelens-api is normally kept up to date automatically (Watchtower), and the official web app at https://drivelens-app.oharuru.com always runs the latest version.
+Only the latest release is supported. drivelens-api is normally kept up to date automatically (Watchtower), and the official web app at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) always runs the latest version.
 
 ## Privacy promise
 
