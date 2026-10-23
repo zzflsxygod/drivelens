@@ -1,25 +1,33 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # DriveLens release: server first, then the app.
-#   1. push main  → wait for the "Docker image" CI run of this commit to succeed (:latest pushed)
+#   1. land HEAD on main through a pull request (main is protected: no direct pushes, admins included):
+#      push HEAD to release/vX.Y.Z, open (or reuse) a PR titled "release: vX.Y.Z" with the CHANGELOG section as body,
+#      wait for the required checks (api, app, dco), merge with --rebase, move the local main to origin/main
+#      (scripts/pr-lib.sh) → wait for the "Docker image" CI run of the merged main commit to succeed (:latest pushed)
 #   2. poll https://<domain>/health until "version" == api/Cargo.toml version (skipped when api/ is unchanged since the last tag)
 #      (Watchtower on the server pulls :latest within ~5 min)
-#   3. tag vX.Y.Z → wait for the Web (PWA) build; with NATIVE_BUILDS=1 also the Windows build (creates a DRAFT release)
+#   3. tag the merged main commit vX.Y.Z → wait for the Web (PWA) build; with NATIVE_BUILDS=1 also the Windows build (creates a DRAFT release)
 #      and the Android build (attaches APK + AAB). With NATIVE_BUILDS=0 (scripts/release.conf) the draft is created here.
 #      The web app is only offered at the official URL (the web workflow deploys it to Cloudflare Pages); no web zip is attached.
 #   4. publish the draft: from 1.0.0 on a plain X.Y.Z is a normal release marked Latest; 0.x versions and
 #      versions with a suffix (1.1.0-beta.1) are prereleases. DRIVELENS_PRERELEASE=1 / =0 forces either way.
 #      Release notes come from the version's section in CHANGELOG.md when the draft is created here.
 #      Releases live only in this repo (zzflsxygod/drivelens); the old drivelens-releases mirror is retired.
-# Usage: scripts/release.sh [api-base-url] [--skip-health]
+# Usage: scripts/release.sh [api-base-url] [--skip-health] [--dry-run]
+#   --dry-run: run the checks and show what step 1 would do, then stop (pushes and changes nothing)
 #   api-base-url defaults to $DRIVELENS_URL, else the first line of scripts/.release.local (gitignored, per machine)
-# Steps are idempotent: re-running after a failure continues where it stopped.
+# Steps are idempotent: re-running after a failure continues where it stopped (an open PR is reused, an already
+# merged one is detected by main having the same content as HEAD; once the tag exists, the tagged commit is used).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# shellcheck source=scripts/pr-lib.sh
+. scripts/pr-lib.sh
+ARG_URL="" SKIP_HEALTH="" DRY=""
+for a in "$@"; do case "$a" in --skip-health) SKIP_HEALTH=$a ;; --dry-run) DRY=1 ;; -*) echo "unknown option $a"; exit 1 ;; *) ARG_URL=$a ;; esac; done
 LOCAL_URL=$( [ -f scripts/.release.local ] && head -1 scripts/.release.local | tr -d '[:space:]' || true)
-BASE="${1:-${DRIVELENS_URL:-$LOCAL_URL}}"; BASE="${BASE%/}"
+BASE="${ARG_URL:-${DRIVELENS_URL:-$LOCAL_URL}}"; BASE="${BASE%/}"
 [ -n "$BASE" ] || { echo "no server URL: pass it as the first argument, set DRIVELENS_URL, or put it in scripts/.release.local"; exit 1; }
-SKIP_HEALTH="${2:-}"
 NATIVE_BUILDS=$( [ -f scripts/release.conf ] && sed -n 's/^NATIVE_BUILDS=\([01]\).*/\1/p' scripts/release.conf | tail -1 || true)
 NATIVE_BUILDS="${DRIVELENS_NATIVE_BUILDS:-${NATIVE_BUILDS:-1}}"
 VER=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' app/package.json | head -1)
@@ -32,9 +40,20 @@ for f in app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml; do
 done
 [ -z "$(git status --porcelain)" ] || { echo "working tree not clean"; exit 1; }
 
-echo "== 1. push main and wait for Docker CI ($TAG)"
-git push -q origin HEAD:main
-SHA=$(git rev-parse HEAD)
+git fetch -q origin main "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || git fetch -q origin main
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  SHA=$(git rev-list -n1 "$TAG")
+  echo "== 1. $TAG already tagged ($(git rev-parse --short "$SHA")) — not opening a PR; waiting for Docker CI"
+  [ -z "$DRY" ] || { echo "   [dry-run] would continue with the tagged commit"; exit 0; }
+else
+  echo "== 1. land HEAD on main via PR (release/$TAG) and wait for Docker CI"
+  NOTES_FILE=$(mktemp); trap 'rm -f "$NOTES_FILE"' EXIT
+  awk -v v="$TAG" '$0 ~ "^## "v"( |$)" {f=1; next} /^## / {if (f) exit} f' CHANGELOG.md | sed '/./,$!d' >"$NOTES_FILE"
+  [ -s "$NOTES_FILE" ] || echo "Release $TAG (no CHANGELOG.md section found)." >"$NOTES_FILE"
+  pr_land "release/$TAG" "release: $TAG" "$NOTES_FILE" "$DRY"
+  [ -z "$DRY" ] || { echo "   [dry-run] stopping before the Docker wait / health / tag / release steps"; exit 0; }
+  SHA=$(git rev-parse origin/main)
+fi
 wait_run() { # workflow file, ref (branch or tag), [paths that trigger it]
   local id="" tries=60
   # main pushes are path-filtered: if this commit changed nothing relevant, no run is created →
@@ -66,9 +85,9 @@ wait_run() { # workflow file, ref (branch or tag), [paths that trigger it]
 wait_run docker.yml main "api .github/workflows/docker.yml"
 
 # app-only release: api/ unchanged since the previous release tag → the server keeps its version; don't wait for it
-PREV=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+PREV=$(git describe --tags --abbrev=0 --match 'v*' "$SHA" 2>/dev/null || true)
 [ "$PREV" = "$TAG" ] && PREV=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
-if [ "$SKIP_HEALTH" != "--skip-health" ] && [ -n "$PREV" ] && git diff --quiet "$PREV" HEAD -- api; then
+if [ "$SKIP_HEALTH" != "--skip-health" ] && [ -n "$PREV" ] && git diff --quiet "$PREV" "$SHA" -- api; then
   echo "== 2. api/ unchanged since $PREV (server stays $API_VER) — skipping health wait"; SKIP_HEALTH=--skip-health
 fi
 if [ "$SKIP_HEALTH" != "--skip-health" ]; then
@@ -84,7 +103,7 @@ fi
 
 if [ "$NATIVE_BUILDS" = 1 ]; then echo "== 3. tag $TAG and wait for the Web, Windows (draft release) + Android builds"
 else echo "== 3. tag $TAG and wait for the Web build (Windows/Android paused: NATIVE_BUILDS=0 in scripts/release.conf)"; fi
-git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG"
+git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG" "$SHA"
 git push -q origin "$TAG" 2>/dev/null || true
 wait_run web.yml "$TAG"
 if [ "$NATIVE_BUILDS" = 1 ]; then

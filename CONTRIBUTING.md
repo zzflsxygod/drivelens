@@ -27,6 +27,10 @@ Signed-off-by: Your Name <you@example.com>
 
 `git commit -s` adds it for you. To fix the last commit: `git commit --amend -s`. For several commits: `git rebase --signoff main`.
 
+## Pull requests
+
+`main` is protected and only changes through pull requests — for everyone, maintainers included. A pull request can be merged when the `api`, `app` and `dco` checks pass and the branch is up to date with `main`. Pull requests are merged with **rebase and merge**, so keep each commit meaningful (and signed off); fixup commits are best squashed before you ask for a merge. Maintainers can use `scripts/pr.sh <branch>` to push, open, wait for checks and merge in one step.
+
 ## Running DriveLens locally
 
 Requirements: Rust stable (1.85+), Node.js 20+, PostgreSQL 14+ and Python 3 (for the sample data).
