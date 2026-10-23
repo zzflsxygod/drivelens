@@ -431,7 +431,9 @@ pub fn push_client() -> anyhow::Result<reqwest::Client> {
 }
 
 /// Create or update (same endpoint) a subscription. Omitted toggles keep their value (new: on).
-pub async fn subscribe(State(s): State<AppState>, Json(b): Json<SubscribeBody>) -> Result<Response, ApiError> {
+/// The subscription is linked to the calling device (device tokens; NULL for the owner key), so revoking a
+/// device also removes its subscriptions (FK ON DELETE CASCADE).
+pub async fn subscribe(State(s): State<AppState>, principal: Option<axum::Extension<crate::auth::Principal>>, Json(b): Json<SubscribeBody>) -> Result<Response, ApiError> {
     if !push_ok(&s).await? { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, MISSING)); }
     if !valid_endpoint(&b.endpoint) { return Ok(err(StatusCode::BAD_REQUEST, "endpoint must be an https URL of a known push service")); }
     let probe = Sub { id: 0, endpoint: b.endpoint.clone(), p256dh: b.keys.p256dh.clone(), auth: b.keys.auth.clone(), tz: String::new(), locale: String::new(), car_ids: None, fail_count: 0 };
@@ -443,15 +445,20 @@ pub async fn subscribe(State(s): State<AppState>, Json(b): Json<SubscribeBody>) 
     let ua = b.user_agent.map(|u| u.chars().take(300).collect::<String>());
     let cars = b.car_ids.filter(|c| !c.is_empty() && c.len() <= 50);
     // last_monthly = last month: subscribing on the 1st does not immediately fire a reminder for a month already over
-    sqlx::query(
-        "INSERT INTO drivelens.push_subscriptions (endpoint, p256dh, auth, trip_summary, monthly_report, tz, locale, car_ids, user_agent, last_monthly)
-         VALUES ($1, $2, $3, COALESCE($4, true), COALESCE($5, true), $6, $7, $8, $9, to_char((now() AT TIME ZONE $6) - interval '1 month', 'YYYY-MM'))
+    let device = match principal { Some(axum::Extension(crate::auth::Principal::Device { id, .. })) => Some(id), _ => None };
+    let link = s.auth.push_link();
+    let (dcol, dval, dset) = if link { (", device_id", ", $10", ", device_id = EXCLUDED.device_id") } else { ("", "", "") };
+    let sql = format!(
+        "INSERT INTO drivelens.push_subscriptions (endpoint, p256dh, auth, trip_summary, monthly_report, tz, locale, car_ids, user_agent, last_monthly{dcol})
+         VALUES ($1, $2, $3, COALESCE($4, true), COALESCE($5, true), $6, $7, $8, $9, to_char((now() AT TIME ZONE $6) - interval '1 month', 'YYYY-MM'){dval})
          ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth,
            trip_summary = COALESCE($4, push_subscriptions.trip_summary), monthly_report = COALESCE($5, push_subscriptions.monthly_report),
            tz = EXCLUDED.tz, locale = EXCLUDED.locale, car_ids = EXCLUDED.car_ids, user_agent = COALESCE(EXCLUDED.user_agent, push_subscriptions.user_agent),
-           fail_count = 0, last_error = NULL, updated_at = now()")
+           fail_count = 0, last_error = NULL, updated_at = now(){dset}");
+    let q = sqlx::query(&sql)
         .bind(&b.endpoint).bind(b.keys.p256dh.trim()).bind(b.keys.auth.trim()).bind(b.trip_summary).bind(b.monthly_report)
-        .bind(&tz).bind(&locale).bind(&cars).bind(&ua).execute(&s.db).await?;
+        .bind(&tz).bind(&locale).bind(&cars).bind(&ua);
+    if link { q.bind(device) } else { q }.execute(&s.db).await?;
     let p: Prefs = sqlx::query_as(&prefs_sql()).bind(&b.endpoint).fetch_one(&s.db).await?;
     Ok(Json(p).into_response())
 }
