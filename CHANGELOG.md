@@ -4,6 +4,14 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## Unreleased
+- **Server 0.14.0** (`api_level` 15) — device auth, groundwork for app 1.2.0. Existing apps keep working unchanged:
+  - **Device tokens:** each device can get its own token (`dlt_…`); the server stores only a hash. Devices can be listed, renamed and revoked one by one (`/api/auth/devices`), so a lost phone no longer means changing `.env` on every device. Rotating `API_TOKEN` does not sign devices out.
+  - **Pairing codes:** a connected device creates a short code (`XXXX-XXXX`, 10 minutes, single use) that signs a new device in without typing the server token there. Codes can create **read-only** devices, optionally expiring after a number of days.
+  - **`DRIVELENS_OWNER_KEY_MODE`:** `full` (default, as before) or `pair-only` — the server token then only adds and manages devices, and is not even checked after too many failed attempts, while device tokens keep working.
+  - Removing a device also removes its notifications. The server token is compared in constant time regardless of its length.
+  - **Database:** two new tables in the `drivelens` schema (`devices`, `pairing_codes`) and a `device_id` column on `push_subscriptions`, created by the API on start. Servers where the API account cannot create tables keep working as before (device auth is then off); re-running `setup.sql` enables it.
+
 ## v1.1.2 — 2026-10-23
 - **DriveLens is now open source** under the [GNU AGPL-3.0-or-later](https://github.com/zzflsxygod/drivelens/blob/main/LICENSE). Source code, install guide, releases and issues are all in one place: [zzflsxygod/drivelens](https://github.com/zzflsxygod/drivelens). The old `drivelens-releases` repository is retired.
 - **Links updated:** the install guide (including the Tailscale section), "Releases & changelog" and feedback links in the app now open the main repository.
