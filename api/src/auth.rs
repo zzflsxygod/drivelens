@@ -667,11 +667,11 @@ pub struct PairBody { code: String, name: String }
 
 /// POST /api/auth/pair — unauthenticated: a pairing code becomes a device token. Own failure limit
 /// (PAIR_CLIENT_LIMIT per client, PAIR_GLOBAL_LIMIT overall per 10 minutes); beyond it codes are not evaluated.
-pub async fn pair(State(s): State<AppState>, ci: Option<ConnectInfo<SocketAddr>>, headers: HeaderMap, Json(b): Json<PairBody>) -> Result<Response, ApiError> {
+pub async fn pair(State(s): State<AppState>, ci: Option<Extension<ConnectInfo<SocketAddr>>>, headers: HeaderMap, Json(b): Json<PairBody>) -> Result<Response, ApiError> {
     let a = &s.auth;
     if !a.available() { return Ok(unavailable()); }
     let now = Instant::now();
-    let key = key_of(client_ip(&headers, ci.map(|c| c.0.ip()), trust_proxy_headers()));
+    let key = key_of(client_ip(&headers, ci.map(|Extension(c)| c.0.ip()), trust_proxy_headers()));
     if a.pair_blocked(&key, now) {
         a.delay(1000).await;
         return Ok((StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "600")],
@@ -727,11 +727,11 @@ mod tests {
         let ok = || async { "ok" };
         let inner = Router::new()
             .route("/cars", get(ok))
-            .route("/addresses/:id/alias", axum::routing::put(ok))
+            .route("/addresses/{id}/alias", axum::routing::put(ok))
             .route("/push/subscription", axum::routing::post(ok))
             .route("/auth/devices", get(ok).post(ok))
             .route("/auth/devices/current", axum::routing::patch(ok).delete(ok))
-            .route("/auth/devices/:id", axum::routing::delete(ok))
+            .route("/auth/devices/{id}", axum::routing::delete(ok))
             .route_layer(middleware::from_fn(move |req: Request, next: Next| {
                 let a = a.clone();
                 async move { check(&a, req, next).await }
