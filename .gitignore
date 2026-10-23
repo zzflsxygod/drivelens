@@ -7,9 +7,12 @@ dist/
 app/src-tauri/gen/schemas/
 .DS_Store
 scripts/.release.local
-# signing material never goes into the repo (see /home/box/drivelens-secrets on the build box)
+# signing material never goes into the repo (keep it outside the working tree)
 *.jks
 *.p12
 *.keystore
 keystore.properties
 dist-web/
+.env.local
+*.pem
+*.key

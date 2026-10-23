@@ -76,6 +76,6 @@ DriveLens は個人で開発・運営しており、無料で使えます。お�
 
 ## ライセンス
 
-DriveLens は**無料で使えます**が、**オープンソースではありません**。ソースコードは公開していません。詳しくは [LICENSE](LICENSE) をご覧ください。
+DriveLens は [GNU AGPL-3.0-or-later](LICENSE) で公開している無料のオープンソースソフトウェアです。Copyright (C) 2026 zzflsxygod。ソースコードは [zzflsxygod/drivelens](https://github.com/zzflsxygod/drivelens) にあります。
 
 DriveLens は独立したプロジェクトで、Tesla, Inc. および TeslaMate プロジェクトとは関係ありません。地図 © [OpenFreeMap](https://openfreemap.org) / © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors。天気データは [Open-Meteo](https://open-meteo.com) によるものです。
