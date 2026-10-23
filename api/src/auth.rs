@@ -38,7 +38,9 @@ const OWNER_GLOBAL_LIMIT: u32 = 50;
 const PAIR_CLIENT_LIMIT: u32 = 5;
 const PAIR_GLOBAL_LIMIT: u32 = 20;
 
-const UNAVAILABLE: &str = "device auth is not available: the API cannot create drivelens.devices / drivelens.pairing_codes; run deploy/setup.sql once as the TeslaMate DB admin and restart the API (see docs/install.md)";
+/// Fix for installs whose drivelens schema / tables belong to the TeslaMate admin (older SQL files).
+const DEVICE_FIX: &str = "as the TeslaMate DB admin, re-run deploy/setup.sql once, or run: GRANT USAGE, CREATE ON SCHEMA drivelens TO drivelens_ro; plus ALTER TABLE drivelens.<table> OWNER TO drivelens_ro for every drivelens table; then restart the API (see docs/install.md, Upgrading to 0.14.0)";
+const UNAVAILABLE: &str = "device auth is not available: the API cannot create drivelens.devices / drivelens.pairing_codes (the drivelens schema needs CREATE for drivelens_ro); as the TeslaMate DB admin, re-run deploy/setup.sql once and restart the API (see docs/install.md)";
 
 // ---------------- tables ----------------
 const DEVICES_DDL: &str = "CREATE TABLE IF NOT EXISTS drivelens.devices (
@@ -77,14 +79,14 @@ pub async fn try_migrate(db: &PgPool) {
     for (name, ddl) in [("drivelens.devices", DEVICES_DDL), ("drivelens.pairing_codes", PAIRING_DDL)] {
         if regclass(db, name).await { continue; }
         if let Err(e) = sqlx::query(ddl).execute(db).await {
-            tracing::warn!("device auth disabled: cannot create {name} ({e}); {SETUP_HINT}. The owner key (API_TOKEN) keeps working.");
+            tracing::warn!("device auth disabled: cannot create {name} ({e}); {DEVICE_FIX}. Everything else keeps working with the owner key (API_TOKEN).");
             return;
         }
     }
     // links push subscriptions to the device that registered them (revoking a device removes its subscriptions)
     if regclass(db, "drivelens.push_subscriptions").await && !push_link_exists(db).await {
         if let Err(e) = sqlx::query(PUSH_LINK_DDL).execute(db).await {
-            tracing::warn!("cannot add drivelens.push_subscriptions.device_id ({e}); notifications keep working but are not removed with a revoked device; {SETUP_HINT}");
+            tracing::warn!("cannot add drivelens.push_subscriptions.device_id ({e}); notifications keep working but are not removed with a revoked device; {DEVICE_FIX}");
         }
     } else if !regclass(db, "drivelens.push_subscriptions").await {
         tracing::warn!("drivelens.push_subscriptions is missing; push subscriptions will not be linked to devices");
@@ -319,6 +321,10 @@ impl AuthState {
     pub async fn init(db: PgPool, owner_key: &str, mode: OwnerKeyMode) -> AuthState {
         let a = AuthState::new(owner_key, mode, Some(db.clone()), true);
         a.refresh(&db).await;
+        // (missing tables were already reported by try_migrate)
+        if !a.available() && regclass(&db, "drivelens.devices").await && regclass(&db, "drivelens.pairing_codes").await {
+            tracing::warn!("device auth disabled: drivelens.devices / drivelens.pairing_codes are not usable by the API role; {DEVICE_FIX}");
+        }
         if mode == OwnerKeyMode::PairOnly && !a.available() {
             tracing::error!("DRIVELENS_OWNER_KEY_MODE=pair-only needs device auth, which is not available; using `full` so the owner key keeps working. {UNAVAILABLE}");
             a.pair_only.store(false, Ordering::Relaxed);
@@ -361,7 +367,7 @@ impl AuthState {
             *m = fresh;
         }
         if !self.available.swap(true, Ordering::Relaxed) {
-            tracing::info!("device auth: {} device(s)", self.devices.read().unwrap().len());
+            tracing::info!("device auth enabled: {} device(s)", self.devices.read().unwrap().len());
         }
     }
 
