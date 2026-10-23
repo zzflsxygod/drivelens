@@ -97,7 +97,7 @@ cd app && npm run build && npm run build:web            # 两者都会先跑 npm
 ## 前端要点
 
 - 文案：`app/src/locales/{zh,en,ja}.ts`；格式化（日期、时长、月份）：`app/src/i18n.ts`。
-- 网页版的 Token 只存在浏览器的 localStorage（`drivelens-settings`）。`src/urlguard.ts` 最先执行，去掉地址栏里的 `api` / `token` / `key` 参数；App 不从 URL 读取服务器地址或 Token。
+- 网页版的 Token 只存在浏览器的 localStorage（`drivelens-settings`）。App 1.2.0 起保存的是设备 Token（`tokenKind:"device"`，`app/src/auth.ts`）：引导页的第二栏是配对码或服务器 Token，服务器 Token 会换成设备 Token 后丢弃，旧设置在启动时自动迁移；设备 Token 收到 401 时触发 `drivelens-signed-out`，清除连接、服务器缓存（`isServerCacheKey()`）和通知订阅后回到引导页。设置 → 设备在 `app/src/devices.ts`；只读设备用 `canWrite()` 隐藏所有写操作入口。`src/urlguard.ts` 最先执行，去掉地址栏里的 `api` / `token` / `key` 参数；App 不从 URL 读取服务器地址或 Token。
 - 往 `innerHTML` 里拼接的数据一律转义（各模块的 `esc()`）或用 `textContent`；`?view=` 等深链接参数先校验格式。
 - CSP：网页版在 `app/web-public/_headers`，Tauri 在 `app/src-tauri/tauri.conf.json`；不要引入外部脚本或字体。
 - 弹出菜单统一用 `ui.ts` 的 `popMenu()` / `placePopover()`；弹层（`.modal`）由 `sheets.ts` 贴合可视视口（iOS 键盘）。

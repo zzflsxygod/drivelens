@@ -5,11 +5,11 @@
 DriveLens has two parts:
 
 - **drivelens-api**, a small Docker container next to TeslaMate on your server. It reads the TeslaMate database through a read-only account.
-- **The DriveLens web app** at **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)**. You enter your server address and token there once.
+- **The DriveLens web app** at **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)**. You connect it once with your server address and the server token, or with a pairing code from a device that is already connected.
 
-> DriveLens **never modifies TeslaMate's tables**. Its database account can only read them. DriveLens' own data (place names, manual charging costs, journeys, covers, push subscriptions, weather cache) lives in a separate `drivelens` schema.
+> DriveLens **never modifies TeslaMate's tables**. Its database account can only read them. DriveLens' own data (place names, manual charging costs, journeys, covers, push subscriptions, weather cache, connected devices) lives in a separate `drivelens` schema.
 
-Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)
+Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)
 
 ## Requirements
 
@@ -123,8 +123,12 @@ Notes:
 ## 6. Connect the web app
 
 1. Open **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** (or try the demo first from the welcome screen).
-2. Enter the **server URL** from step 5 and the **API token** (`DRIVELENS_API_TOKEN` from `.env`).
-3. Tap **Test connection & start**. The app checks `/health`, then loads your cars with the token.
+2. Enter the **server URL** from step 5 and, in the second field, either
+   - the **server token** (`DRIVELENS_API_TOKEN` from `.env`), or
+   - a **pairing code** such as `7KQ2-M9XD` from a device that is already connected (Settings → Devices → Add device, see [Managing devices](#devices)).
+3. Tap **Test connection & start**. The app checks `/health`, then loads your cars.
+
+With drivelens-api 0.14.0 or later the app exchanges the server token for a token of its own for this device (a *device token*) and does not keep the server token. Apps 1.2.0+ that saved the server token earlier switch to a device token by themselves on the next start.
 
 | Message | What to do |
 | --- | --- |
@@ -134,13 +138,28 @@ Notes:
 | Isn't a DriveLens API | You entered the TeslaMate or Grafana address; use the drivelens-api address |
 | Server does not allow this site (CORS) | Update drivelens-api; if you set `DRIVELENS_CORS_ORIGINS`, include `https://drivelens-app.oharuru.com` |
 | Server is too old | Update drivelens-api (step 8) |
+| Pairing code is wrong or no longer valid | Codes work once within 10 minutes. Create a new one on a connected device |
+| Update the server to v0.14.0 or later (pairing code) | The server is older than 0.14.0: update drivelens-api (step 8) or connect with the server token |
 | Too many wrong tokens (429) | After 10 failed attempts within 10 minutes the server answers 429 for a while; wait 10 minutes. Devices that are already connected keep working |
 
-You can change the server and token later in Settings → Server. Language, theme, map label language and default currency are in Settings too.
+You can change the server later in Settings → Server (leave the code / token field empty to keep the current connection). Language, theme, map label language and default currency are in Settings too.
 
 **Install to the home screen:** on Android and desktop Chrome / Edge use "Install as an app" in Settings or the browser menu → Install. On iPhone / iPad (Safari): Share → Add to Home Screen.
 
-The server address and token are stored only in this browser's local storage and are sent only to your server. On a shared computer, remove them by clearing this site's data in the browser. The offline cache holds only the app itself; API responses are never cached.
+The server address and this device's token are stored only in this browser's local storage and are sent only to your server, always in a request header (never in a URL). **Settings → Sign out of this device** removes them together with the cached data and the notification subscription (with a device token it is also disconnected on the server). The offline cache holds only the app itself; API responses are never cached.
+
+### Managing devices <a id="devices"></a>
+
+With drivelens-api 0.14.0+ and app 1.2.0+ every phone, tablet or browser has its own device token. **Settings → Devices** lists them with the last use and address; ⋯ on a row renames or disconnects it.
+
+- **Add a device without the server token:** tap **Add device**, choose **Full access** or **Read-only** (read-only devices can expire after 7 or 30 days, or never), then **Create pairing code**. On the new device enter the server address and the code. A code is valid for 10 minutes and works once.
+- **Read-only** devices can see everything but cannot rename places, edit charging costs or journeys, or manage devices. Good for family members or a car screen.
+- **Lost a phone?** Disconnect it from another device. It is signed out on its next request and its cached data is removed.
+- **Disconnect all other devices** signs out everything except the device you are using.
+- **Change the server token** (if it may have leaked): put a new `DRIVELENS_API_TOKEN` into `.env` and run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`. Devices with a device token stay connected. Only apps older than 1.2.0, which still use the server token, need the new one.
+- Optional hardening: `DRIVELENS_OWNER_KEY_MODE=pair-only` makes the server token usable only for adding and managing devices (see [Environment variables](#environment-variables)).
+
+The device list needs `CREATE` on the `drivelens` schema, like the other DriveLens tables (`deploy/setup.sql` sets this up). Without it the API logs `device auth disabled` and everything keeps working with the server token as before.
 
 ## 7. Notifications
 

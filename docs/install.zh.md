@@ -5,11 +5,11 @@
 DriveLens 由两部分组成：
 
 - **drivelens-api**：放在服务器上、和 TeslaMate 一起运行的小型 Docker 容器，通过只读账号读取 TeslaMate 数据库。
-- **DriveLens 网页版**：**[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** 。在这里填一次服务器地址和 Token 即可。
+- **DriveLens 网页版**：**[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)** 。用服务器地址和服务器 Token（或者已连接设备生成的配对码）连接一次即可。
 
-> DriveLens **绝不修改 TeslaMate 的表**，它的数据库账号对这些表只有读取权限。DriveLens 自己的数据（地点名称、手动录入的充电费用、旅程、封面、推送订阅、天气缓存）放在独立的 `drivelens` schema 里。
+> DriveLens **绝不修改 TeslaMate 的表**，它的数据库账号对这些表只有读取权限。DriveLens 自己的数据（地点名称、手动录入的充电费用、旅程、封面、推送订阅、天气缓存、已连接的设备）放在独立的 `drivelens` schema 里。
 
-目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载)
+目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载)
 
 ## 前提条件
 
@@ -123,8 +123,12 @@ compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问�
 ## 6. 在网页版里连接
 
 1. 打开 **[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)**（也可以先在欢迎页体验演示）。
-2. 填写第 5 步得到的**服务器地址**和 **API Token**（`.env` 里的 `DRIVELENS_API_TOKEN`）。
-3. 点「测试连接并开始」。App 会先检查 `/health`，再用 Token 读取你的车辆。
+2. 填写第 5 步得到的**服务器地址**，第二栏填下面任意一个：
+   - **服务器 Token**（`.env` 里的 `DRIVELENS_API_TOKEN`）；
+   - 已连接设备生成的**配对码**，例如 `7KQ2-M9XD`（设置 → 设备 → 添加设备，见[管理设备](#devices)）。
+3. 点「测试连接并开始」。App 会先检查 `/health`，再读取你的车辆。
+
+drivelens-api 0.14.0 以上时，App 会用服务器 Token 换一个这台设备专用的 Token（设备 Token），并且不保存服务器 Token。之前保存了服务器 Token 的 App（1.2.0 以上）会在下次启动时自动换成设备 Token。
 
 | 提示 | 处理方法 |
 | --- | --- |
@@ -134,13 +138,28 @@ compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问�
 | 不是 DriveLens API | 你填的是 TeslaMate 或 Grafana 的地址，请填 drivelens-api 的地址 |
 | 服务器不允许此网站（CORS） | 更新 drivelens-api；如果设置了 `DRIVELENS_CORS_ORIGINS`，需要包含 `https://drivelens-app.oharuru.com` |
 | 服务器版本太旧 | 更新 drivelens-api（第 8 步） |
+| 配对码不正确或已失效 | 配对码 10 分钟内有效，只能用一次。请在已连接的设备上重新生成 |
+| 请把服务器更新到 v0.14.0 以上（配对码） | 服务器版本低于 0.14.0：更新 drivelens-api（第 8 步），或者改用服务器 Token 连接 |
 | Token 错误次数过多（429） | 10 分钟内失败 10 次后，服务器会暂时返回 429；等 10 分钟再试。已连接的设备不受影响 |
 
-服务器地址和 Token 之后可以在「设置 → 服务器」里修改。语言、主题、地图标注语言和默认币种也在设置里。
+服务器之后可以在「设置 → 服务器」里修改（配对码 / Token 一栏留空则保持当前连接）。语言、主题、地图标注语言和默认币种也在设置里。
 
 **添加到主屏幕：** Android 和电脑上的 Chrome / Edge，用设置里的「安装为应用」或浏览器菜单 → 安装。iPhone / iPad（Safari）：分享 → 添加到主屏幕。
 
-服务器地址和 Token 只保存在这个浏览器的本地存储里，只会发送到你的服务器。在共用电脑上，可以在浏览器里清除本网站的数据来删除它们。离线缓存只包含 App 本身，API 返回的数据从不缓存。
+服务器地址和这台设备的 Token 只保存在这个浏览器的本地存储里，只会发送到你的服务器，而且总是放在请求头里（不会出现在 URL 里）。**设置 → 退出此设备**会把它们连同缓存的数据和通知订阅一起删除（设备 Token 还会在服务器上同时解除）。离线缓存只包含 App 本身，API 返回的数据从不缓存。
+
+### 管理设备 <a id="devices"></a>
+
+drivelens-api 0.14.0 以上配合 App 1.2.0 以上时，每台手机、平板或浏览器都有自己的设备 Token。**设置 → 设备**会列出它们以及最后使用的时间和地址；点每行的 ⋯ 可以改名或解除连接。
+
+- **不用服务器 Token 添加设备：**点**添加设备**，选择**完全访问**或**只读**（只读设备可以设置 7 天或 30 天后失效，或不过期），再点**生成配对码**。在新设备上填服务器地址和配对码即可。配对码 10 分钟内有效，只能用一次。
+- **只读**设备可以查看所有数据，但不能改地点名、充电费用和旅程，也不能管理设备。适合给家人或车载屏幕使用。
+- **手机丢了？**在另一台设备上解除它的连接。它在下一次请求时就会退出，缓存的数据也会被删除。
+- **解除其他所有设备**会让除当前设备以外的所有设备退出。
+- **更换服务器 Token**（怀疑泄露时）：把新的 `DRIVELENS_API_TOKEN` 写进 `.env`，执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`。使用设备 Token 的设备保持连接，只有还在用服务器 Token 的旧版 App（1.2.0 之前）需要填新 Token。
+- 可选加固：`DRIVELENS_OWNER_KEY_MODE=pair-only` 让服务器 Token 只能用来添加和管理设备（见[环境变量](#环境变量)）。
+
+设备列表和 DriveLens 的其他表一样，需要 `drivelens` schema 的 `CREATE` 权限（`deploy/setup.sql` 会设置好）。没有这个权限时 API 会在日志里输出 `device auth disabled`，其他功能照常使用服务器 Token。
 
 ## 7. 通知
 
