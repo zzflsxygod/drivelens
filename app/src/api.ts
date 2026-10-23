@@ -4,7 +4,11 @@ import { isDemo, DEMO_URL, DEMO_TOKEN } from "./demo";
 export type Theme = "auto" | "light" | "dark";
 export type LabelLang = "ja" | "zh" | "en" | "local";
 export interface Settings { apiUrl: string; token: string; uiLang?: "auto" | "zh" | "en" | "ja"; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean;
-  suggestionsOff?: boolean; suggestionsCollapsed?: boolean; dismissedDrives?: number[] }
+  suggestionsOff?: boolean; suggestionsCollapsed?: boolean; dismissedDrives?: number[];
+  /** Device auth (server 0.14.0+): "device" = token is a per-device dlt_ token; absent = owner key (unknown). */
+  tokenKind?: "owner" | "device"; deviceId?: number;
+  /** Scope of this device's token, cached so read-only devices never flash edit controls before /api/auth/me answers. */
+  deviceScope?: "full" | "read" }
 const KEY = "drivelens-settings";
 function stored(): Settings {
   try { return { apiUrl: "", token: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }
@@ -16,12 +20,14 @@ export function loadSettings(): Settings {
   return isDemo() ? { ...s, apiUrl: DEMO_URL, token: DEMO_TOKEN } : s;
 }
 /** The server configured by the user (ignores demo mode). */
-export const realServer = () => { const s = stored(); return { apiUrl: s.apiUrl, token: s.token }; };
+export const realServer = () => { const s = stored(); return { apiUrl: s.apiUrl, token: s.token, tokenKind: s.tokenKind, deviceId: s.deviceId, deviceScope: s.deviceScope }; };
 export function saveSettings(s: Settings) {
   // never persist the demo endpoint over the real configuration
   const v = isDemo() ? { ...s, ...realServer() } : s;
   localStorage.setItem(KEY, JSON.stringify(v));
 }
+/** Fired when the server rejects this device's own token (revoked from another device / expired). */
+export const SIGNED_OUT_EVENT = "drivelens-signed-out";
 
 export interface Car { id: number; name: string | null; model: string | null; marketing_name: string | null; vin: string | null }
 export interface Charge {
@@ -58,11 +64,18 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     // browsers report CORS / DNS / TLS / offline all as a bare TypeError ("Failed to fetch")
     throw new Error(!navigator.onLine ? t("api.offline") : "__TAURI_INTERNALS__" in window ? t("api.network") : t("api.networkWeb"));
   }
-  if (res.status === 401) throw new Error(t("api.401"));
+  if (res.status === 401) {
+    // a device token is never "mistyped": 401 means it was revoked or expired → sign this device out
+    if (s.tokenKind === "device" && !isDemo()) { window.dispatchEvent(new Event(SIGNED_OUT_EVENT)); throw new Error(t("api.signedOut")); }
+    throw new Error(t("api.401"));
+  }
   if (res.status === 429) throw new Error(t("api.429"));
   if (!res.ok) {
     let detail = "";
-    try { detail = (await res.json()).error ?? ""; } catch { /* not json */ }
+    let code = "";
+    try { const j = await res.json(); detail = j.error ?? ""; code = j.code ?? ""; } catch { /* not json */ }
+    if (res.status === 403 && code === "read_only") throw new Error(t("api.readOnly"));
+    if (res.status === 403 && code === "owner_key_pair_only") throw new Error(t("api.ownerKeyPairOnly"));
     if (res.status === 503 && /charge_costs/.test(detail))
       throw new Error(t("api.noCosts"));
     if (res.status === 503 && /v0\.7\.0|cover_image|weather_hourly/.test(detail))

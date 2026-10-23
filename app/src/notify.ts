@@ -81,7 +81,7 @@ async function enable(): Promise<State> {
   const p = await api<Prefs>("/api/push/subscription", "POST", body(s, { trip_summary: true, monthly_report: true }));
   return { k: "on", p };
 }
-async function disable(): Promise<State> {
+export async function disable(): Promise<State> {
   if (isDemo()) { saveDemo({ subscribed: false }); return { k: "off" }; }
   const s = await browserSub();
   if (s) { await api("/api/push/unsubscribe", "POST", { endpoint: s.endpoint }).catch(() => {}); await s.unsubscribe().catch(() => {}); }
