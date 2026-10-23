@@ -109,7 +109,9 @@ Windows / Android 打包从 v0.15.0 起暂停：`.github/workflows/windows.yml`�
 
 ## 发布（维护者）
 
-- `scripts/release.sh`：推送 main → 等 Docker 镜像（`ghcr.io/zzflsxygod/drivelens-api`，amd64 + arm64，`.github/workflows/docker.yml`）构建完成 → `api/` 有改动时等服务器 `/health` 显示新版本 → 打 tag，`web.yml` 构建网页版并部署 → 发布 Release。`X.Y.Z` 为正式版（Latest），带后缀的版本为预发布。
+- **main 受保护，所有改动（包括管理员和发布）都必须走 PR**：必须有 PR（0 个审批即可）、CI 的 `api` / `app` / `dco` 三项检查通过且分支与 main 同步，禁止 force push 和删除，保持线性历史。合并方式只开 **Rebase and merge**（每个 commit 原样保留，`Signed-off-by` 不丢），合并后自动删除分支。
+- 日常改动：`git commit -s` 后运行 `scripts/pr.sh <分支名>`（在功能分支上可省略分支名）。脚本会推送分支、开 PR、等检查通过、rebase 合并，再把本地 main 移到合并后的 `origin/main`。`--dry-run` 只显示要做什么。也可以手动：`git push origin HEAD:fix/x && gh pr create --base main --head fix/x --fill && gh pr merge fix/x --rebase --auto`。
+- `scripts/release.sh`：把 HEAD 推到 `release/vX.Y.Z` → 开 PR「release: vX.Y.Z」（正文取自 CHANGELOG）→ 等检查通过后 rebase 合并 → 等 main 上合并后的 commit 构建 Docker 镜像（`ghcr.io/zzflsxygod/drivelens-api`，amd64 + arm64，`.github/workflows/docker.yml`）→ `api/` 有改动时等服务器 `/health` 显示新版本 → 给 main 上的合并 commit 打 tag，`web.yml` 构建网页版并部署 → 发布 Release。`X.Y.Z` 为正式版（Latest），带后缀的版本为预发布。中途失败直接重跑：已开的 PR 会复用，已合并的会跳过，tag 已存在时直接用 tag 指向的 commit。`--dry-run` 只做检查并显示第 1 步要做什么。tag 不受分支保护影响（仓库没有 tag 规则）。
 - 发布说明取自根目录 `CHANGELOG.md` 中对应版本的段落；版本号要同时改 `api/Cargo.toml`（服务器有改动时）、`app/package.json`、`app/src-tauri/tauri.conf.json`、`app/src-tauri/Cargo.toml`。
 - 网页版部署需要仓库 secrets `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`（fork 没有时自动跳过部署，只上传构建产物）。
 
