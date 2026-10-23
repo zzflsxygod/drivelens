@@ -32,11 +32,11 @@ mod journey;
 mod phase2;
 mod insights;
 mod push;
+mod auth;
 
 #[derive(Clone)]
 struct AppState {
     db: PgPool,
-    token: Arc<String>,
     /// drivelens.charge_costs exists (checked lazily; once true it stays true)
     costs_ok: Arc<std::sync::atomic::AtomicBool>,
     journeys_ok: Arc<std::sync::atomic::AtomicBool>,
@@ -48,8 +48,8 @@ struct AppState {
     vapid: Arc<tokio::sync::RwLock<Option<Arc<push::Vapid>>>>,
     /// Web Push deliveries only (see push::push_client: no redirects, public addresses only)
     http: reqwest::Client,
-    /// failed auth attempts per client: (count, first failure)
-    fails: Arc<FailMap>,
+    /// owner key, device-token index and failure limits (see auth.rs)
+    auth: Arc<auth::AuthState>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -299,8 +299,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0)
-pub(crate) const API_LEVEL: u32 = 14;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0)
+pub(crate) const API_LEVEL: u32 = 15;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -589,6 +589,7 @@ async fn migrate(db: &PgPool) -> anyhow::Result<()> {
     journey::try_create_tables(db).await;
     phase2::try_migrate(db).await;
     push::try_migrate(db).await;
+    auth::try_migrate(db).await;   // after push: links push_subscriptions to devices
     Ok(())
 }
 
@@ -603,7 +604,7 @@ async fn log_features(s: &AppState) {
         ("manual costs", costs_ok(s).await.unwrap_or(false)), ("journeys", journey::tables_ok(s).await.unwrap_or(false)),
         ("suggestion dismissal", journey::dismiss_ok(s).await.unwrap_or(false)),
         ("journey cover", phase2::cover_ok(s).await.unwrap_or(false)), ("weather cache", phase2::weather_ok(s).await.unwrap_or(false)),
-        ("web push", push::push_ok(s).await.unwrap_or(false))];
+        ("web push", push::push_ok(s).await.unwrap_or(false)), ("device auth", s.auth.available())];
     let off: Vec<&str> = f.iter().filter(|x| !x.1).map(|x| x.0).collect();
     if off.is_empty() { tracing::info!("all features enabled (API level {API_LEVEL})"); }
     else { tracing::warn!("disabled features: {} — {SETUP_HINT}", off.join(", ")); }
@@ -617,45 +618,6 @@ async fn drive_path(State(s): State<AppState>, Path(id): Path<i64>) -> ApiResult
     )).bind(id).fetch_all(&s.db).await?;
     Ok(Json(rows))
 }
-
-/// DRIVELENS_TRUST_PROXY_HEADERS=true: take the client address for rate limiting from CF-Connecting-IP /
-/// X-Forwarded-For / X-Real-IP, but only when the request comes from a loopback or private address (i.e. from
-/// your own reverse proxy / cloudflared). Default (unset): the TCP peer address only; headers are ignored because
-/// any client can set them. Behind a proxy that means all clients share one bucket, which is fine: a correct
-/// token is always accepted, so the limit can never lock the owner out.
-fn trust_proxy_headers() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| matches!(std::env::var("DRIVELENS_TRUST_PROXY_HEADERS").unwrap_or_default().trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-}
-
-/// Rate-limit key: an IP address (IPv6 grouped by /64, so rotating within one prefix does not help).
-fn client_key(req: &Request, trust_headers: bool) -> String {
-    use std::net::IpAddr;
-    let peer = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0.ip());
-    let local = |ip: &IpAddr| match ip { IpAddr::V4(a) => a.is_loopback() || a.is_private() || a.is_link_local(),
-        IpAddr::V6(a) => a.is_loopback() || (a.segments()[0] & 0xfe00) == 0xfc00 || a.to_ipv4_mapped().is_some_and(|v| v.is_loopback() || v.is_private()) };
-    let header_ip = || -> Option<IpAddr> {
-        let h = |n: &str| req.headers().get(n).and_then(|v| v.to_str().ok());
-        let parse = |v: &str| v.trim().parse::<IpAddr>().ok();
-        // X-Forwarded-For: the right-most entry is the one added by our own proxy (left ones are client-supplied)
-        h("cf-connecting-ip").and_then(parse).or_else(|| h("x-forwarded-for").and_then(|v| v.rsplit(',').next()).and_then(parse))
-            .or_else(|| h("x-real-ip").and_then(parse))
-    };
-    let ip = match peer {
-        Some(p) if trust_headers && local(&p) => header_ip().unwrap_or(p),
-        Some(p) => p,
-        None => return "unknown".into(),
-    };
-    match ip {
-        IpAddr::V6(a) if a.to_ipv4_mapped().is_none() => { let s = a.segments(); format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3]) }
-        IpAddr::V6(a) => a.to_ipv4_mapped().unwrap().to_string(),
-        v4 => v4.to_string(),
-    }
-}
-/// At most this many client buckets are tracked; beyond that, new clients share one overflow bucket.
-const FAIL_MAX_KEYS: usize = 4096;
-const FAIL_LIMIT: u32 = 10;
-const FAIL_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// Official hosted web app (PWA). Apps (Tauri) are always allowed as well.
 const DEFAULT_WEB_ORIGIN: &str = "https://drivelens-app.oharuru.com";
@@ -732,44 +694,10 @@ mod cors_tests {
     }
 }
 
-async fn auth(State(s): State<AppState>, req: Request, next: Next) -> Response { auth_inner(&s.token, &s.fails, req, next).await }
-
-async fn auth_inner(token: &str, fails: &FailMap, req: Request, next: Next) -> Response {
-    // the token is checked first: a correct token always succeeds, even while this client address is blocked
-    // (behind a tunnel everyone may share one address); only failures are counted and limited
-    let ok = req.headers().get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|t| constant_time_eq(t.as_bytes(), token.as_bytes()))
-        .unwrap_or(false);
-    if ok { return next.run(req).await; }
-    let key = client_key(&req, trust_proxy_headers());
-    let n = record_failure(fails, key.clone(), std::time::Instant::now());
-    tokio::time::sleep(std::time::Duration::from_millis(if n > FAIL_LIMIT { 1000 } else { 300 })).await;
-    if n >= FAIL_LIMIT {
-        if n == FAIL_LIMIT { tracing::warn!("auth: {n} failed attempts from {key}; further failures get 429 for 10 minutes"); }
-        if n > FAIL_LIMIT {
-            return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "600")],
-                Json(serde_json::json!({"error": "too many failed authentication attempts; try again in 10 minutes"}))).into_response();
-        }
-    }
-    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response()
-}
-
-type FailMap = std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>;
-/// Count one failed attempt for `key` (window FAIL_WINDOW from the first failure); returns the count.
-fn record_failure(fails: &FailMap, key: String, now: std::time::Instant) -> u32 {
-    let mut m = fails.lock().unwrap();
-    m.retain(|_, (_, t)| now.duration_since(*t) < FAIL_WINDOW);
-    let key = if m.len() >= FAIL_MAX_KEYS && !m.contains_key(&key) { "overflow".to_string() } else { key };
-    let e = m.entry(key).or_insert((0, now));
-    e.0 = e.0.saturating_add(1);
-    e.0
-}
-
 #[cfg(test)]
 mod auth_tests {
     use super::*;
+    use auth::{client_key, record_failure, FailMap, FAIL_MAX_KEYS};
     fn req(peer: &str, hdrs: &[(&str, &str)]) -> Request {
         let mut b = axum::http::Request::builder().uri("/api/cars");
         for (k, v) in hdrs { b = b.header(*k, *v); }
@@ -802,52 +730,148 @@ mod auth_tests {
         assert_eq!(m.lock().unwrap().len(), FAIL_MAX_KEYS + 1);   // + the shared overflow bucket
         assert_eq!(record_failure(&m, "10.0.0.0".into(), now), 2);
     }
-    #[tokio::test]
-    async fn correct_token_is_never_blocked() {
+
+    fn test_state(db: PgPool, a: auth::AuthState) -> AppState {
+        AppState { db, costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()),
+            cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()), push_ok: Arc::new(Default::default()),
+            vapid: Arc::new(Default::default()), http: push::push_client().unwrap(), auth: Arc::new(a) }
+    }
+    /// The real router, with a lazy (never connected) pool: only routes that need no database are reached.
+    fn real_app(a: auth::AuthState) -> Router {
+        router(test_state(PgPoolOptions::new().connect_lazy("postgres://nobody@127.0.0.1:1/none").unwrap(), a))
+    }
+
+    async fn send(app: &Router, method: &str, path: &str, token: Option<&str>, body: Option<serde_json::Value>) -> (StatusCode, serde_json::Value) {
         use tower::ServiceExt;
-        let fails: Arc<FailMap> = Default::default();
-        let token = Arc::new("x".repeat(32));
-        let app = |fails: Arc<FailMap>, token: Arc<String>| {
-            Router::new().route("/cars", get(|| async { "ok" })).route_layer(middleware::from_fn(move |req: Request, next: Next| {
-                let (fails, token) = (fails.clone(), token.clone());
-                async move { auth_inner(&token, &fails, req, next).await }
-            }))
-        };
-        let call = |auth: &'static str| { let (f, t) = (fails.clone(), token.clone()); async move {
-            let mut r = axum::http::Request::builder().uri("/cars").header("authorization", auth).body(axum::body::Body::empty()).unwrap();
-            r.extensions_mut().insert(axum::extract::ConnectInfo::<std::net::SocketAddr>("127.0.0.1:1".parse().unwrap()));
-            app(f, t).oneshot(r).await.unwrap().status() } };
-        for _ in 0..FAIL_LIMIT { assert_eq!(call("Bearer wrong").await, StatusCode::UNAUTHORIZED); }
-        assert_eq!(call("Bearer wrong").await, StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(call("Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").await, StatusCode::OK);
+        let mut b = axum::http::Request::builder().method(method).uri(path).header("user-agent", "drivelens-test");
+        if let Some(t) = token { b = b.header("authorization", format!("Bearer {t}")); }
+        if body.is_some() { b = b.header("content-type", "application/json"); }
+        let r = b.body(body.map_or(axum::body::Body::empty(), |v| axum::body::Body::from(v.to_string()))).unwrap();
+        let res = app.clone().oneshot(r).await.unwrap();
+        let st = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (st, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    /// Needs a throwaway database with the testdata schema: DRIVELENS_TEST_DATABASE_URL=postgres://… cargo test
+    /// (skipped otherwise). Migration twice (idempotent), owner key → device → pairing → read device → revoke.
+    #[tokio::test]
+    async fn db_device_flow() {
+        let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_device_flow skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
+        let db = PgPoolOptions::new().max_connections(3).connect(&url).await.unwrap();
+        migrate(&db).await.unwrap();
+        migrate(&db).await.unwrap();
+        let key = "test-owner-key-0123456789abcdef";
+        let a = auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await;
+        assert!(a.available(), "device auth tables");
+        let state = test_state(db.clone(), a);
+        let app = router(state.clone());
+        let (st, me) = send(&app, "GET", "/api/auth/me", Some(key), None).await;
+        assert_eq!((st, me["kind"].as_str(), me["device_auth"].as_bool()), (StatusCode::OK, Some("owner"), Some(true)));
+        let (st, v) = send(&app, "POST", "/api/auth/devices", Some(key), Some(serde_json::json!({"name": " db test \u{0007}"}))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let t1 = v["token"].as_str().unwrap().to_string();
+        assert_eq!(v["device"]["name"], "db test");
+        assert_eq!(v["device"]["user_agent"], "drivelens-test");
+        let id1 = v["device"]["id"].as_i64().unwrap();
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t1), None).await.0, StatusCode::OK);
+        // a device cannot exchange the owner key; full devices issue codes
+        assert_eq!(send(&app, "POST", "/api/auth/devices", Some(&t1), Some(serde_json::json!({"name": "x"}))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, "POST", "/api/auth/pairings", Some(&t1), Some(serde_json::json!({"scope": "full", "device_ttl_days": 7}))).await.0, StatusCode::BAD_REQUEST);
+        let (st, v) = send(&app, "POST", "/api/auth/pairings", Some(&t1), Some(serde_json::json!({"scope": "read", "device_ttl_days": 7}))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let code = v["code"].as_str().unwrap().to_lowercase();
+        assert_eq!(code.len(), 9);
+        let (st, v) = send(&app, "POST", "/api/auth/pair", None, Some(serde_json::json!({"code": code, "name": "family"}))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let t2 = v["token"].as_str().unwrap().to_string();
+        let id2 = v["device"]["id"].as_i64().unwrap();
+        assert_eq!(v["device"]["scope"], "read");
+        assert!(v["device"]["expires_at"].is_string());
+        let (st, v) = send(&app, "POST", "/api/auth/pair", None, Some(serde_json::json!({"code": code, "name": "again"}))).await;
+        assert_eq!((st, v["code"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid_code")), "single use");
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t2), None).await.0, StatusCode::OK);
+        let (st, v) = send(&app, "PUT", "/api/addresses/1/alias", Some(&t2), Some(serde_json::json!({"name": "x"}))).await;
+        assert_eq!((st, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("read_only")));
+        assert_eq!(send(&app, "GET", "/api/auth/devices", Some(&t2), None).await.0, StatusCode::FORBIDDEN);
+        let (st, list) = send(&app, "GET", "/api/auth/devices", Some(&t1), None).await;
+        assert_eq!(st, StatusCode::OK);
+        let list = list.as_array().unwrap();
+        assert!(list.iter().any(|d| d["id"] == id1 && d["current"] == true));
+        assert!(list.iter().any(|d| d["id"] == id2 && d["current"] == false));
+        let (st, v) = send(&app, "PATCH", "/api/auth/devices/current", Some(&t2), Some(serde_json::json!({"name": "family iPad"}))).await;
+        assert_eq!((st, v["name"].as_str()), (StatusCode::OK, Some("family iPad")));
+        assert_eq!(send(&app, "DELETE", &format!("/api/auth/devices/{id2}"), Some(&t1), None).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t2), None).await.0, StatusCode::UNAUTHORIZED, "revoked at once");
+        // a reload from the database (as after a restart) keeps device 1 and does not bring device 2 back
+        state.auth.refresh(&db).await;
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t1), None).await.0, StatusCode::OK);
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t2), None).await.0, StatusCode::UNAUTHORIZED);
+        let fresh = router(test_state(db.clone(), auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await));
+        assert_eq!(send(&fresh, "GET", "/api/cars", Some(&t1), None).await.0, StatusCode::OK, "after restart");
+        assert_eq!(send(&app, "DELETE", "/api/auth/devices/current", Some(&t1), None).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t1), None).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    /// Every route of the real router: only POST /api/auth/pair is reachable without Authorization.
+    #[tokio::test]
+    async fn only_pair_is_public() {
+        use tower::ServiceExt;
+        let routes = [("GET", "/api/health"), ("GET", "/api/cars"), ("GET", "/api/cars/1/summary"), ("GET", "/api/cars/1/status"),
+            ("GET", "/api/cars/1/last-activity"), ("GET", "/api/cars/1/stats"), ("GET", "/api/cars/1/report"), ("GET", "/api/cars/1/trends"),
+            ("GET", "/api/cars/1/footprint"), ("GET", "/api/cars/1/battery"), ("GET", "/api/charges"), ("GET", "/api/charges/1"),
+            ("PUT", "/api/charges/1/cost"), ("DELETE", "/api/charges/1/cost"), ("GET", "/api/drives"), ("GET", "/api/cars/1/months"),
+            ("GET", "/api/journeys"), ("POST", "/api/journeys"), ("GET", "/api/journeys/suggestions"), ("POST", "/api/journeys/suggestions/dismiss"),
+            ("DELETE", "/api/journeys/suggestions/dismissed"), ("GET", "/api/journeys/1"), ("PATCH", "/api/journeys/1"), ("DELETE", "/api/journeys/1"),
+            ("PUT", "/api/journeys/1/drives"), ("GET", "/api/journeys/1/path"), ("GET", "/api/journeys/1/cover"), ("PUT", "/api/journeys/1/cover"),
+            ("DELETE", "/api/journeys/1/cover"), ("GET", "/api/journeys/1/weather"), ("GET", "/api/journeys/1/speed-bands"), ("GET", "/api/drives/1"),
+            ("GET", "/api/drives/1/path"), ("GET", "/api/push/key"), ("POST", "/api/push/subscription"), ("POST", "/api/push/subscription/status"),
+            ("POST", "/api/push/unsubscribe"), ("POST", "/api/push/test"), ("GET", "/api/addresses/aliases"), ("PUT", "/api/addresses/1/alias"),
+            ("DELETE", "/api/addresses/1/alias"), ("GET", "/api/auth/me"), ("GET", "/api/auth/devices"), ("POST", "/api/auth/devices"),
+            ("DELETE", "/api/auth/devices?except=current"), ("PATCH", "/api/auth/devices/current"), ("DELETE", "/api/auth/devices/current"),
+            ("PATCH", "/api/auth/devices/3"), ("DELETE", "/api/auth/devices/3"), ("POST", "/api/auth/pairings")];
+        for (i, (m, p)) in routes.iter().enumerate() {
+            let app = real_app(auth::AuthState::for_tests(&"k".repeat(32), auth::OwnerKeyMode::Full, false));
+            let mut r = axum::http::Request::builder().method(*m).uri(*p).body(axum::body::Body::empty()).unwrap();
+            // a fresh client address per request, so the failure limit (429) does not kick in
+            r.extensions_mut().insert(axum::extract::ConnectInfo::<std::net::SocketAddr>(format!("10.1.{}.{}:1", i / 200, i % 200).parse().unwrap()));
+            assert_eq!(app.oneshot(r).await.unwrap().status(), StatusCode::UNAUTHORIZED, "{m} {p}");
+        }
+        // the public pairing route is reached (no 401): without device auth it answers 503 device_auth_unavailable
+        let app = real_app(auth::AuthState::for_tests(&"k".repeat(32), auth::OwnerKeyMode::Full, false));
+        let mut r = axum::http::Request::builder().method("POST").uri("/api/auth/pair").header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"code":"7KQ2-M9XD","name":"x"}"#)).unwrap();
+        r.extensions_mut().insert(axum::extract::ConnectInfo::<std::net::SocketAddr>("10.2.0.1:1".parse().unwrap()));
+        let res = app.oneshot(r).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("device_auth_unavailable"));
+        // unauthenticated /health still works and reports level 15
+        let app = real_app(auth::AuthState::for_tests(&"k".repeat(32), auth::OwnerKeyMode::Full, false));
+        let res = app.oneshot(axum::http::Request::builder().uri("/health").body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":15"));
+    }
+
+    /// GET /api/auth/me without device auth: owner, device_auth false, mode full.
+    #[tokio::test]
+    async fn me_without_device_auth() {
+        use tower::ServiceExt;
+        let key = "k".repeat(32);
+        let app = real_app(auth::AuthState::for_tests(&key, auth::OwnerKeyMode::Full, false));
+        let res = app.oneshot(axum::http::Request::builder().uri("/api/auth/me").header("authorization", format!("Bearer {key}"))
+            .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap()).unwrap();
+        assert_eq!(v, serde_json::json!({"kind": "owner", "device": null, "device_auth": false, "owner_key_mode": "full"}));
     }
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info,tower_http=info".into()))
-        .init();
-    let db_url = std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL is required"))?;
-    let token = std::env::var("API_TOKEN").map_err(|_| anyhow::anyhow!("API_TOKEN is required"))?;
-    anyhow::ensure!(token.len() >= 16, "API_TOKEN must be at least 16 characters (recommended: 32+ random characters, e.g. `openssl rand -hex 24`)");
-    let classes = [token.bytes().any(|b| b.is_ascii_lowercase()), token.bytes().any(|b| b.is_ascii_uppercase()), token.bytes().any(|b| b.is_ascii_digit()), token.bytes().any(|b| !b.is_ascii_alphanumeric())].iter().filter(|x| **x).count();
-    let distinct = token.bytes().collect::<std::collections::HashSet<_>>().len();
-    if token.len() < 32 || distinct < 10 || classes < 2 { tracing::warn!("API_TOKEN looks weak (use 32+ random characters, e.g. `openssl rand -hex 24`)"); }
-    let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
-
-    let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
-    migrate(&db).await?;
-    let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()),
-        push_ok: Arc::new(Default::default()), vapid: Arc::new(Default::default()),
-        http: push::push_client()?, fails: Arc::new(Default::default()) };
-    log_features(&state).await;
-    push::spawn(state.clone());
-
+/// All routes. /api/* except /api/auth/pair go through the auth middleware (`route_layer` only wraps the routes
+/// added before it; the pairing route is merged afterwards and stays public).
+fn router(state: AppState) -> Router {
+    use axum::routing::{delete, patch, post, put};
     let api = Router::new()
         .route("/health", get(health_full))
         .route("/cars", get(list_cars))
@@ -861,15 +885,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/cars/:id/battery", get(insights::battery))
         .route("/charges", get(charges_route))
         .route("/charges/:id", get(get_charge))
-        .route("/charges/:id/cost", axum::routing::put(put_cost).delete(delete_cost))
+        .route("/charges/:id/cost", put(put_cost).delete(delete_cost))
         .route("/drives", get(drives_route))
         .route("/cars/:id/months", get(car_months))
         .route("/journeys", get(journey::list).post(journey::create))
         .route("/journeys/suggestions", get(journey::suggestions))
-        .route("/journeys/suggestions/dismiss", axum::routing::post(journey::dismiss))
-        .route("/journeys/suggestions/dismissed", axum::routing::delete(journey::restore_dismissed))
+        .route("/journeys/suggestions/dismiss", post(journey::dismiss))
+        .route("/journeys/suggestions/dismissed", delete(journey::restore_dismissed))
         .route("/journeys/:id", get(journey::get).patch(journey::update).delete(journey::delete))
-        .route("/journeys/:id/drives", axum::routing::put(journey::set_drives))
+        .route("/journeys/:id/drives", put(journey::set_drives))
         .route("/journeys/:id/path", get(journey::path))
         .route("/journeys/:id/cover", get(phase2::get_cover).put(phase2::put_cover).delete(phase2::delete_cover))
         .route("/journeys/:id/weather", get(phase2::weather))
@@ -877,20 +901,51 @@ async fn main() -> anyhow::Result<()> {
         .route("/drives/:id", get(get_drive))
         .route("/drives/:id/path", get(drive_path))
         .route("/push/key", get(push::key))
-        .route("/push/subscription", axum::routing::post(push::subscribe))
-        .route("/push/subscription/status", axum::routing::post(push::status))
-        .route("/push/unsubscribe", axum::routing::post(push::unsubscribe))
-        .route("/push/test", axum::routing::post(push::test))
+        .route("/push/subscription", post(push::subscribe))
+        .route("/push/subscription/status", post(push::status))
+        .route("/push/unsubscribe", post(push::unsubscribe))
+        .route("/push/test", post(push::test))
         .route("/addresses/aliases", get(list_aliases))
-        .route("/addresses/:id/alias", axum::routing::put(put_alias).delete(delete_alias))
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth));
+        .route("/addresses/:id/alias", put(put_alias).delete(delete_alias))
+        .route("/auth/me", get(auth::me))
+        .route("/auth/devices", get(auth::list).post(auth::exchange).delete(auth::revoke_others))
+        .route("/auth/devices/current", patch(auth::rename_current).delete(auth::revoke_current))
+        .route("/auth/devices/:id", patch(auth::rename).delete(auth::revoke))
+        .route("/auth/pairings", post(auth::create_pairing))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth::middleware))
+        .merge(Router::new().route("/auth/pair", post(auth::pair)));
 
-    let app = Router::new()
+    Router::new()
         .route("/health", get(health))
         .nest("/api", api)
         .layer(cors_layer())
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state)
+}
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info,tower_http=info".into()))
+        .init();
+    let db_url = std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL is required"))?;
+    let token = std::env::var("API_TOKEN").map_err(|_| anyhow::anyhow!("API_TOKEN is required"))?;
+    anyhow::ensure!(token.len() >= 16, "API_TOKEN must be at least 16 characters (recommended: 32+ random characters, e.g. `openssl rand -hex 24`)");
+    let classes = [token.bytes().any(|b| b.is_ascii_lowercase()), token.bytes().any(|b| b.is_ascii_uppercase()), token.bytes().any(|b| b.is_ascii_digit()), token.bytes().any(|b| !b.is_ascii_alphanumeric())].iter().filter(|x| **x).count();
+    let distinct = token.bytes().collect::<std::collections::HashSet<_>>().len();
+    if token.len() < 32 || distinct < 10 || classes < 2 { tracing::warn!("API_TOKEN looks weak (use 32+ random characters, e.g. `openssl rand -hex 24`)"); }
+    let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
+    let mode = auth::OwnerKeyMode::from_env()?;
+
+    let db = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
+    migrate(&db).await?;
+    let auth = auth::AuthState::init(db.clone(), &token, mode).await;
+    let state = AppState { db, costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()),
+        push_ok: Arc::new(Default::default()), vapid: Arc::new(Default::default()),
+        http: push::push_client()?, auth: Arc::new(auth) };
+    log_features(&state).await;
+    push::spawn(state.clone());
+    auth::spawn(state.clone());
+    let app = router(state);
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on {bind}");
