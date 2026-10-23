@@ -64,7 +64,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 
 Then give the server an https address ([Cloudflare Tunnel](docs/install.md#cloudflare-tunnel) or [Tailscale](docs/install.md#tailscale)), open [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) and enter that address and `DRIVELENS_API_TOKEN`. The [install guide](docs/install.md) explains every step.
 
-The official web app at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) is the supported way to use DriveLens; self-hosting the web app is not officially supported.
+The official web app at [https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com) is the supported way to use DriveLens; self-hosting the web app is not officially supported. Unofficial, untested notes for LAN-only use: [install guide appendix](docs/install.md#lan-selfhost).
 
 ## Privacy
 
