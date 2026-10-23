@@ -40,7 +40,7 @@ if find . -path ./.git -prune -o -type f \( -name '*.rs' -o -name '*.ts' -o -nam
 git add -A
 if git diff --cached --quiet; then echo "   files unchanged"
 else
-  git -c user.name="DriveLens bot" -c user.email="drivelens-bot@users.noreply.github.com" commit -q -m "Sync from DriveLens ${TAG:-main}"
+  git -c user.name="zzflsxygod" -c user.email="12348972+zzflsxygod@users.noreply.github.com" commit -q -m "Sync from DriveLens ${TAG:-main}"
   git push -q origin HEAD:main && echo "   pushed $(git rev-parse --short HEAD)"
 fi
 cd "$SRC"
