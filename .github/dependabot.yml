@@ -12,6 +12,11 @@ updates:
     schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
     groups: { api-minor: { update-types: [minor, patch] } }
     commit-message: { prefix: "api" }
+    ignore:
+      # sqlx 0.9 refuses non-'static SQL strings (AssertSqlSafe); the ~33 dynamic queries need a security review
+      # first, so the upgrade is done by hand later. Minor/patch updates of 0.8 still come in.
+      - dependency-name: sqlx
+        update-types: [version-update:semver-major]
   - package-ecosystem: cargo
     directory: /app/src-tauri
     schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
