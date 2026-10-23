@@ -486,5 +486,47 @@ export function handle(method: string, url: string, body: unknown): Res {
       if (img.length > 1_500_000) return err(413, "image too large (max ~1 MB)"); j.cover = img; j.cover_at = Date.now(); commit(); return { status: 204 }; }
     if (M === "DELETE") { j.cover = null; j.cover_at = null; commit(); return { status: 204 }; }
   }
+  if (p.startsWith("/api/auth/")) return auth(M, p, q, B);
+  return err(404, "not found");
+}
+
+// ---------------- device auth (api/src/auth.rs), in memory only: a reload starts over ----------------
+interface DDevice { id: number; name: string; scope: "full" | "read"; created_via: "owner_key" | "pairing"; created_at: string; expires_at: string | null;
+  last_used_at: string | null; last_ip: string | null; user_agent: string | null; current: boolean }
+let devs: DDevice[] | null = null;
+const DEMO_DEVICE = 1;
+function demoDevices(): DDevice[] {
+  if (devs) return devs;
+  const now = Date.now(), d = 864e5;
+  return devs = [
+    { id: DEMO_DEVICE, name: "Demo phone", scope: "full", created_via: "owner_key", created_at: TS(now - 40 * d), expires_at: null, last_used_at: TS(now), last_ip: "192.0.2.10", user_agent: "Demo", current: true },
+    { id: 2, name: "Mac · Safari", scope: "full", created_via: "pairing", created_at: TS(now - 25 * d), expires_at: null, last_used_at: TS(now - 3 * 3600e3), last_ip: "192.0.2.24", user_agent: "Demo", current: false },
+    { id: 3, name: "iPad · Safari", scope: "read", created_via: "pairing", created_at: TS(now - 9 * d), expires_at: TS(now + 21 * d), last_used_at: TS(now - 2 * d), last_ip: "198.51.100.7", user_agent: "Demo", current: false },
+  ];
+}
+const devName = (v: unknown) => { const n = String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim(); return n && [...n].length <= 60 ? n : null; };
+function auth(M: string, p: string, q: URLSearchParams, B: Record<string, unknown>): Res {
+  const list = demoDevices();
+  const bad = (status: number, code: string, error: string): Res => ({ status, body: { error, code } });
+  const find = (id: string) => list.find(d => id === "current" ? d.current : d.id === Number(id));
+  if (p === "/api/auth/me" && M === "GET") return ok({ kind: "device", device: find("current") ?? null, device_auth: true, owner_key_mode: "full" });
+  if (p === "/api/auth/devices" && M === "GET") return ok([...list].sort((a, b) => b.created_at.localeCompare(a.created_at)));
+  if (p === "/api/auth/devices" && M === "POST") return bad(403, "owner_key_required", "the server token is required to create a device");
+  if (p === "/api/auth/devices" && M === "DELETE") {
+    if (q.get("except") !== "current") return bad(400, "bad_request", "use ?except=current");
+    const n = list.filter(d => !d.current).length; devs = list.filter(d => d.current); return ok({ revoked: n });
+  }
+  let m: RegExpMatchArray | null;
+  if ((m = p.match(/^\/api\/auth\/devices\/(current|\d+)$/))) {
+    const d = find(m[1]); if (!d) return bad(404, "not_found", "device not found");
+    if (M === "PATCH") { const n = devName(B.name); if (!n) return bad(400, "invalid_name", "name must be 1-60 characters"); d.name = n; return ok(d); }
+    if (M === "DELETE") { devs = list.filter(x => x !== d); return { status: 204 }; }
+  }
+  if (p === "/api/auth/pairings" && M === "POST") {
+    const scope = B.scope === "read" ? "read" : B.scope === "full" || B.scope == null ? "full" : null;
+    if (!scope) return bad(400, "invalid_scope", "scope must be \"full\" or \"read\"");
+    return { status: 201, body: { code: "7KQ2-M9XD", expires_at: TS(Date.now() + 600e3) } };
+  }
+  if (p === "/api/auth/pair" && M === "POST") return bad(400, "invalid_code", "invalid or expired pairing code");
   return err(404, "not found");
 }
