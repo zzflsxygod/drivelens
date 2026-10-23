@@ -65,7 +65,7 @@ TeslaMate 自动识别的地名有时不准，可以在 App 的行程详情 / �
 
 ## 安装（v0.10.0 起）
 
-**新用户请看安装指南：[English](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)**（1.1.2 起只在本仓库维护）：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
+**新用户请看安装指南：[English](install.md) · [中文](install.zh.md) · [日本語](install.ja.md)**（1.1.2 起只在本仓库维护）：执行一次 `deploy/setup.sql`（只读账号 + drivelens schema），用 `deploy/docker-compose.drivelens.yml` 启动 API；API 启动时自动创建 / 升级 drivelens 的表，App 首次打开有连接向导。
 下面的「部署方式一 / 二」是早期的手动步骤（旧 SQL 文件仍保留，已部署的服务器无需任何改动）。
 
 ## 部署方式一（推荐）：Docker + TeslaMate 同一个 Compose + Cloudflare Tunnel
@@ -391,7 +391,7 @@ docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.
 - 设置 →「语言 / Language」：跟随系统 / 中文 / English / 日本語；新安装默认跟随系统，已有安装保持中文。地图文字语言默认跟随界面语言。
 - 文案在 `app/src/locales/{zh,en,ja}.ts`（中文为源），格式化（日期、时长、相对时间、月份）在 `app/src/i18n.ts`。
 - `npm run check:i18n`（`npm run build` 会先执行）：缺少 key、占位符不一致、源码里残留硬编码中文时失败。
-- 安装指南：[English](docs/install.md) · [中文](docs/install.zh.md) · [日本語](docs/install.ja.md)（v0.15.1 起英文为默认）。服务器无需更新（API 未变）。
+- 安装指南：[English](install.md) · [中文](install.zh.md) · [日本語](install.ja.md)（v0.15.1 起英文为默认）。服务器无需更新（API 未变）。
 
 ## v0.14.1 — 弹出菜单定位修复
 
