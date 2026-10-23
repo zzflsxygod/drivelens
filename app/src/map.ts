@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import type { StyleSpecification, ExpressionSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { loadSettings, defaultLabelLang, type LabelLang } from "./api";
 import { t } from "./i18n";
 import { ic } from "./icons";
 import { cssVar } from "./palette";
+
+// maplibre-gl 6 is ESM-only and cannot locate its worker inside a bundle; Vite builds it as a same-origin asset
+// (so CSP worker-src 'self' is enough).
+maplibregl.setWorkerUrl(workerUrl);
 
 const STYLE_URL = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
 
