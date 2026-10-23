@@ -66,7 +66,8 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   }
   if (res.status === 401) {
     // a device token is never "mistyped": 401 means it was revoked or expired → sign this device out
-    if (s.tokenKind === "device" && !isDemo()) { window.dispatchEvent(new Event(SIGNED_OUT_EVENT)); throw new Error(t("api.signedOut")); }
+    // (only if that token is still the saved one: a request that raced a server switch / re-pairing must not sign out the new one)
+    if (s.tokenKind === "device" && !isDemo() && loadSettings().token === s.token) { window.dispatchEvent(new Event(SIGNED_OUT_EVENT)); throw new Error(t("api.signedOut")); }
     throw new Error(t("api.401"));
   }
   if (res.status === 429) throw new Error(t("api.429"));

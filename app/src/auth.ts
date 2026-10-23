@@ -103,6 +103,25 @@ export function saveConnection(c: Conn) {
   setMe(null);
 }
 
+/**
+ * Before switching this device to another server (or re-pairing it): disconnect the old device on the OLD server,
+ * best effort. Only for a device token on a server with device auth (level ≥ 15); short timeouts; failures ignored.
+ * The old token goes only to the old server's own URL.
+ */
+export async function revokeOldDevice(old: { apiUrl: string; token: string; tokenKind?: string }) {
+  if (old.tokenKind !== "device" || !old.apiUrl || !old.token) return;
+  const base = old.apiUrl.replace(/\/+$/, "");
+  const timed = async (url: string, init: RequestInit = {}) => {
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 3000);
+    try { return await fetch(url, { cache: "no-store", ...init, signal: ctl.signal }); } finally { clearTimeout(tm); }
+  };
+  try {
+    const h = await (await timed(base + "/health")).json() as { api_level?: number };
+    if (typeof h.api_level !== "number" || h.api_level < 15) return;
+    await timed(base + "/api/auth/devices/current", { method: "DELETE", headers: { Authorization: `Bearer ${old.token}` } });
+  } catch { /* offline / old server gone: it stays in that server's list until disconnected there */ }
+}
+
 let leaving = false;
 /** True while this device is signing out (its own 401s must not start a second sign-out). */
 export const isLeaving = () => leaving;

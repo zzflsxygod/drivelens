@@ -32,7 +32,7 @@ import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, SIGNED_OUT_EVENT, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
-import { canWrite, saveConnection, forgetServer, isLeaving, initDeviceAuth, onMeChange } from "./auth";
+import { canWrite, saveConnection, forgetServer, isLeaving, initDeviceAuth, onMeChange, revokeOldDevice } from "./auth";
 import { mountDevices, signOutCardHTML, bindSignOut, thisDeviceText } from "./devices";
 import { installGuideUrl, RELEASES_URL, ISSUES_URL, SOURCE_URL, THIRD_PARTY_URL } from "./links";
 
@@ -481,6 +481,8 @@ function showSettings() {
     msg.innerHTML = renderResult(r);
     if (!r.ok || !r.creds) return;   // keep the old working settings when the new ones fail
     urlIn.value = r.url; tokIn.value = "";
+    // switching server / re-pairing: disconnect the old device on its own (old) server first
+    if (typed && r.creds.token !== cur.token) await revokeOldDevice(cur);
     saveConnection({ apiUrl: r.url, ...r.creds });
     checkServer().then(i => { paintServerHead(); return initDeviceAuth(i.level ?? 0); }).then(() => { if (document.getElementById("dev-slot")) showSettings(); });
     loadCars();
