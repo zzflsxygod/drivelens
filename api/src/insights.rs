@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! api_level 12: monthly footprint (all drive routes of a month) and battery degradation. Read-only.
 //! api_level 14: TeslaMate-identical battery health (`tm` object in /battery). Read-only.
 use super::*;
@@ -115,6 +116,9 @@ pub async fn battery(State(s): State<AppState>, Path(id): Path<i64>, Query(q): Q
 }
 
 // ---------------- api_level 14: TeslaMate "Battery Health" dashboard, ported ----------------
+// Portions derived from TeslaMate (https://github.com/teslamate-org/teslamate), Copyright (C) TeslaMate contributors,
+// licensed under AGPL-3.0 (-or-later). Modified: re-implemented as one SQL query for this API (see THE ONE DEVIATION
+// below); this is not the original TeslaMate. TeslaMate's NOTICE is preserved in third_party/teslamate/NOTICE.
 // Source: teslamate-org/teslamate grafana/dashboards/battery-health.json (variable `aux` + "Battery Capacity by Mileage"),
 // main @ 9f4098e (2026-10-21). Same tables, filters and aggregates; units are always km / kWh here (the app converts).
 //  efficiency  = mode of ROUND(charge_energy_added / (end_rated_range_km − start_rated_range_km), 3) × 100 over sessions with

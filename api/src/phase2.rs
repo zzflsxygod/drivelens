@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! 旅程第二期 (api_level 11): cover image, weather per drive (Open-Meteo, cached in drivelens.weather_hourly),
 //! energy by speed band. Only drivelens.* is written; TeslaMate tables are read only.
 use super::*;

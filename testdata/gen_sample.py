@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Generate realistic TeslaMate sample data around Tokyo -> sample_data.sql"""
 import math, datetime as dt, random
 random.seed(1)

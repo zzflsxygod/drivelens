@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- DriveLens 数据库初始化（在 TeslaMate 数据库上执行一次，可重复执行）
 -- 用法（在 TeslaMate 的 compose 目录下）：
 --   docker compose exec -T database psql -U teslamate -d teslamate \

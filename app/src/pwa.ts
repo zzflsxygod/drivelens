@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Web / PWA glue (web build only): service worker (app shell cache), install prompt, theme-color, update toast.
 // Tauri apps never register a service worker (__WEB_BUILD__ is false there, and isTauri() is checked again at runtime).
 import { t } from "./i18n";

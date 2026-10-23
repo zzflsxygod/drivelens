@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- DriveLens v0.7.0 升级：旅程封面 + 天气缓存（可重复执行，不需要密码）
 -- 只修改 drivelens schema，不动 TeslaMate 的任何表。
 -- docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.7.0.sql

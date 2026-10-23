@@ -27,7 +27,9 @@
         "script-src": "'self'",
         "font-src": "'self' data:",
         "worker-src": "'self' blob:",
-        "child-src": "'self' blob:"
+        "child-src": "'self' blob:",
+        "base-uri": "'self'",
+        "form-action": "'none'"
       }
     }
   },

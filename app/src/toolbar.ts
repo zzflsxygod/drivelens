@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // List toolbar: one row = segmented control / title on the left, round glass icon buttons on the right.
 export const ICON = {
   sort: `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h11M4 18h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18 14v6m0 0-2.5-2.5M18 20l2.5-2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,

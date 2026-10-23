@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // 月度报告 page. Data: GET /api/cars/:id/report?month=YYYY-MM&tz=..&currency=..
 import { api, fmtMoney, defaultCurrency } from "./api";
 import { ic } from "./icons";
@@ -168,6 +169,7 @@ const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matche
  * animation, no page re-render). Months already seen render instantly from the cache and refresh silently.
  */
 export async function showReport(view: HTMLElement, carId: number, month: string, nav: ReportNav) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) month = nowMonth();   // month is interpolated into HTML below
   const g = ++gen, key = `${carId}:${month}`;
   let shell = view.querySelector<HTMLElement>("#rp-shell");
   const prevMonth = shell?.dataset.car === String(carId) ? shell.dataset.month : undefined;

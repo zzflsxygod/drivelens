@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Monthly report: GET /api/cars/:id/report?month=YYYY-MM&tz=Asia/Tokyo
 //! Read-only. Reads only drives / charging_processes (+ an indexed per-process probe of `charges`), never positions.
 //!

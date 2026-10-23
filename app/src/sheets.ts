@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Bottom sheets / dialogs (.modal > .sheet): keyboard-safe on iOS, accessible, Esc to cancel.
 //
 // iOS Safari / home-screen PWAs do not shrink the layout viewport when the on-screen keyboard opens, so a

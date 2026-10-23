@@ -46,9 +46,10 @@ struct AppState {
     push_ok: Arc<std::sync::atomic::AtomicBool>,
     /// VAPID key pair (env override or generated once and stored in drivelens.push_state)
     vapid: Arc<tokio::sync::RwLock<Option<Arc<push::Vapid>>>>,
+    /// Web Push deliveries only (see push::push_client: no redirects, public addresses only)
     http: reqwest::Client,
     /// failed auth attempts per client: (count, first failure)
-    fails: Arc<std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>>,
+    fails: Arc<FailMap>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -617,12 +618,42 @@ async fn drive_path(State(s): State<AppState>, Path(id): Path<i64>) -> ApiResult
     Ok(Json(rows))
 }
 
-/// Client key for rate limiting: Cloudflare / reverse-proxy headers first (behind a tunnel every
-/// request comes from 127.0.0.1), else "direct".
-fn client_key(req: &Request) -> String {
-    let h = |n: &str| req.headers().get(n).and_then(|v| v.to_str().ok()).map(|v| v.split(',').next().unwrap_or("").trim().to_string());
-    h("cf-connecting-ip").or_else(|| h("x-forwarded-for")).or_else(|| h("x-real-ip")).filter(|v| !v.is_empty()).unwrap_or_else(|| "direct".into())
+/// DRIVELENS_TRUST_PROXY_HEADERS=true: take the client address for rate limiting from CF-Connecting-IP /
+/// X-Forwarded-For / X-Real-IP, but only when the request comes from a loopback or private address (i.e. from
+/// your own reverse proxy / cloudflared). Default (unset): the TCP peer address only; headers are ignored because
+/// any client can set them. Behind a proxy that means all clients share one bucket, which is fine: a correct
+/// token is always accepted, so the limit can never lock the owner out.
+fn trust_proxy_headers() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| matches!(std::env::var("DRIVELENS_TRUST_PROXY_HEADERS").unwrap_or_default().trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
+
+/// Rate-limit key: an IP address (IPv6 grouped by /64, so rotating within one prefix does not help).
+fn client_key(req: &Request, trust_headers: bool) -> String {
+    use std::net::IpAddr;
+    let peer = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0.ip());
+    let local = |ip: &IpAddr| match ip { IpAddr::V4(a) => a.is_loopback() || a.is_private() || a.is_link_local(),
+        IpAddr::V6(a) => a.is_loopback() || (a.segments()[0] & 0xfe00) == 0xfc00 || a.to_ipv4_mapped().is_some_and(|v| v.is_loopback() || v.is_private()) };
+    let header_ip = || -> Option<IpAddr> {
+        let h = |n: &str| req.headers().get(n).and_then(|v| v.to_str().ok());
+        let parse = |v: &str| v.trim().parse::<IpAddr>().ok();
+        // X-Forwarded-For: the right-most entry is the one added by our own proxy (left ones are client-supplied)
+        h("cf-connecting-ip").and_then(parse).or_else(|| h("x-forwarded-for").and_then(|v| v.rsplit(',').next()).and_then(parse))
+            .or_else(|| h("x-real-ip").and_then(parse))
+    };
+    let ip = match peer {
+        Some(p) if trust_headers && local(&p) => header_ip().unwrap_or(p),
+        Some(p) => p,
+        None => return "unknown".into(),
+    };
+    match ip {
+        IpAddr::V6(a) if a.to_ipv4_mapped().is_none() => { let s = a.segments(); format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3]) }
+        IpAddr::V6(a) => a.to_ipv4_mapped().unwrap().to_string(),
+        v4 => v4.to_string(),
+    }
+}
+/// At most this many client buckets are tracked; beyond that, new clients share one overflow bucket.
+const FAIL_MAX_KEYS: usize = 4096;
 const FAIL_LIMIT: u32 = 10;
 const FAIL_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
 
@@ -701,27 +732,94 @@ mod cors_tests {
     }
 }
 
-async fn auth(State(s): State<AppState>, req: Request, next: Next) -> Response {
-    let key = client_key(&req);
-    let now = std::time::Instant::now();
-    {
-        let mut m = s.fails.lock().unwrap();
-        m.retain(|_, (_, t)| now.duration_since(*t) < FAIL_WINDOW);
-        if m.get(&key).map_or(false, |(n, _)| *n >= FAIL_LIMIT) {
+async fn auth(State(s): State<AppState>, req: Request, next: Next) -> Response { auth_inner(&s.token, &s.fails, req, next).await }
+
+async fn auth_inner(token: &str, fails: &FailMap, req: Request, next: Next) -> Response {
+    // the token is checked first: a correct token always succeeds, even while this client address is blocked
+    // (behind a tunnel everyone may share one address); only failures are counted and limited
+    let ok = req.headers().get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| constant_time_eq(t.as_bytes(), token.as_bytes()))
+        .unwrap_or(false);
+    if ok { return next.run(req).await; }
+    let key = client_key(&req, trust_proxy_headers());
+    let n = record_failure(fails, key.clone(), std::time::Instant::now());
+    tokio::time::sleep(std::time::Duration::from_millis(if n > FAIL_LIMIT { 1000 } else { 300 })).await;
+    if n >= FAIL_LIMIT {
+        if n == FAIL_LIMIT { tracing::warn!("auth: {n} failed attempts from {key}; further failures get 429 for 10 minutes"); }
+        if n > FAIL_LIMIT {
             return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "600")],
                 Json(serde_json::json!({"error": "too many failed authentication attempts; try again in 10 minutes"}))).into_response();
         }
     }
-    let ok = req.headers().get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|t| constant_time_eq(t.as_bytes(), s.token.as_bytes()))
-        .unwrap_or(false);
-    if ok { next.run(req).await } else {
-        let n = { let mut m = s.fails.lock().unwrap(); let e = m.entry(key.clone()).or_insert((0, now)); e.0 += 1; e.0 };
-        if n == FAIL_LIMIT { tracing::warn!("auth: {n} failed attempts from {key}; blocking for 10 minutes"); }
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response()
+    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response()
+}
+
+type FailMap = std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>;
+/// Count one failed attempt for `key` (window FAIL_WINDOW from the first failure); returns the count.
+fn record_failure(fails: &FailMap, key: String, now: std::time::Instant) -> u32 {
+    let mut m = fails.lock().unwrap();
+    m.retain(|_, (_, t)| now.duration_since(*t) < FAIL_WINDOW);
+    let key = if m.len() >= FAIL_MAX_KEYS && !m.contains_key(&key) { "overflow".to_string() } else { key };
+    let e = m.entry(key).or_insert((0, now));
+    e.0 = e.0.saturating_add(1);
+    e.0
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    fn req(peer: &str, hdrs: &[(&str, &str)]) -> Request {
+        let mut b = axum::http::Request::builder().uri("/api/cars");
+        for (k, v) in hdrs { b = b.header(*k, *v); }
+        let mut r = b.body(axum::body::Body::empty()).unwrap();
+        r.extensions_mut().insert(axum::extract::ConnectInfo::<std::net::SocketAddr>(peer.parse().unwrap()));
+        r
+    }
+    #[test]
+    fn headers_ignored_by_default() {
+        let r = req("203.0.113.9:5555", &[("cf-connecting-ip", "1.2.3.4"), ("x-forwarded-for", "5.6.7.8")]);
+        assert_eq!(client_key(&r, false), "203.0.113.9");
+        let r = req("127.0.0.1:5555", &[("cf-connecting-ip", "1.2.3.4")]);
+        assert_eq!(client_key(&r, false), "127.0.0.1");
+    }
+    #[test]
+    fn headers_trusted_only_from_local_proxy() {
+        assert_eq!(client_key(&req("172.18.0.3:1", &[("cf-connecting-ip", "1.2.3.4")]), true), "1.2.3.4");
+        assert_eq!(client_key(&req("127.0.0.1:1", &[("x-forwarded-for", "9.9.9.9, 5.6.7.8")]), true), "5.6.7.8");
+        // a public peer cannot pick its own bucket
+        assert_eq!(client_key(&req("203.0.113.9:1", &[("cf-connecting-ip", "1.2.3.4")]), true), "203.0.113.9");
+        // garbage header values are ignored (no unbounded keys)
+        assert_eq!(client_key(&req("127.0.0.1:1", &[("x-forwarded-for", &"a".repeat(5000))]), true), "127.0.0.1");
+        assert_eq!(client_key(&req("[2001:db8:1:2:3:4:5:6]:1", &[]), false), "2001:db8:1:2::/64");
+    }
+    #[test]
+    fn map_is_bounded() {
+        let m: FailMap = Default::default();
+        let now = std::time::Instant::now();
+        for i in 0..(FAIL_MAX_KEYS + 500) { record_failure(&m, format!("10.0.{}.{}", i / 256, i % 256), now); }
+        assert_eq!(m.lock().unwrap().len(), FAIL_MAX_KEYS + 1);   // + the shared overflow bucket
+        assert_eq!(record_failure(&m, "10.0.0.0".into(), now), 2);
+    }
+    #[tokio::test]
+    async fn correct_token_is_never_blocked() {
+        use tower::ServiceExt;
+        let fails: Arc<FailMap> = Default::default();
+        let token = Arc::new("x".repeat(32));
+        let app = |fails: Arc<FailMap>, token: Arc<String>| {
+            Router::new().route("/cars", get(|| async { "ok" })).route_layer(middleware::from_fn(move |req: Request, next: Next| {
+                let (fails, token) = (fails.clone(), token.clone());
+                async move { auth_inner(&token, &fails, req, next).await }
+            }))
+        };
+        let call = |auth: &'static str| { let (f, t) = (fails.clone(), token.clone()); async move {
+            let mut r = axum::http::Request::builder().uri("/cars").header("authorization", auth).body(axum::body::Body::empty()).unwrap();
+            r.extensions_mut().insert(axum::extract::ConnectInfo::<std::net::SocketAddr>("127.0.0.1:1".parse().unwrap()));
+            app(f, t).oneshot(r).await.unwrap().status() } };
+        for _ in 0..FAIL_LIMIT { assert_eq!(call("Bearer wrong").await, StatusCode::UNAUTHORIZED); }
+        assert_eq!(call("Bearer wrong").await, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(call("Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").await, StatusCode::OK);
     }
 }
 
@@ -746,7 +844,7 @@ async fn main() -> anyhow::Result<()> {
     migrate(&db).await?;
     let state = AppState { db, token: Arc::new(token), costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()),
         push_ok: Arc::new(Default::default()), vapid: Arc::new(Default::default()),
-        http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build()?, fails: Arc::new(Default::default()) };
+        http: push::push_client()?, fails: Arc::new(Default::default()) };
     log_features(&state).await;
     push::spawn(state.clone());
 
@@ -796,6 +894,7 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on {bind}");
-    axum::serve(listener, app).await?;
+    // ConnectInfo: the TCP peer address is the rate-limit key (see client_key)
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
     Ok(())
 }

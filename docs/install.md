@@ -176,6 +176,8 @@ Read by drivelens-api:
 | `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser; `*` = any. Default: the official web app only (plus the origins of the paused native apps). The older name `CORS_ORIGINS` also works |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | Push signing key (base64url P-256). Normally unset: generated on first start and kept in the database |
 | `DRIVELENS_VAPID_SUBJECT` | | Contact sent to push services (`mailto:you@example.com` or an https URL). Default: the DriveLens project page |
+| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = for the failed-login limit, take the client address from `CF-Connecting-IP` / `X-Forwarded-For` (only for requests that come from a local/private address, i.e. your tunnel or proxy). Default: off — the connection's own address is used, so behind a tunnel all clients share one limit. A correct token is never blocked either way |
+| `DRIVELENS_PUSH_HOSTS` | | Extra push-service hosts allowed for notifications (comma-separated), for browsers that use their own push server. The push services of Chrome/Edge, Firefox and Safari are always allowed |
 | `RUST_LOG` | | Log level, default `info` |
 
 In `.env` (used by `docker-compose.drivelens.yml`): `DRIVELENS_DB_PASS`, `DRIVELENS_API_TOKEN`, optional `DRIVELENS_DB_NAME` (default `teslamate`), `DRIVELENS_IMAGE` (default `ghcr.io/zzflsxygod/drivelens-api:latest`) and `CLOUDFLARE_TUNNEL_TOKEN` (only for the cloudflared service).

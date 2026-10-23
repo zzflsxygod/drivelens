@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Privacy guard — imported first by main.ts, so it runs before any other module code.
 // The server URL and token live only in localStorage and are sent only to the user's own server. Older builds accepted
 // ?api=…&token=… in the address; that is gone (since 1.1.1). If such a URL still arrives (old bookmark, pasted link), the

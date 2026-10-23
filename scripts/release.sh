@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # DriveLens release: server first, then the app.
 #   1. push main  → wait for the "Docker image" CI run of this commit to succeed (:latest pushed)
 #   2. poll https://<domain>/health until "version" == api/Cargo.toml version (skipped when api/ is unchanged since the last tag)

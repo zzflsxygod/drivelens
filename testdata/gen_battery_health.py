@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Battery-health fixture on the TeslaMate schema (v1.1.0 / api_level 14): 2 years, 260 sessions with per-minute charges rows,
 rated range fading ~7.5 %, cold-weather usable < battery level, tiny top-ups, one unfinished session and one bogus
 usable_battery_level = 1 row (sanity-filter case). Load after schema.sql. Verified: /battery `tm` equals TeslaMate's Grafana

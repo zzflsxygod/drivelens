@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // First-run wizard + connection test (also used by Settings → save & test).
 import { loadSettings, saveSettings } from "./api";
 import { ic } from "./icons";
@@ -9,7 +10,7 @@ import { installGuideUrl } from "./links";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
-export const LATEST_SERVER = "0.13.0";
+export const LATEST_SERVER = "0.13.1";
 
 export interface TestResult { ok: boolean; url: string; message: string; warnings: string[]; cars?: number }
 

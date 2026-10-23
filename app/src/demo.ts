@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Demo Mode controller (main bundle, tiny). The dataset + mock server live in ./demo/ and are lazy-loaded
 // on the first API call made while demo mode is active — nothing is downloaded otherwise.
 //  - flag in localStorage; the real server URL/token stay untouched in drivelens-settings

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
 // api_level 14: battery health with TeslaMate's "Battery Health" dashboard method (`tm` in /battery); older servers / too
 // little data fall back to the range-based estimate below.

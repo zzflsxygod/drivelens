@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // v0.17.0 line icons (24×24, currentColor) — replace the emoji that used to decorate the UI.
 // ic("bolt") → inline <svg class="ic">; size follows the font size (1.15em) unless given.
 const P: Record<string, string> = {
@@ -39,6 +40,8 @@ const P: Record<string, string> = {
   coffee: `<path d="M4.5 9h12v5.5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5z"/><path d="M16.5 10.5h1.5a2.5 2.5 0 0 1 0 5h-1.6M8 3.5v2.5M12 3.5v2.5"/>`,
   pause: `<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>`,
   car: `<path d="M5 16.5h14M6.5 16.5V19M17.5 16.5V19M4 13.5l1.6-4.6A2 2 0 0 1 7.5 7.5h9a2 2 0 0 1 1.9 1.4L20 13.5v3H4z"/>`,
+  code: `<path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M13.5 4.5l-3 15"/>`,
+  scale: `<path d="M12 4v16M7.5 20h9M4.5 7.5h15M6.5 7.5 4 14a2.6 2.6 0 0 0 5 0zM17.5 7.5 15 14a2.6 2.6 0 0 0 5 0z"/>`,
   ext: `<path d="M13.5 4.5h6v6M19.5 4.5l-8 8M17 14v5.5H4.5V7H10"/>`,
 };
 export type IconName = keyof typeof P;

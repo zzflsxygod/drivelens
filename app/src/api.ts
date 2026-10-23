@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import { t, currentLang } from "./i18n";
 import { isDemo, DEMO_URL, DEMO_TOKEN } from "./demo";
 export type Theme = "auto" | "light" | "dark";

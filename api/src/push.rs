@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Web Push notifications (api_level 13): trip summary when a TeslaMate drive ends, monthly-report reminder on the 1st.
 //! Pure-Rust stack (web-push-native: RFC 8291 aes128gcm + RFC 8292 VAPID, RustCrypto) — no OpenSSL in the image.
 //! Only drivelens.push_subscriptions / drivelens.push_state are written; TeslaMate tables are read only (polled).
@@ -122,6 +123,7 @@ async fn deliver(s: &AppState, v: &Vapid, sub: &Sub, msg: &Message, ttl_secs: u6
         let b = b.with_valid_duration(std::time::Duration::from_secs(ttl_secs));
         b.with_vapid(&v.kp, &v.subject).build(serde_json::to_vec(msg)?).map_err(|e| anyhow::anyhow!("{e}"))
     }) { Ok(r) => r, Err(e) => return Outcome::Failed(format!("encrypt: {e}")) };
+    if !valid_endpoint(&sub.endpoint) { return Outcome::Failed("endpoint is not a known push service".into()); }
     let (parts, body) = req.into_parts();
     let mut rb = s.http.post(parts.uri.to_string()).body(body).header("Urgency", "normal")
         .timeout(std::time::Duration::from_secs(15));
@@ -129,8 +131,9 @@ async fn deliver(s: &AppState, v: &Vapid, sub: &Sub, msg: &Message, ttl_secs: u6
     match rb.send().await {
         Ok(r) if r.status().is_success() => Outcome::Sent,
         Ok(r) if matches!(r.status().as_u16(), 404 | 410) => Outcome::Gone(r.status().as_u16()),
-        Ok(r) => { let st = r.status(); let t = r.text().await.unwrap_or_default(); Outcome::Failed(format!("{st} {}", t.chars().take(200).collect::<String>())) }
-        Err(e) => Outcome::Failed(format!("network: {e}")),
+        // status only: the response body is never stored or returned (it is whatever the remote host sent)
+        Ok(r) => Outcome::Failed(format!("HTTP {}", r.status().as_u16())),
+        Err(e) => { tracing::debug!("push: network error: {e}"); Outcome::Failed(if e.is_timeout() { "timeout".into() } else if e.is_connect() { "connection failed".into() } else { "network error".into() }) }
     }
 }
 
@@ -362,14 +365,75 @@ fn prefs_sql() -> String {
         to_char(last_success_at AT TIME ZONE 'UTC', '{TS}') AS last_success_at, last_error FROM drivelens.push_subscriptions WHERE endpoint = $1")
 }
 
-fn valid_endpoint(e: &str) -> bool {
-    e.len() <= 2048 && e.starts_with("https://") && e.parse::<axum::http::Uri>().map(|u| u.host().is_some()).unwrap_or(false)
+/// Push services the browsers actually use (Web Push endpoints): Chrome/Edge/Brave/Opera/Samsung → FCM,
+/// Firefox → Mozilla autopush, Safari → Apple, legacy Edge → WNS. Exact host or any subdomain of these.
+const PUSH_HOSTS: [&str; 5] = ["fcm.googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com", "android.googleapis.com"];
+
+/// Extra allowed push hosts (DRIVELENS_PUSH_HOSTS, comma-separated), e.g. a self-hosted autopush for a Firefox fork.
+fn extra_push_hosts() -> Vec<String> {
+    std::env::var("DRIVELENS_PUSH_HOSTS").unwrap_or_default().split(',')
+        .map(|h| h.trim().trim_start_matches("*.").to_ascii_lowercase()).filter(|h| !h.is_empty()).collect()
+}
+
+fn host_allowed(host: &str, extra: &[String]) -> bool {
+    let h = host.trim_end_matches('.').to_ascii_lowercase();
+    let m = |d: &str| h == d || h.ends_with(&format!(".{d}"));
+    PUSH_HOSTS.iter().any(|d| m(d)) || extra.iter().any(|d| m(d))
+}
+
+/// https only, default port, no user info, host on the push-service allowlist (SSRF guard: the server must not
+/// be usable to make requests to arbitrary / internal URLs).
+fn endpoint_ok(e: &str, extra: &[String]) -> bool {
+    let Ok(u) = e.parse::<axum::http::Uri>() else { return false };
+    e.len() <= 2048 && u.scheme_str() == Some("https") && matches!(u.port_u16(), None | Some(443))
+        && u.authority().is_some_and(|a| !a.as_str().contains('@'))
+        && u.host().is_some_and(|h| host_allowed(h, extra))
+}
+fn valid_endpoint(e: &str) -> bool { endpoint_ok(e, &extra_push_hosts()) }
+
+/// Addresses a push request may connect to: public unicast only (no loopback, private, link-local, CGNAT,
+/// unique-local, multicast, documentation or unspecified ranges). Applied after DNS resolution.
+fn public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(a) => {
+            let o = a.octets();
+            !(a.is_loopback() || a.is_private() || a.is_link_local() || a.is_unspecified() || a.is_broadcast()
+              || a.is_multicast() || a.is_documentation() || o[0] == 0 || (o[0] == 100 && (o[1] & 0xc0) == 64)
+              || (o[0] == 192 && o[1] == 0 && o[2] == 0) || (o[0] == 198 && (o[1] & 0xfe) == 18) || o[0] >= 240)
+        }
+        IpAddr::V6(a) => {
+            if let Some(v4) = a.to_ipv4_mapped() { return public_ip(IpAddr::V4(v4)); }
+            let s = a.segments();
+            !(a.is_loopback() || a.is_unspecified() || a.is_multicast() || (s[0] & 0xfe00) == 0xfc00
+              || (s[0] & 0xffc0) == 0xfe80 || (s[0] == 0x2001 && s[1] == 0x0db8) || (s[0] == 0x64 && s[1] == 0xff9b))
+        }
+    }
+}
+
+/// DNS resolver for the push client that drops non-public addresses (defends against an allowed name
+/// resolving, or being rebound, to an internal address).
+struct PublicOnly;
+impl reqwest::dns::Resolve for PublicOnly {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async move {
+            let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((name.as_str(), 0)).await?.filter(|a| public_ip(a.ip())).collect();
+            if addrs.is_empty() { return Err(format!("{} resolves to no public address", name.as_str()).into()); }
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// The HTTP client used only for Web Push deliveries: no redirects, public addresses only, short timeouts.
+pub fn push_client() -> anyhow::Result<reqwest::Client> {
+    Ok(reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).dns_resolver(std::sync::Arc::new(PublicOnly))
+        .connect_timeout(std::time::Duration::from_secs(10)).timeout(std::time::Duration::from_secs(20)).build()?)
 }
 
 /// Create or update (same endpoint) a subscription. Omitted toggles keep their value (new: on).
 pub async fn subscribe(State(s): State<AppState>, Json(b): Json<SubscribeBody>) -> Result<Response, ApiError> {
     if !push_ok(&s).await? { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, MISSING)); }
-    if !valid_endpoint(&b.endpoint) { return Ok(err(StatusCode::BAD_REQUEST, "endpoint must be an https URL")); }
+    if !valid_endpoint(&b.endpoint) { return Ok(err(StatusCode::BAD_REQUEST, "endpoint must be an https URL of a known push service")); }
     let probe = Sub { id: 0, endpoint: b.endpoint.clone(), p256dh: b.keys.p256dh.clone(), auth: b.keys.auth.clone(), tz: String::new(), locale: String::new(), car_ids: None, fail_count: 0 };
     if builder(&probe).is_err() { return Ok(err(StatusCode::BAD_REQUEST, "invalid subscription keys")); }
     let tz = b.tz.as_deref().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 64).unwrap_or("UTC").to_string();
@@ -476,7 +540,32 @@ mod tests {
         assert!(valid_endpoint("https://web.push.apple.com/QGx"));
         assert!(!valid_endpoint("http://fcm.googleapis.com/x"));
         assert!(!valid_endpoint("file:///etc/passwd"));
+        assert!(valid_endpoint("https://fcm.googleapis.com/fcm/send/abc:def"));
+        assert!(valid_endpoint("https://updates.push.services.mozilla.com/wpush/v2/x"));
+        assert!(valid_endpoint("https://wns2-par02p.notify.windows.com/w/?token=x"));
+        assert!(!valid_endpoint("https://169.254.169.254/latest/meta-data"));
+        assert!(!valid_endpoint("https://127.0.0.1/x"));
+        assert!(!valid_endpoint("https://localhost/x"));
+        assert!(!valid_endpoint("https://evilpush.apple.com.attacker.example/x"));
+        assert!(!valid_endpoint("https://notpush.apple.com/x"), "suffix must match on a dot boundary");
+        assert!(!valid_endpoint("https://fcm.googleapis.com:8443/x"));
+        assert!(!valid_endpoint("https://user@fcm.googleapis.com/x"));
+        assert!(endpoint_ok("https://push.example.org/x", &["push.example.org".into()]));
+        assert!(endpoint_ok("https://a.push.example.org/x", &["push.example.org".into()]));
         assert_eq!(fmt_dur(5, "zh"), "5 分钟");
         assert_eq!(thousands(1234567), "1,234,567");
+    }
+    #[test]
+    fn only_public_addresses() {
+        for a in ["127.0.0.1", "10.0.0.1", "172.16.5.4", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fe80::1", "fd00::1", "::ffff:127.0.0.1", "::ffff:10.1.2.3", "64:ff9b::a00:1", "224.0.0.1"] {
+            assert!(!public_ip(a.parse().unwrap()), "{a} must be rejected");
+        }
+        for a in ["142.250.196.106", "34.117.100.1", "2a00:1450:4001:80b::200a", "17.253.144.10"] { assert!(public_ip(a.parse().unwrap()), "{a} must be allowed"); }
+    }
+    #[tokio::test]
+    async fn push_client_refuses_internal_names() {
+        let c = push_client().unwrap();
+        let e = c.post("https://localhost:9/x").send().await.unwrap_err();
+        assert!(e.is_connect() || e.to_string().contains("error sending request"), "{e}");
     }
 }

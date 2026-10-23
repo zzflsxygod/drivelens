@@ -85,3 +85,5 @@ DriveLens は個人で開発しており、無料で使えます。役に立っ�
 Copyright (C) 2026 zzflsxygod。DriveLens は [GNU AGPL-3.0-or-later](LICENSE) のフリーソフトウェアです。改変したものをネットワークサービスとして提供する場合は、その利用者にソースコードを提供する必要があります。フォークには別の名前とロゴを使ってください。
 
 DriveLens は独立したプロジェクトで、Tesla, Inc. および TeslaMate プロジェクトとは関係ありません。地図 © [OpenFreeMap](https://openfreemap.org) / © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors。天気データは [Open-Meteo](https://open-meteo.com) によるものです。
+
+バッテリー劣化の計算は [TeslaMate](https://github.com/teslamate-org/teslamate) の Grafana ダッシュボードに由来します（Copyright (C) TeslaMate contributors、AGPL-3.0-or-later。改変あり、[third_party/teslamate/NOTICE](third_party/teslamate/NOTICE) を参照）。デモのルート（`app/src/demo/routes.json`）は © OpenStreetMap contributors、[ODbL](https://opendatacommons.org/licenses/odbl/) ライセンスです。標高データは Copernicus DEM（Open-Meteo 経由、[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)）です。同梱しているサードパーティライブラリのライセンスは [api/THIRD_PARTY_LICENSES.txt](api/THIRD_PARTY_LICENSES.txt)（サーバー）とウェブ版の `/third-party-licenses.txt` を参照してください。

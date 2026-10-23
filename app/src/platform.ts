@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Platform glue: touch devices, Android (Tauri mobile) safe areas / status bar / back button / share,
 // and external links (always the system browser, never inside the app's webview).
 import { closeMenus, hasOpenMenu } from "./ui";

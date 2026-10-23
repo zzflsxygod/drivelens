@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- DriveLens v0.16.0 (API 0.12.0, api_level 13): Web Push notifications (trip summary, monthly report reminder).
 -- Only needed on servers where the drivelens tables were created by the database admin (older installs that ran
 -- drivelens-init.sql / drivelens-v0.x.sql). Installs set up with setup.sql need nothing: the API creates these tables itself.

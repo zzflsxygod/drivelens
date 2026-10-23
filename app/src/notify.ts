@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Settings → Notifications (Web Push, api_level 13): trip summary when a drive ends, monthly report reminder on the 1st.
 // The server (drivelens-api) does the detection and sends the pushes; this module only manages the browser subscription
 // and the per-type toggles. Demo mode shows the same UI but everything is simulated locally (no permission, no push).

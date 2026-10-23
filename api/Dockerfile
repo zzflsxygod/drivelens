@@ -25,6 +25,8 @@ LABEL org.opencontainers.image.title="drivelens-api" \
       org.opencontainers.image.description="DriveLens API for TeslaMate (read-only)" \
       org.opencontainers.image.source="https://github.com/zzflsxygod/drivelens"
 COPY --from=builder /drivelens-api /usr/local/bin/drivelens-api
+# licenses of the Rust crates compiled into the binary (regenerate: scripts/third-party-licenses.sh)
+COPY THIRD_PARTY_LICENSES.txt /usr/share/doc/drivelens/THIRD_PARTY_LICENSES.txt
 ENV BIND_ADDR=0.0.0.0:8080 RUST_LOG=info
 EXPOSE 8080
 USER nonroot:nonroot

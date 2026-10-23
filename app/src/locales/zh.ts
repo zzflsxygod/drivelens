@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // DriveLens UI strings. Chinese is the source; en.ts / ja.ts must have exactly the same keys (checked by tsc and scripts/check-i18n.mjs).
 const zh = {
   "common.back": "← 返回",
@@ -177,6 +178,8 @@ const zh = {
   "su.welcome": "欢迎使用 DriveLens",
   "su.intro": "连接你自己的 TeslaMate 服务器上的 drivelens-api。",
   "about.feedback": "问题反馈 / 功能建议",
+  "about.source": "源代码（AGPL-3.0）",
+  "about.licenses": "第三方许可证",
   "about.releases": "版本与更新日志",
   "about.guide": "安装指南（自建服务器）",
   "about.title": "帮助与反馈",

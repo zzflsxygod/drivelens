@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Demo Mode "server": answers every DriveLens API endpoint from the generated dataset (gen.ts), mirroring the
 // Rust API's response shapes and rules (api/src/*.rs). Writes live in memory and are persisted per demo session.
 import { generate, hav, climate, DEMO_CAR_ID, type DB, type DDrive, type DCharge, type Pos } from "./gen";

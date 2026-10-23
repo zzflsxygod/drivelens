@@ -176,6 +176,8 @@ drivelens-api 读取的变量：
 | `DRIVELENS_CORS_ORIGINS` | | 允许从浏览器调用 API 的网页来源，逗号分隔；`*` 表示任意来源。默认只允许官方网页版（以及已暂停的原生 App 的来源）。旧名称 `CORS_ORIGINS` 仍然有效 |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | 推送签名密钥（base64url P-256）。通常不用设置：第一次启动时自动生成并保存在数据库里 |
 | `DRIVELENS_VAPID_SUBJECT` | | 发给推送服务的联系方式（`mailto:you@example.com` 或 https 网址）。默认是 DriveLens 项目页 |
+| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = 登录失败次数限制按 `CF-Connecting-IP` / `X-Forwarded-For` 区分客户端（只认来自本机 / 内网地址的请求，即你的隧道或反向代理）。默认关闭：按连接本身的地址计算，隧道后面所有客户端共用一个限制。无论哪种，正确的 Token 都不会被拦截 |
+| `DRIVELENS_PUSH_HOSTS` | | 额外允许的推送服务主机（逗号分隔），用于使用自有推送服务器的浏览器。Chrome / Edge、Firefox、Safari 的推送服务始终允许 |
 | `RUST_LOG` | | 日志级别，默认 `info` |
 
 `.env` 里（`docker-compose.drivelens.yml` 使用）：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`，可选的 `DRIVELENS_DB_NAME`（默认 `teslamate`）、`DRIVELENS_IMAGE`（默认 `ghcr.io/zzflsxygod/drivelens-api:latest`）和 `CLOUDFLARE_TUNNEL_TOKEN`（只给 cloudflared 服务用）。

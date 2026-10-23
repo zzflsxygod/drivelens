@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Journeys phase 2 (api_level 11): cover image, share card, weather per drive, energy by speed band.
 import { ic } from "./icons";
 import { canNativeShare, canNativeSave, nativeShareImage, nativeSaveImage } from "./platform";

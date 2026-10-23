@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import { skey } from "./demo";
 import { ic } from "./icons";
 import { setJumpedPeek, setJumpedReset } from "./totop";

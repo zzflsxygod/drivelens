@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- DriveLens one-time database setup. Run it on the TeslaMate database as TeslaMate's database admin; safe to re-run.
 -- Usage (in TeslaMate's docker compose directory):
 --   docker compose exec -T database psql -U teslamate -d teslamate \

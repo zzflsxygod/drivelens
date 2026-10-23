@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Fails (exit 1) when locale files disagree or the UI uses a key that doesn't exist.
 //  - zh / en / ja must have exactly the same keys
 //  - every {placeholder} (or {n|one|other} plural) in zh must appear in en / ja (and no extra ones)

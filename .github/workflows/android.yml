@@ -9,36 +9,42 @@ on:
 #   tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   NDK_VERSION: 27.0.12077973
 
 jobs:
   build:
+    permissions:
+      contents: write   # attach installers to the draft release on tags
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
 
-      - uses: actions/setup-node@v4
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: app/package-lock.json
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: platform-tools
 
       - name: Cache NDK
         id: ndk-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}
@@ -51,17 +57,17 @@ jobs:
           sdkmanager --install $pkgs > /dev/null
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: app/src-tauri -> target
           key: android
 
       - name: Cache Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.gradle/caches
@@ -109,7 +115,7 @@ jobs:
           rm -f "$RUNNER_TEMP/release.p12" "$RUNNER_TEMP/keystore.properties"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: DriveLens-android
           path: dist-android/*

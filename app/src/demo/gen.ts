@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Demo Mode data generator: a deterministic, TeslaMate-shaped dataset (~3 months ending "now") built from
 // real road geometry (routes.json: OSRM / OpenStreetMap, ODbL) — no network. Everything is computed in memory.
 import R from "./routes.json";

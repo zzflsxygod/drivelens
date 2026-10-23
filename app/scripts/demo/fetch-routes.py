@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Builds app/src/demo/routes.json for Demo Mode: real road geometry between fictional-but-realistic places.
 Routing: OSRM public demo server (router.project-osrm.org, data © OpenStreetMap contributors, ODbL).
 Elevation: Open-Meteo elevation API (Copernicus DEM GLO-90, CC BY 4.0). Run once; the output is committed."""

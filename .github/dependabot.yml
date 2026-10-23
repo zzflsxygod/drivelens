@@ -1,0 +1,24 @@
+# Weekly dependency update PRs (grouped to keep the noise down). Security updates are separate and immediate
+# once "Dependabot security updates" is enabled in the repository settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
+    groups: { actions: { patterns: ["*"] } }
+    commit-message: { prefix: "ci" }
+  - package-ecosystem: cargo
+    directory: /api
+    schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
+    groups: { api-minor: { update-types: [minor, patch] } }
+    commit-message: { prefix: "api" }
+  - package-ecosystem: cargo
+    directory: /app/src-tauri
+    schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
+    groups: { tauri-minor: { update-types: [minor, patch] } }
+    commit-message: { prefix: "app" }
+  - package-ecosystem: npm
+    directory: /app
+    schedule: { interval: weekly, day: monday, timezone: Asia/Tokyo }
+    groups: { npm-minor: { update-types: [minor, patch] } }
+    commit-message: { prefix: "app" }

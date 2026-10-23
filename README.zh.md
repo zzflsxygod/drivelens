@@ -85,3 +85,5 @@ DriveLens 由一个人开发维护，免费使用。如果对你有帮助，可�
 Copyright (C) 2026 zzflsxygod。DriveLens 是自由软件，采用 [GNU AGPL-3.0-or-later](LICENSE) 许可。如果你把修改后的版本作为网络服务提供，必须向其用户提供源代码。Fork 请使用不同的名称和图标。
 
 DriveLens 是独立项目，与 Tesla, Inc. 及 TeslaMate 项目无关。地图 © [OpenFreeMap](https://openfreemap.org) / © [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者。天气数据来自 [Open-Meteo](https://open-meteo.com)。
+
+电池健康度的计算源自 [TeslaMate](https://github.com/teslamate-org/teslamate) 的 Grafana 仪表盘（Copyright (C) TeslaMate contributors，AGPL-3.0-or-later；已修改，见 [third_party/teslamate/NOTICE](third_party/teslamate/NOTICE)）。演示路线（`app/src/demo/routes.json`）© OpenStreetMap 贡献者，采用 [ODbL](https://opendatacommons.org/licenses/odbl/) 许可；海拔数据来自 Copernicus DEM（经 Open-Meteo，[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)）。所含第三方库的许可证见 [api/THIRD_PARTY_LICENSES.txt](api/THIRD_PARTY_LICENSES.txt)（服务器）和网页版的 `/third-party-licenses.txt`。

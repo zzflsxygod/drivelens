@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Only what the app actually shares: PNGs written by MainActivity.shareImage (cacheDir/share) and the camera
+     temp files of Tauri's file chooser (getExternalFilesDir(Pictures), app-private). No access to shared storage. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-  <external-path name="my_images" path="." />
-  <cache-path name="my_cache_images" path="." />
+  <cache-path name="share" path="share/" />
+  <external-files-path name="camera" path="Pictures/" />
 </paths>

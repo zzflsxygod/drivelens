@@ -32,7 +32,7 @@ import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
-import { installGuideUrl, RELEASES_URL, ISSUES_URL } from "./links";
+import { installGuideUrl, RELEASES_URL, ISSUES_URL, SOURCE_URL, THIRD_PARTY_URL } from "./links";
 
 const view = document.getElementById("view")!;
 const carSel = document.getElementById("car") as HTMLSelectElement;
@@ -104,7 +104,7 @@ function costDialog(c: Charge, onDone: () => void) {
       <div class="muted">${esc(c.address)} · ${fmtDate(c.start_date)} · ${kwh != null ? `${kwh.toFixed(2)} kWh` : ""}</div>
       <div class="cost-row">
         <input id="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="${t("cost.amount")}" value="${manual && c.cost != null ? c.cost : ""}">
-        <select id="cur">${opts.map(o => `<option${o === cur0 ? " selected" : ""}>${o}</option>`).join("")}</select>
+        <select id="cur">${opts.map(o => `<option${o === cur0 ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>
       </div>
       <div id="unit" class="muted"></div>
       <input id="note" maxlength="500" placeholder="${t("common.noteOptional")}" value="${esc(manual ? c.cost_note ?? "" : "").replace(/^—$/, "")}">
@@ -491,7 +491,8 @@ function aboutCardHTML() {
   const row = (href: string, ico: string, label: string) =>
     `<a class="about-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="about-ico" aria-hidden="true">${ico}</span><span>${label}</span><span class="about-go" aria-hidden="true">›</span></a>`;
   return `<div class="section-title"><span>${t("about.title")}</span></div><div class="card about-card">
-    ${row(installGuideUrl(), ic("book"), t("about.guide"))}${row(RELEASES_URL, ic("box"), t("about.releases"))}${row(ISSUES_URL, ic("chat"), t("about.feedback"))}</div>`;
+    ${row(installGuideUrl(), ic("book"), t("about.guide"))}${row(RELEASES_URL, ic("box"), t("about.releases"))}${row(ISSUES_URL, ic("chat"), t("about.feedback"))}
+    ${row(SOURCE_URL, ic("code"), t("about.source"))}${row(THIRD_PARTY_URL, ic("scale"), t("about.licenses"))}</div>`;
 }
 function supportCardHTML() {
   if (!/^https:\/\//.test(DONATE_URL)) return "";
@@ -908,7 +909,7 @@ function openView(v: string | null) {
   else if (v === "settings") tab("settings").click();
   else if (v?.startsWith("drive:")) showDrive(Number(v.slice(6)));
   else if (v?.startsWith("charge:")) showCharge(Number(v.slice(7)));
-  else if (v?.startsWith("report")) openReport(v.slice(7) || nowMonth());
+  else if (v?.startsWith("report")) { const m = v.slice(7); openReport(/^\d{4}-(0[1-9]|1[0-2])$/.test(m) ? m : nowMonth()); }   // only YYYY-MM reaches the report HTML
   else if (v === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
   else if (v?.startsWith("journey:")) { serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(v.slice(8))))); }
   else if (v === "journeys") { tab("drives").classList.add("active"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }

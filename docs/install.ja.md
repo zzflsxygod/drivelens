@@ -176,6 +176,8 @@ drivelens-api が読み取る変数：
 | `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せるウェブのオリジン（カンマ区切り）。`*` はすべて許可。初期設定は公式ウェブ版のみ（と、一時停止中のネイティブアプリのオリジン）。旧名の `CORS_ORIGINS` も使えます |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | プッシュの署名鍵（base64url P-256）。通常は設定不要で、初回起動時に生成してデータベースに保存します |
 | `DRIVELENS_VAPID_SUBJECT` | | プッシュサービスに送る連絡先（`mailto:you@example.com` または https の URL）。初期値は DriveLens のプロジェクトページ |
+| `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` にすると、ログイン失敗回数の制限で `CF-Connecting-IP` / `X-Forwarded-For` からクライアントを区別します（ローカル / プライベートアドレスから来たリクエスト、つまりトンネルやリバースプロキシ経由のものだけ）。既定はオフ：接続元アドレスで数えるため、トンネルの後ろではすべてのクライアントが 1 つの制限を共有します。どちらの場合も正しいトークンはブロックされません |
+| `DRIVELENS_PUSH_HOSTS` | | 通知用に追加で許可するプッシュサービスのホスト（カンマ区切り）。独自のプッシュサーバーを使うブラウザ向けです。Chrome / Edge、Firefox、Safari のプッシュサービスは常に許可されます |
 | `RUST_LOG` | | ログレベル。初期値は `info` |
 
 `.env`（`docker-compose.drivelens.yml` が使用）：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（初期値 `teslamate`）、`DRIVELENS_IMAGE`（初期値 `ghcr.io/zzflsxygod/drivelens-api:latest`）、`CLOUDFLARE_TUNNEL_TOKEN`（cloudflared サービス用）。

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Overlay scrollbar: the native one is hidden everywhere (it took layout width on Windows), and a thin fixed
 // thumb for the page scroll shows while scrolling / hovering the right edge, then fades out. Draggable.
 export function initOverlayScrollbar() {

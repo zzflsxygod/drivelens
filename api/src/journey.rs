@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! 旅程 (journeys): user-defined groups of TeslaMate drives, stored in drivelens.journeys / journey_drives.
 //! TeslaMate tables are only read. If the tables are missing the endpoints answer 503 with a clear message.
 use super::*;

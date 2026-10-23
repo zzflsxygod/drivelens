@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // UI language: 中文 (source), English, 日本語. Strings live in ./locales/*.ts (generated keys are checked by scripts/check-i18n.mjs).
 import zh from "./locales/zh";
 import en from "./locales/en";

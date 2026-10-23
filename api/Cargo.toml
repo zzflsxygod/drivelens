@@ -4,6 +4,7 @@ version = "0.13.1"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/zzflsxygod/drivelens"
 edition = "2021"
+publish = false
 rust-version = "1.85"
 
 [dependencies]

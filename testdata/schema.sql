@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Subset of TeslaMate's schema (column names/types follow TeslaMate's Ecto migrations).
 CREATE TYPE billing_type AS ENUM ('per_kwh', 'per_minute');
 CREATE TABLE cars (id smallserial PRIMARY KEY, eid bigint, vid bigint, model varchar(255), efficiency double precision,

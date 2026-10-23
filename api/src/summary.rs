@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! GET /api/cars/:id/summary — home screen data.
 use super::*;
 

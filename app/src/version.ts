@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Server version / API level check. Never throws; features degrade instead of crashing.
 import { loadSettings } from "./api";
 import { t } from "./i18n";

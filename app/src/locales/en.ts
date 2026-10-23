@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import type zh from "./zh";
 
 const en: Record<keyof typeof zh, string> = {
@@ -178,6 +179,8 @@ const en: Record<keyof typeof zh, string> = {
   "su.welcome": "Welcome to DriveLens",
   "su.intro": "Connect to drivelens-api on your own TeslaMate server.",
   "about.feedback": "Report a bug / suggest a feature",
+  "about.source": "Source code (AGPL-3.0)",
+  "about.licenses": "Third-party licenses",
   "about.releases": "Releases & changelog",
   "about.guide": "Install guide (self-hosted server)",
   "about.title": "Help & feedback",

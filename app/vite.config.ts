@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import { defineConfig, type Plugin } from "vite";
 import pkg from "./package.json";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
 const host = process.env.TAURI_DEV_HOST;
 
 /** Official hosted web app (Cloudflare Pages). Override with VITE_WEB_ORIGIN for another host. */
@@ -114,6 +117,43 @@ self.addEventListener("notificationclick", e => {
 `;
 }
 
+/**
+ * Emits third-party-licenses.txt: name, version, license and the full license text of every npm package whose code
+ * ends up in the bundle (collected from the modules Vite actually bundled, so dev-only tools are never listed).
+ * Served by the web app at /third-party-licenses.txt (linked from Settings → About).
+ */
+function thirdPartyLicenses(): Plugin {
+  const pkgDir = (id: string) => {
+    const i = id.lastIndexOf(`${sep}node_modules${sep}`); if (i < 0) return null;
+    const rest = id.slice(i + 14).split(sep);
+    return id.slice(0, i + 14) + (rest[0].startsWith("@") ? join(rest[0], rest[1]) : rest[0]);
+  };
+  return {
+    name: "drivelens-third-party-licenses",
+    apply: "build",
+    generateBundle(_o, bundle) {
+      const dirs = new Set<string>();
+      for (const c of Object.values(bundle)) if (c.type === "chunk") for (const id of Object.keys(c.modules)) { const d = pkgDir(id.replace(/^\0/, "").split("?")[0]); if (d) dirs.add(d); }
+      const out = [`Third-party software in the DriveLens app ${pkg.version} (npm packages bundled into this build)`,
+        "DriveLens itself is licensed under the GNU AGPL-3.0-or-later; source: https://github.com/zzflsxygod/drivelens", ""];
+      const seen = new Set<string>();
+      for (const d of [...dirs].sort()) {
+        if (!existsSync(join(d, "package.json"))) continue;
+        const p = JSON.parse(readFileSync(join(d, "package.json"), "utf8"));
+        if (seen.has(`${p.name}@${p.version}`)) continue; seen.add(`${p.name}@${p.version}`);
+        const lic = readdirSync(d).filter(f => /^(licen[cs]e|copying|notice)/i.test(f) && !/\.spdx$/i.test(f)).sort();
+        out.push("-".repeat(80), `${p.name} ${p.version} — ${p.license ?? "see below"}${p.repository ? ` — ${typeof p.repository === "string" ? p.repository : p.repository.url}` : ""}`, "-".repeat(80),
+          lic.length ? lic.map(f => readFileSync(join(d, f), "utf8").trim()).join("\n\n") : `(no license file in the package; license field: ${p.license})`, "");
+      }
+      // demo map data shipped with the app
+      out.push("-".repeat(80), "Demo routes (src/demo/routes.json)", "-".repeat(80),
+        "Routes © OpenStreetMap contributors, Open Database License (ODbL) 1.0 — https://www.openstreetmap.org/copyright",
+        "Elevation: Copernicus DEM via Open-Meteo, CC BY 4.0 — https://open-meteo.com/en/license", "");
+      this.emitFile({ type: "asset", fileName: "third-party-licenses.txt", source: out.join("\n") });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const web = mode === "web";
   return {
@@ -123,7 +163,7 @@ export default defineConfig(({ mode }) => {
       hmr: host ? { protocol: "ws", host, port: 1421 } : undefined },
     envPrefix: ["VITE_", "TAURI_ENV_*"],
     publicDir: web ? "web-public" : false,
-    plugins: web ? [pwa()] : [],
+    plugins: web ? [thirdPartyLicenses(), pwa()] : [thirdPartyLicenses()],
     build: { target: "es2020", outDir: web ? "dist-web" : "dist", emptyOutDir: true },
   };
 });

@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- DriveLens v0.6.0 升级：只新建旅程表并授权（可重复执行，不需要密码）
 -- docker compose exec -T database psql -U teslamate -d teslamate < drivelens-v0.6.0.sql
 -- v0.6.0：旅程（把多段行程合并为一次旅程；只引用 TeslaMate 的 drives，不修改它）

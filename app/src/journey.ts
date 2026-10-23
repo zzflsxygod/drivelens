@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Drives tab (drive list with multi-select) + journeys: list, suggestions, detail, editing.
 import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } from "./api";
 import { ic } from "./icons";

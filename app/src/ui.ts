@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // v0.12.0: unified glass controls + motion. Upgrades whatever the page renderers put into #view
 // (back links → round chevron buttons in a sticky page header, ✎ → pencil chips, native <select> → pill + popover)
 // and plays push / pop / tab transitions. Transform + opacity only; prefers-reduced-motion disables it in CSS.
@@ -151,7 +152,7 @@ function upgradeSelect(s: HTMLSelectElement) {
   if (s.id) p.dataset.for = s.id;
   const lab = s.getAttribute("aria-label") || s.closest("label")?.firstChild?.textContent?.trim() || "";
   if (lab) p.setAttribute("aria-label", lab);
-  const sync = () => { p.innerHTML = `<span>${s.options[s.selectedIndex]?.text ?? ""}</span>${ICON.chev}`; p.disabled = s.disabled; };
+  const sync = () => { p.innerHTML = `<span></span>${ICON.chev}`; p.firstElementChild!.textContent = s.options[s.selectedIndex]?.text ?? ""; p.disabled = s.disabled; };
   sync(); s.addEventListener("change", sync);
   s.classList.add("sel-native"); s.tabIndex = -1; s.setAttribute("aria-hidden", "true");
   s.after(p);
