@@ -26,6 +26,8 @@ export interface Ctx {
   /** cover / share card / weather / speed bands (api_level ≥ 11) */
   journey2Available(): boolean;
   journey2Message(): string;
+  /** false on a read-only device (device auth): no create / edit / delete / cover / dismiss entry points */
+  canWrite(): boolean;
 }
 interface Money { currency: string; amount: number }
 export interface JourneyRow { id: number; car_id: number; name: string; note: string | null; start_date: string | null; end_date: string | null;
@@ -71,7 +73,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   if (mode !== undefined) { selectMode = mode; sel.clear(); preselect.forEach(i => sel.add(i)); }
   const v = ctx.view;
   const car = await ctx.carId();
-  const canSelect = ctx.journeysAvailable();
+  const canSelect = ctx.journeysAvailable() && ctx.canWrite();   // multi-select exists to create journeys
   v.innerHTML = `<div class="list-toolbar">${segHTML("drives", ctx) || `<h2 class="tb-title">${t("seg.drives")}</h2>`}
       <div class="tb-right" id="d-tb">${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
     ${canSelect ? `<div class="sel-tip muted" id="seltip" hidden></div>` : ""}
@@ -183,7 +185,7 @@ export async function showJourneys(ctx: Ctx) {
   }).catch(e => { const el = v.querySelector<HTMLElement>("#j-list"); if (el) { el.innerHTML = err(e); bindRetry(el, loadList); } });
   const loadSugg = () => {
     const el = v.querySelector<HTMLElement>("#j-sugg"); if (!el) return Promise.resolve();
-    if (loadSettings().suggestionsOff) { el.innerHTML = ""; return Promise.resolve(); }
+    if (loadSettings().suggestionsOff || !ctx.canWrite()) { el.innerHTML = ""; return Promise.resolve(); }
     return api<Suggestion[]>(`/api/journeys/suggestions?gap_min=${gap}${car != null ? `&car_id=${car}` : ""}`).then(all => {
       const el = v.querySelector<HTMLElement>("#j-sugg"); if (!el) return;
       const local = new Set(loadSettings().dismissedDrives ?? []);
@@ -283,12 +285,13 @@ export async function showJourney(ctx: Ctx, id: number) {
     <div class="row muted">${fmtTime(c.start_date)} · +${n(c.charge_energy_added, 1)} kWh</div></div></div>`));
   const grad = `linear-gradient(90deg, ${SPEED_STOPS.map(([k, c]) => `${c} ${k / 1.2}%`).join(", ")})`;
   const meta = `${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${t("j.meta", { n: j.drives.length })}${s.charge_count ? t("card.metaCharges", { n: s.charge_count }) : ""}`;
-  const pen = `<span class="pen" id="jedit" title="${t("j.editTitle")}">✎</span>`;
+  const rw = ctx.canWrite();
+  const pen = rw ? `<span class="pen" id="jedit" title="${t("j.editTitle")}">✎</span>` : "";
   const heroOn = p2 && !!j.has_cover;
   v.innerHTML = `<div class="jtop"><button class="back">${t("common.back")}</button>${p2 ? `<div class="jtop-r">
       <button id="j-share" class="icon-btn" title="${t("share.title")}" aria-label="${t("share.title")}">📤</button>
-      <button id="j-more" class="icon-btn" title="${t("j.more")}" aria-label="${t("j.more")}">⋯</button>
-      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">${t("j.photoCover")}</button><button data-act="setcover">${t("j.mapCover")}</button>${j.has_cover ? `<button data-act="rmcover">${t("j.rmCover")}</button>` : ""}</div></div>` : ""}</div>
+      ${rw ? `<button id="j-more" class="icon-btn" title="${t("j.more")}" aria-label="${t("j.more")}">⋯</button>
+      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">${t("j.photoCover")}</button><button data-act="setcover">${t("j.mapCover")}</button>${j.has_cover ? `<button data-act="rmcover">${t("j.rmCover")}</button>` : ""}</div>` : ""}</div>` : ""}</div>
     ${heroOn ? `<div class="jhero sk" id="j-hero"><div class="jhero-in">
         <h2>${esc(j.name)} ${pen}</h2><div class="jhero-meta">${meta}</div>
         <div class="jhero-stats"><span>${n(s.distance_km, 0)} km</span><span>${n(s.energy_used_kwh, 1)} kWh</span><span>${n(s.efficiency_wh_km, 0)} Wh/km</span>${s.costs.length ? `<span>${costTxt(s.costs)}</span>` : ""}</div></div></div>`
@@ -315,16 +318,18 @@ export async function showJourney(ctx: Ctx, id: number) {
     <div class="section-title">${t("j.wx")}</div><div id="j-wx"><span class="sk" style="width:100%;height:100px;display:block"></span></div>` : ""}
     <div class="section-title">${t("j.timeline")}</div>
     <div class="timeline">${tl.join("")}</div>
-    <div class="btn-row"><button id="jdrives" class="ghost">${t("j.editDrives")}</button><button id="jdel" class="ghost" style="color:var(--red)">${t("j.delete")}</button></div>`;
+    ${rw ? `<div class="btn-row"><button id="jdrives" class="ghost">${t("j.editDrives")}</button><button id="jdel" class="ghost" style="color:var(--red)">${t("j.delete")}</button></div>` : ""}`;
   (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx);
   v.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => ctx.showDrive(Number(el.dataset.drive), self));
   v.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => ctx.showCharge(Number(el.dataset.charge), self));
   const edit = () => nameDialog({ title: t("j.edit"), name: j.name, note: j.note ?? "", ok: t("common.save"),
     save: async (name, note) => { await api(`/api/journeys/${id}`, "PATCH", { name, note }); self(); },
     del: async () => { await api(`/api/journeys/${id}`, "DELETE"); showJourneys(ctx); } });
-  (v.querySelector("#jedit") as HTMLElement).onclick = edit;
-  (v.querySelector("#jdel") as HTMLElement).onclick = edit;
-  (v.querySelector("#jdrives") as HTMLElement).onclick = () => editDrives(ctx, j);
+  if (rw) {
+    (v.querySelector("#jedit") as HTMLElement).onclick = edit;
+    (v.querySelector("#jdel") as HTMLElement).onclick = edit;
+    (v.querySelector("#jdrives") as HTMLElement).onclick = () => editDrives(ctx, j);
+  }
   let route: [number, number][] = [];
   let map: DriveMap | null = null;
   if (p2) phase2(ctx, v, j, () => map, () => route, self);
@@ -414,35 +419,36 @@ function phase2(ctx: Ctx, v: HTMLElement, j: Journey, getMap: () => DriveMap | n
     cover = img; const el = v.querySelector<HTMLElement>("#j-hero");
     if (el) { el.classList.remove("sk"); if (img) el.style.backgroundImage = `url("${img}")`; }
   }) : Promise.resolve();
-  const menu = v.querySelector<HTMLElement>("#j-menu")!;
-  const more = v.querySelector<HTMLElement>("#j-more")!;
-  let stopMenu: (() => void) | null = null;
-  const hideMenu = () => { menu.hidden = true; stopMenu?.(); stopMenu = null; more.classList.remove("open"); document.removeEventListener("click", closeMenu); };
-  const closeMenu = (e: Event) => { if (!(e.target as HTMLElement).closest("#j-more")) hideMenu(); };
-  more.onclick = () => {
-    if (!menu.hidden) { hideMenu(); return; }
-    menu.hidden = false; more.classList.add("open");
-    stopMenu = trackPopover(menu, more, hideMenu);   // shared clamp / flip / follow (v0.14.1)
-    document.addEventListener("click", closeMenu);
-  };
-  (menu.querySelector('[data-act="setcover"]') as HTMLElement).onclick = async () => {
-    msg(t("cv.capturing"));
-    const img = await J2.mapSnapshot(getMap());
-    if (!img) return msg(t("cv.notReady"));
-    try { await J2.saveCover(j.id, img); self(); } catch (e) { msg((e as Error).message); }
-  };
-  (menu.querySelector('[data-act="photo"]') as HTMLElement).onclick = () => {
-    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
-    inp.onchange = async () => {
-      const f = inp.files?.[0]; if (!f) return;
-      msg(t("cv.processing"));
-      try { const img = await J2.photoToCover(f); msg(t("cv.uploading")); await J2.saveCover(j.id, img); self(); }
-      catch (e) { msg((e as Error).message); }
+  const menu = v.querySelector<HTMLElement>("#j-menu"), more = v.querySelector<HTMLElement>("#j-more");
+  if (menu && more) {   // cover menu: absent on read-only devices
+    let stopMenu: (() => void) | null = null;
+    const hideMenu = () => { menu.hidden = true; stopMenu?.(); stopMenu = null; more.classList.remove("open"); document.removeEventListener("click", closeMenu); };
+    const closeMenu = (e: Event) => { if (!(e.target as HTMLElement).closest("#j-more")) hideMenu(); };
+    more.onclick = () => {
+      if (!menu.hidden) { hideMenu(); return; }
+      menu.hidden = false; more.classList.add("open");
+      stopMenu = trackPopover(menu, more, hideMenu);   // shared clamp / flip / follow (v0.14.1)
+      document.addEventListener("click", closeMenu);
     };
-    inp.click();
-  };
-  const rm = menu.querySelector<HTMLElement>('[data-act="rmcover"]');
-  if (rm) rm.onclick = async () => { try { await J2.resetCover(j.id); self(); } catch (e) { msg((e as Error).message); } };
+    (menu.querySelector('[data-act="setcover"]') as HTMLElement).onclick = async () => {
+      msg(t("cv.capturing"));
+      const img = await J2.mapSnapshot(getMap());
+      if (!img) return msg(t("cv.notReady"));
+      try { await J2.saveCover(j.id, img); self(); } catch (e) { msg((e as Error).message); }
+    };
+    (menu.querySelector('[data-act="photo"]') as HTMLElement).onclick = () => {
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = async () => {
+        const f = inp.files?.[0]; if (!f) return;
+        msg(t("cv.processing"));
+        try { const img = await J2.photoToCover(f); msg(t("cv.uploading")); await J2.saveCover(j.id, img); self(); }
+        catch (e) { msg((e as Error).message); }
+      };
+      inp.click();
+    };
+    const rm = menu.querySelector<HTMLElement>('[data-act="rmcover"]');
+    if (rm) rm.onclick = async () => { try { await J2.resetCover(j.id); self(); } catch (e) { msg((e as Error).message); } };
+  }
   (v.querySelector("#j-share") as HTMLElement).onclick = async () => {
     msg(t("cv.generating"));
     await coverReady;

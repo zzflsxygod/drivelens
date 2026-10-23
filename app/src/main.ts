@@ -32,6 +32,7 @@ import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { canWrite } from "./auth";
 import { installGuideUrl, RELEASES_URL, ISSUES_URL, SOURCE_URL, THIRD_PARTY_URL } from "./links";
 
 const view = document.getElementById("view")!;
@@ -48,7 +49,7 @@ const carQ = () => carSel.value ? `&car_id=${carSel.value}` : "";
 
 /** Clickable place name; opens rename dialog when it has an address id. */
 function place(name: string | null, addressId: number | null, alias: string | null) {
-  if (addressId == null) return esc(name);
+  if (addressId == null || !canWrite()) return esc(name);   // read-only device: no rename entry point
   return `<span class="place" data-addr="${addressId}" data-name="${esc(name)}" data-alias="${alias ? 1 : 0}">${esc(name)}<span class="pen">✎</span></span>`;
 }
 
@@ -192,7 +193,7 @@ async function showDrive(id: number, back: () => void = showDrives) {
     view.innerHTML = `
       <button class="back">${t("common.back")}</button>
       <h2>${place(d.start_address, d.start_address_id, d.start_alias)} → ${place(d.end_address, d.end_address_id, d.end_alias)}</h2>
-      <div class="muted">${fmtDate(d.start_date)} – ${fmtDate(d.end_date)} · ${t("common.tapPlace")}</div>
+      <div class="muted">${fmtDate(d.start_date)} – ${fmtDate(d.end_date)}${canWrite() ? ` · ${t("common.tapPlace")}` : ""}</div>
       <div id="map"></div>
       <div class="grid">
         <div><small>${t("f.distance")}</small><b>${n(d.distance_km)} km</b></div>
@@ -282,12 +283,12 @@ async function showCharge(id: number, back: () => void = () => showCharges(true)
     view.innerHTML = `
       <button class="back">${t("common.back")}</button>
       <h2>${place(c.address, c.address_id, c.alias)}</h2>
-      <div class="muted">${fmtDate(c.start_date)} – ${fmtDate(c.end_date)} · ${t("common.tapPlace")}</div>
+      <div class="muted">${fmtDate(c.start_date)} – ${fmtDate(c.end_date)}${canWrite() ? ` · ${t("common.tapPlace")}` : ""}</div>
       <div class="grid">
         <div><small>${t("charge.added")}</small><b>${n(c.charge_energy_added, 2)} kWh</b></div>
         <div><small>${t("charge.used")}</small><b>${n(c.charge_energy_used, 2)} kWh</b></div>
-        <div class="cost-cell" id="costcell" title="${t("charge.costEdit")}"><small>${t("charge.cost")}${c.cost_source === "manual" ? t("charge.manual") : c.cost_source === "teslamate" ? " · TeslaMate" : ""}</small>
-          <b>${fmtMoney(c.cost, c.currency)} <span class="pen">✎</span></b>
+        <div class="${canWrite() ? "cost-cell" : "cost-cell ro"}" id="costcell"${canWrite() ? ` title="${t("charge.costEdit")}"` : ""}><small>${t("charge.cost")}${c.cost_source === "manual" ? t("charge.manual") : c.cost_source === "teslamate" ? " · TeslaMate" : ""}</small>
+          <b>${fmtMoney(c.cost, c.currency)}${canWrite() ? ` <span class="pen">✎</span>` : ""}</b>
           ${c.cost != null && c.charge_energy_added ? `<span class="muted unit">${t("common.unitPrice", { p: fmtMoney(c.cost / c.charge_energy_added, c.currency, true) })}</span>` : ""}
           ${c.cost_note ? `<span class="muted unit">${esc(c.cost_note)}</span>` : ""}</div>
         <div><small>${t("f.duration")}</small><b>${fmtDur(c.duration_min)}</b></div>
@@ -299,7 +300,7 @@ async function showCharge(id: number, back: () => void = () => showCharges(true)
       ${c.latitude != null ? `<div id="map" class="small"></div>` : ""}`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
     bindPlaces(() => showCharge(id, back));
-    (document.getElementById("costcell") as HTMLElement).onclick = () => lacks("costs")
+    if (canWrite()) (document.getElementById("costcell") as HTMLElement).onclick = () => lacks("costs")
       ? showBanner(featureText("costs")) : costDialog(c, () => showCharge(id, back));
     if (c.latitude != null && c.longitude != null) {
       map = new DriveMap(document.getElementById("map")!, { point: [c.longitude, c.latitude] });
@@ -420,7 +421,7 @@ function showSettings() {
     <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
-    <p><button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span></p>
+    ${canWrite() ? `<p><button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span></p>` : ""}
     </div>
     <div id="notify-slot"></div>
     <div id="pwa-slot"></div>
@@ -447,7 +448,8 @@ function showSettings() {
   const sgOn = document.getElementById("sgon") as HTMLInputElement;
   sgOn.checked = !s.suggestionsOff;
   sgOn.onchange = () => saveSettings({ ...loadSettings(), suggestionsOff: !sgOn.checked });
-  (document.getElementById("sgrestore") as HTMLElement).onclick = async () => {
+  const sgr = document.getElementById("sgrestore");
+  if (sgr) sgr.onclick = async () => {
     document.getElementById("sgmsg")!.textContent = "…";
     document.getElementById("sgmsg")!.textContent = await restoreDismissed(journeyCtx);
   };
@@ -819,6 +821,7 @@ const journeyCtx: JourneyCtx = {
   pagingAvailable: () => !lacks("paging"),
   journey2Available: () => !lacks("journey2"),
   journey2Message: () => featureText("journey2"),
+  canWrite,
 };
 
 // ---------------- Server version banner ----------------
