@@ -21,7 +21,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 base64ct = { version = "1", features = ["alloc", "std"] }
 web-push-native = "0.5"
 sha2 = "0.10"
-getrandom = "0.2"
+getrandom = "0.4"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
