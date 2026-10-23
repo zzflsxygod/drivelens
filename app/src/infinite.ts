@@ -102,6 +102,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
   const loadMore = async () => {
     if (loading || S.done || !alive) return;
     loading = true;
+    let failed = false;
     try {
       const first = S.items.length === 0 && !S.jumpedTo;
       let items: T[], next: string | null;
@@ -118,11 +119,13 @@ export function infiniteList<T>(o: InfOpts<T>) {
       if (!S.months) refreshHeaders();
       renderEnd();
     } catch (e) {
+      failed = true;
       endEl.innerHTML = `<div class="error card-error">${ic("alert")} ${String((e as Error).message).replace(/[<>&]/g, "")} <button class="retry">${t("common.retry")}</button></div>`;
       (endEl.querySelector(".retry") as HTMLElement).onclick = () => { endEl.innerHTML = skRows(); loadMore(); };
     } finally { loading = false; }
-    // keep filling if the sentinel is still visible
-    if (alive && !S.done && sentinel.getBoundingClientRect().top < innerHeight + 600) loadMore();
+    // keep filling if the sentinel is still visible (not after an error: that waits for "retry", otherwise
+    // a persistent error such as 401 / offline would retry in a tight loop)
+    if (!failed && alive && !S.done && sentinel.getBoundingClientRect().top < innerHeight + 600) loadMore();
   };
 
   const reset = (month: string | null) => {
