@@ -6,8 +6,8 @@ Elevation: Open-Meteo elevation API (Copernicus DEM GLO-90, CC BY 4.0). Run once
 import json, math, time, urllib.request, sys, os
 
 PLACES = {  # key: (lat, lng, address as TeslaMate would show it, geofence or None)
-  "H":   (35.64970, 139.63640, "経堂2丁目, 世田谷区", "🏠 Home"),
-  "O":   (35.62690, 139.74180, "港南2丁目, 港区", None),
+  "H":   (35.65860, 139.74512, "東京タワー（デモ）, 港区", "🗼 Demo Home"),  # Tokyo Tower's own underground car park (OSM way 30525072): obviously fictional, no residence
+  "O":   (35.54790, 139.75620, "羽田イノベーションシティ, 大田区", None),  # commercial complex (OSM landuse=retail, way 762948208)
   "SH":  (35.65810, 139.69970, "道玄坂1丁目, 渋谷区", None),
   "FT":  (35.61190, 139.62620, "二子玉川ライズ, 世田谷区", None),
   "MM":  (35.45630, 139.63220, "みなとみらい, 横浜市西区", None),
@@ -82,7 +82,14 @@ def dp(pts, tol):  # Douglas-Peucker on local metres, returns kept indices
 
 out = {"attribution": "Routes © OpenStreetMap contributors (ODbL), routed with OSRM; elevation © Copernicus DEM via Open-Meteo (CC BY 4.0)",
        "places": {k: {"lat": v[0], "lng": v[1], "address": v[2], "geofence": v[3]} for k, v in PLACES.items()}, "routes": {}}
-for pair in PAIRS:
+dst = os.path.join(os.path.dirname(__file__), "../../src/demo/routes.json")
+# `fetch-routes.py H>O O>H ...` re-fetches only those legs and keeps the rest of the committed routes.json
+only = sys.argv[1:]
+if only:
+    out["routes"] = json.load(open(dst))["routes"]
+    bad = [p for p in only if p not in PAIRS]
+    if bad: raise SystemExit("unknown pair(s): " + " ".join(bad))
+for pair in (only or PAIRS):
     a, b = pair.split(">"); A, B = PLACES[a], PLACES[b]
     j = get(f"https://router.project-osrm.org/route/v1/driving/{A[1]},{A[0]};{B[1]},{B[0]}?overview=full&geometries=polyline6&annotations=distance,duration")
     r = j["routes"][0]; pts = decode6(r["geometry"]); an = r["legs"][0]["annotation"]
@@ -115,7 +122,7 @@ for pair in PAIRS:
     out["routes"][pair] = {"poly": encode5(kept), "spd": spd, "ele": ele, "km": round(r["distance"] / 1000, 2), "min": round(r["duration"] / 60, 1)}
     print(pair, len(pts), "->", len(kept), "pts", out["routes"][pair]["km"], "km", out["routes"][pair]["min"], "min", file=sys.stderr)
     time.sleep(1.1)
-dst = os.path.join(os.path.dirname(__file__), "../../src/demo/routes.json")
+out["routes"] = {k: out["routes"][k] for k in PAIRS}
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 json.dump(out, open(dst, "w"), ensure_ascii=False, separators=(",", ":"))
 print("wrote", dst, os.path.getsize(dst), file=sys.stderr)

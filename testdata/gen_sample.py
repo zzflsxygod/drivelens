@@ -7,7 +7,7 @@ q = lambda s: "NULL" if s is None else "'" + str(s).replace("'", "''") + "'"
 out.append("INSERT INTO cars (id,eid,vid,model,efficiency,vin,name,trim_badging,marketing_name,exterior_color,wheel_type) VALUES "
            "(1,1001,2001,'3',0.1345,'LRW3E7FA0PC000001','Sample Car',NULL,'Model 3 RWD','PearlWhite','Photon18');")
 addrs = [  # name, road, city, lat, lng
- ("自宅", "世田谷通り", "世田谷区", 35.6431, 139.6530),
+ ("東京タワー（デモ）", "東京タワー通り", "港区", 35.6586, 139.7451),  # fictional home: Tokyo Tower car park, not a residence
  ("Tesla Supercharger 東京有明", "有明", "江東区", 35.6340, 139.7930),
  ("渋谷スクランブルスクエア", "渋谷", "渋谷区", 35.6585, 139.7022),
  ("横浜みなとみらい", "みなとみらい", "横浜市", 35.4560, 139.6320),
@@ -15,7 +15,7 @@ addrs = [  # name, road, city, lat, lng
 ]
 for i,(n,r,c,la,lo) in enumerate(addrs,1):
     out.append(f"INSERT INTO addresses (id,display_name,latitude,longitude,name,road,city,state,country) VALUES ({i},{q(n+', '+c)},{la},{lo},{q(n)},{q(r)},{q(c)},'東京都','日本');")
-out.append("INSERT INTO geofences (id,name,latitude,longitude,radius,cost_per_unit) VALUES (1,'🏠 自宅',35.6431,139.6530,50,31.0);")
+out.append("INSERT INTO geofences (id,name,latitude,longitude,radius,cost_per_unit) VALUES (1,'🗼 自宅（デモ）',35.6586,139.7451,50,31.0);")
 pid = 0; did = 0; cid = 0; chid = 0
 odo = 12345.0; batt = 80.0
 pos_rows = []
@@ -95,7 +95,7 @@ out.append("""INSERT INTO updates (start_date,end_date,version,car_id) VALUES
  ('2026-08-20 15:00:00','2026-08-20 15:40:00','2025.32.3 3ad1e4b6',1),
  ('2026-10-01 14:00:00','2026-10-01 14:35:00','2026.32.5 9f1c2a7e',1);""")
 pid += 1
-out.append(f"INSERT INTO positions (id,date,latitude,longitude,speed,power,odometer,ideal_battery_range_km,battery_level,outside_temp,inside_temp,elevation,car_id,rated_battery_range_km,est_battery_range_km,usable_battery_level) VALUES ({pid},'2026-10-14 22:35:00',35.643120,139.653050,NULL,0,{odo:.2f},{89*4.9:.2f},89,16.5,21.0,40,1,{89*4.9:.2f},{89*4.4:.2f},89);")
+out.append(f"INSERT INTO positions (id,date,latitude,longitude,speed,power,odometer,ideal_battery_range_km,battery_level,outside_temp,inside_temp,elevation,car_id,rated_battery_range_km,est_battery_range_km,usable_battery_level) VALUES ({pid},'2026-10-14 22:35:00',35.658620,139.745130,NULL,0,{odo:.2f},{89*4.9:.2f},89,16.5,21.0,40,1,{89*4.9:.2f},{89*4.4:.2f},89);")
 for s in ["states","updates"]:
     out.append(f"SELECT setval(pg_get_serial_sequence('{s}','id'), (SELECT max(id) FROM {s}));")
 for s in ["cars","addresses","geofences","drives","positions","charging_processes","charges"]:
