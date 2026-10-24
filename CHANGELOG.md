@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.2.2 — 2026-10-25
+- **Demo mode:** the demo car's home is now an obviously fictional place, 「🗼 Demo Home」 at Tokyo Tower (東京タワー（デモ）), instead of a made-up spot on a residential street that could look like someone's real house. The office moves to Haneda Innovation City (羽田イノベーションシティ), so the commute stays about 14 km. The demo drives, charging, journeys and reports were rebuilt on real road routes from the new places.
+- README screenshots retaken from the new demo data.
+- No server update needed.
+
 ## v1.2.1 — 2026-10-24
 - **Back button:** the Android back button and the browser's back button now go back inside the app instead of closing it or leaving the page. Back first closes an open sheet, menu or share preview (or leaves select mode), then returns from a detail page (drive, charge, journey, report, battery) to the screen it was opened from, and from the Drives, Charges or Settings tab to Home. The installed Android app closes only when you press back on Home. Lists keep their scroll position when you come back.
 - No server update needed.
