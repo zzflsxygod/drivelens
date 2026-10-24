@@ -2,6 +2,7 @@
 // Platform glue: touch devices, Android (Tauri mobile) safe areas / status bar / back button / share,
 // and external links (always the system browser, never inside the app's webview).
 import { closeMenus, hasOpenMenu } from "./ui";
+import { popPage } from "./nav";
 
 interface AndroidBridge {   // MainActivity.kt → webView.addJavascriptInterface(…, "DriveLensAndroid")
   insets(): string; setDarkBars(dark: boolean): void;
@@ -45,6 +46,7 @@ export function inAppBack(): boolean {
   if (sel) { sel.click(); return true; }
   const back = document.querySelector<HTMLElement>("#view .page-head .back, #view .back");
   if (back && back.offsetParent !== null) { back.click(); return true; }
+  if (popPage()) return true;   // a detail page that is still loading (its back button is not rendered yet)
   return backHandler?.() ?? false;
 }
 
