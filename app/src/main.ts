@@ -14,7 +14,8 @@
 import "./urlguard";   // first: drops ?api= / ?token= / ?key= from the address before anything else runs
 import "./style.css";
 import { ic } from "./icons";
-import { initPlatform, setRootBack } from "./platform";
+import { initPlatform, setRootBack, inAppBack } from "./platform";
+import { initHistory, navPage, navRoot } from "./nav";
 import { initWeb, installMode, promptInstall, onInstallChange, isWeb } from "./pwa";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
@@ -188,6 +189,7 @@ carPill.onclick = () => {
 function showDrives() { showDrivesTab(journeyCtx); }
 
 async function showDrive(id: number, back: () => void = showDrives) {
+  navPage(`drive:${id}`, back);
   loading();
   try {
     const [d, pts] = await Promise.all([api<Drive>(`/api/drives/${id}`), api<PathPoint[]>(`/api/drives/${id}/path`)]);
@@ -211,7 +213,7 @@ async function showDrive(id: number, back: () => void = showDrives) {
 }
 
 async function showCharges(restore = false) {
-  destroyMap();
+  navRoot(); destroyMap();
   const car = await currentCarId().catch(() => null);
   view.innerHTML = `<div class="list-toolbar"><h2 class="tb-title">${t("charges.title")}</h2><div class="tb-right" id="c-tb"></div></div><div id="clist"></div>`;
   const list = infiniteList<Charge>({
@@ -278,6 +280,7 @@ function chargeChart(points: ChargePoint[]): string {
 }
 
 async function showCharge(id: number, back: () => void = () => showCharges(true)) {
+  navPage(`charge:${id}`, back);
   loading();
   try {
     const c = await api<Charge & { points: ChargePoint[] }>(`/api/charges/${id}`);
@@ -398,7 +401,7 @@ function bindServerSection(configured: boolean) {
 onServerInfo(() => paintServerHead());
 
 function showSettings() {
-  destroyMap();
+  navRoot(); destroyMap();
   const s = loadSettings();
   view.innerHTML = `
     <h2 class="tb-title set-title">${t("set.title")}</h2>
@@ -680,7 +683,7 @@ function lastChargeHTML(a: Activity) {
 let homeGen = 0;
 
 async function showHome() {
-  destroyMap();
+  navRoot(); destroyMap();
   const gen = ++homeGen;
   const alive = () => gen === homeGen && document.getElementById("home") != null;
   view.innerHTML = `
@@ -751,8 +754,8 @@ async function showHome() {
     if (!data.activity) return;
     sec("drive").innerHTML = lastDriveHTML(data.activity);
     sec("charge").innerHTML = lastChargeHTML(data.activity);
-    sec("drive").querySelector<HTMLElement>("[data-drive]")?.addEventListener("click", e => showDrive(Number((e.currentTarget as HTMLElement).dataset.drive)));
-    sec("charge").querySelector<HTMLElement>("[data-charge]")?.addEventListener("click", e => showCharge(Number((e.currentTarget as HTMLElement).dataset.charge)));
+    sec("drive").querySelector<HTMLElement>("[data-drive]")?.addEventListener("click", e => showDrive(Number((e.currentTarget as HTMLElement).dataset.drive), showHome));
+    sec("charge").querySelector<HTMLElement>("[data-charge]")?.addEventListener("click", e => showCharge(Number((e.currentTarget as HTMLElement).dataset.charge), showHome));
     if (data.status) paintMap();
   };
   const paintStats = () => {
@@ -793,10 +796,11 @@ async function showHome() {
 }
 
 async function carInfo(id: number): Promise<Car | null> { try { return (await api<Car[]>("/api/cars")).find(c => c.id === id) ?? null; } catch { return null; } }
-async function openBattery(id: number) { destroyMap(); ++homeGen; showBattery(view, id, showHome, await carInfo(id)); window.scrollTo(0, 0); }
+async function openBattery(id: number) { navPage("battery", showHome); destroyMap(); ++homeGen; showBattery(view, id, showHome, await carInfo(id)); window.scrollTo(0, 0); }
 
 /** Monthly report (opened from the 首页 month card; back returns to 首页). */
 async function openReport(month: string, carId?: number) {
+  navPage("report", showHome);
   destroyMap();
   await serverReady();
   if (lacks("report")) {
@@ -932,16 +936,18 @@ const start = qp.get("view");
 /** Deep links (?view=…) and notification taps (service worker → postMessage, see notify.ts). */
 function openView(v: string | null) {
   const tab = (name: string) => document.querySelector<HTMLElement>(`nav button[data-tab="${name}"]`)!;
+  // a deep-linked detail page belongs to its list's tab (its back button returns to that list, the next back to 首页)
+  const mark = (name: string) => document.querySelectorAll<HTMLElement>("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
   if (v === "charges") tab("charges").click();
   else if (v === "settings") tab("settings").click();
-  else if (v?.startsWith("drive:")) showDrive(Number(v.slice(6)));
-  else if (v?.startsWith("charge:")) showCharge(Number(v.slice(7)));
+  else if (v?.startsWith("drive:")) { mark("drives"); showDrive(Number(v.slice(6))); }
+  else if (v?.startsWith("charge:")) { mark("charges"); showCharge(Number(v.slice(7))); }
   else if (v?.startsWith("report")) { const m = v.slice(7); openReport(/^\d{4}-(0[1-9]|1[0-2])$/.test(m) ? m : nowMonth()); }   // only YYYY-MM reaches the report HTML
   else if (v === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
-  else if (v?.startsWith("journey:")) { serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(v.slice(8))))); }
-  else if (v === "journeys") { tab("drives").classList.add("active"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
+  else if (v?.startsWith("journey:")) { mark("drives"); serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(v.slice(8))))); }
+  else if (v === "journeys") { mark("drives"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
   else if (v === "drives") tab("drives").click();
-  else showHome();
+  else { mark("home"); showHome(); }
 }
 initNotificationClicks(v => { if (loadSettings().apiUrl && !document.body.classList.contains("setup-mode")) { closeMenus(); document.querySelector(".modal")?.remove(); openView(v); } });
 // a later reload must not reopen the notification target (but keep it while the first service-worker install may still reload the page)
@@ -951,3 +957,5 @@ if (!loadSettings().apiUrl) {
   const notice = sessionStorage.getItem(LEFT_NOTICE) ?? ""; sessionStorage.removeItem(LEFT_NOTICE);
   showSetupWizard(view, () => { void startServer(); loadCars(); showHome(); }, notice);
 } else { void startServer(); loadCars(); openView(start); }
+// browser / Android PWA back button: close the topmost sheet → leave the detail page → 首页 → leave the app
+if (isWeb()) initHistory(inAppBack);

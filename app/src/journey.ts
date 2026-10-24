@@ -7,6 +7,7 @@ import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
 import { ICON } from "./toolbar";
 import { trackPopover } from "./ui";
+import { navPage, navRoot } from "./nav";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { effectiveTheme } from "./map";
 import { focusField } from "./sheets";
@@ -69,7 +70,7 @@ export function showDrivesTab(ctx: Ctx) { lastSeg === "journeys" && ctx.journeys
 const sel = new Set<number>();
 let selectMode = false;
 export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[] = [], restore = false) {
-  lastSeg = "drives"; ctx.setMap(null);
+  lastSeg = "drives"; navRoot(); ctx.setMap(null);
   if (mode !== undefined) { selectMode = mode; sel.clear(); preselect.forEach(i => sel.add(i)); }
   const v = ctx.view;
   const car = await ctx.carId();
@@ -166,7 +167,7 @@ function nameDialog(o: { title: string; name: string; note: string; hint?: strin
 
 // ---------------- Journey list + suggestions ----------------
 export async function showJourneys(ctx: Ctx) {
-  lastSeg = "journeys"; ctx.setMap(null);
+  lastSeg = "journeys"; navRoot(); ctx.setMap(null);
   const v = ctx.view;
   if (!ctx.journeysAvailable()) { v.innerHTML = `<div class="error card-error">${ic("alert")} ${esc(ctx.journeysMessage())}</div>`; return; }
   v.innerHTML = `<div class="list-toolbar">${segHTML("journeys", ctx)}<div class="tb-right"></div></div><div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
@@ -250,6 +251,7 @@ function elevationChart(pts: JPoint[], stopsKm: { km: number; charge: boolean }[
 }
 
 export async function showJourney(ctx: Ctx, id: number) {
+  navPage(`journey:${id}`, () => showJourneys(ctx));
   ctx.setMap(null);
   const v = ctx.view;
   v.innerHTML = `<button class="back">${t("common.back")}</button><div class="muted">${t("common.loading")}</div>`;
@@ -365,6 +367,7 @@ export async function showJourney(ctx: Ctx, id: number) {
 
 // ---------------- Add / remove drives ----------------
 function editDrives(ctx: Ctx, j: Journey) {
+  navPage(`jedit:${j.id}`, () => showJourney(ctx, j.id));
   ctx.setMap(null);
   const v = ctx.view;
   const all = [...j.drives.map(d => ({ ...d, journey_id: null as number | null })), ...j.candidates].sort((a, b) => a.start_date.localeCompare(b.start_date));
