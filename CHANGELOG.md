@@ -4,6 +4,16 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.2.3 — 2026-10-26
+- **Journey notes can be cleared again:** emptying the note in a journey's edit dialog now removes it. Before, the old note stayed. This works with any server version; server 0.14.1 also accepts `null` to clear the note.
+- **A short server or database hiccup no longer signs devices out:** the app now forgets its saved connection only when the server really rejects the device token (401 `unauthorized`), not on 5xx errors or network failures.
+- **Sign-out text:** the English confirmation said nothing changes on the server. All three languages (English, 中文, 日本語) now say that signing out also disconnects this device on the server and revokes its access, removes the local data, and leaves the data on the server untouched. Connections that use the server token get their own text (only local data is removed).
+- The setup screen now recommends server 0.14.1.
+- **Server 0.14.1** (`api_level` 15, unchanged; recommended, Watchtower updates it automatically; no database changes):
+  - **Monthly report notifications fixed:** the VAPID signature of every notification is now valid for 12 hours, independent of how long the push service keeps the message. Before, the monthly reminder (kept for 3 days) was signed for 72 hours, which push services reject (RFC 8292 allows at most 24 hours), so the first monthly reminder on November 1 would have failed. Trip summaries were at the 24-hour limit and are now well below it.
+  - **Device sign-ins survive database hiccups:** a database error during the 5-minute device reload no longer turns device auth off and clears the device list; the current list is kept. If device auth really is unavailable, device tokens get `503 device_auth_unavailable` instead of `401`, so apps keep their connection. Unknown or revoked tokens still get `401`.
+  - **Journeys:** `PATCH /api/journeys/{id}` with `"note": null` clears the note; leaving `note` out keeps it, as before.
+
 ## v1.2.2 — 2026-10-25
 - **Demo mode:** the demo car's home is now an obviously fictional place, 「🗼 Demo Home」 at Tokyo Tower (東京タワー（デモ）), instead of a made-up spot on a residential street that could look like someone's real house. The office moves to Haneda Innovation City (羽田イノベーションシティ), so the commute stays about 14 km. The demo drives, charging, journeys and reports were rebuilt on real road routes from the new places.
 - README screenshots retaken from the new demo data.

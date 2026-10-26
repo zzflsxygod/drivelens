@@ -352,7 +352,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 
 ```bash
 cd teslamate
-TAG=v1.2.2   # 新しいリリース
+TAG=v1.2.3   # 新しいリリース
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
