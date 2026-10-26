@@ -65,9 +65,12 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     throw new Error(!navigator.onLine ? t("api.offline") : "__TAURI_INTERNALS__" in window ? t("api.network") : t("api.networkWeb"));
   }
   if (res.status === 401) {
-    // a device token is never "mistyped": 401 means it was revoked or expired → sign this device out
-    // (only if that token is still the saved one: a request that raced a server switch / re-pairing must not sign out the new one)
-    if (s.tokenKind === "device" && !isDemo() && loadSettings().token === s.token) { window.dispatchEvent(new Event(SIGNED_OUT_EVENT)); throw new Error(t("api.signedOut")); }
+    // a device token is never "mistyped": drivelens-api's own 401 means it was revoked or expired → sign this device out
+    // (only if that token is still the saved one: a request that raced a server switch / re-pairing must not sign out the new one).
+    // Only the API's JSON 401 counts: a 401 page from a proxy in front of it (or any 5xx / network error) keeps the connection.
+    if (s.tokenKind === "device" && !isDemo() && loadSettings().token === s.token && await isAuthRejection(res)) {
+      window.dispatchEvent(new Event(SIGNED_OUT_EVENT)); throw new Error(t("api.signedOut"));
+    }
     throw new Error(t("api.401"));
   }
   if (res.status === 429) throw new Error(t("api.429"));
@@ -91,6 +94,11 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+/** drivelens-api answers a rejected token with 401 {"error":"unauthorized"} (api/src/auth.rs `fail`). */
+async function isAuthRejection(res: Response): Promise<boolean> {
+  try { return (await res.json() as { error?: unknown })?.error === "unauthorized"; } catch { return false; }
 }
 
 export const setAlias = (addressId: number, name: string) => api(`/api/addresses/${addressId}/alias`, "PUT", { name });
