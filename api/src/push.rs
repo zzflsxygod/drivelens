@@ -17,6 +17,13 @@ const STALE_HOURS: i32 = 6;
 const MONTHLY_HOUR: i32 = 9;
 /// Consecutive delivery failures (other than 404/410) after which a subscription is dropped.
 const MAX_FAILS: i32 = 10;
+/// How long the push service may hold each message (HTTP `TTL`).
+const TTL_TRIP: u64 = 24 * 3600;
+const TTL_MONTHLY: u64 = 3 * 24 * 3600;
+const TTL_TEST: u64 = 600;
+/// Lifetime of the VAPID JWT (`exp`), independent of the TTL: RFC 8292 §2 allows at most 24 h, and push services
+/// (FCM, Mozilla, Apple) reject longer tokens. 12 h leaves room for clock skew.
+const VAPID_VALIDITY: std::time::Duration = std::time::Duration::from_secs(12 * 3600);
 
 pub const DDL: [&str; 2] = [
     "CREATE TABLE IF NOT EXISTS drivelens.push_subscriptions (
@@ -118,11 +125,21 @@ fn builder(sub: &Sub) -> anyhow::Result<WebPushBuilder> {
     Ok(WebPushBuilder::new(sub.endpoint.parse()?, key, Auth::clone_from_slice(&auth)))
 }
 
+/// Encrypted push request: `TTL` = `ttl_secs`, VAPID JWT signed separately with `VAPID_VALIDITY`.
+/// (web-push-native's `with_vapid` would reuse the TTL as the JWT lifetime — 3 days for the monthly reminder,
+/// which push services reject.)
+fn build_request(v: &Vapid, sub: &Sub, body: Vec<u8>, ttl_secs: u64) -> anyhow::Result<axum::http::Request<Vec<u8>>> {
+    let b = builder(sub)?.with_valid_duration(std::time::Duration::from_secs(ttl_secs));
+    let mut req = b.build(body).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let sig = web_push_native::vapid::VapidSignature::sign(req.uri(), VAPID_VALIDITY, v.subject.clone(), &v.kp)
+        .map_err(|e| anyhow::anyhow!("vapid: {e}"))?;
+    req.headers_mut().insert(axum::http::header::AUTHORIZATION, sig.into());
+    Ok(req)
+}
+
 async fn deliver(s: &AppState, v: &Vapid, sub: &Sub, msg: &Message, ttl_secs: u64) -> Outcome {
-    let req = match builder(sub).and_then(|b| {
-        let b = b.with_valid_duration(std::time::Duration::from_secs(ttl_secs));
-        b.with_vapid(&v.kp, &v.subject).build(serde_json::to_vec(msg)?).map_err(|e| anyhow::anyhow!("{e}"))
-    }) { Ok(r) => r, Err(e) => return Outcome::Failed(format!("encrypt: {e}")) };
+    let req = match serde_json::to_vec(msg).map_err(anyhow::Error::from).and_then(|body| build_request(v, sub, body, ttl_secs)) {
+        Ok(r) => r, Err(e) => return Outcome::Failed(format!("encrypt: {e}")) };
     if !valid_endpoint(&sub.endpoint) { return Outcome::Failed("endpoint is not a known push service".into()); }
     let (parts, body) = req.into_parts();
     let mut rb = s.http.post(parts.uri.to_string()).body(body).header("Urgency", "normal")
@@ -273,7 +290,7 @@ async fn trips(s: &AppState, v: &Vapid) -> anyhow::Result<()> {
                 if let Some(t) = trip_row(s, *id).await? {
                     if t.ended_recently && t.distance_km.unwrap_or(0.0) >= 0.1 {
                         for sub in subs.iter().filter(|x| x.car_ids.as_ref().map_or(true, |c| c.is_empty() || c.contains(&(t.car_id as i32)))) {
-                            send(s, v, sub, &trip_message(&t, &sub.locale, multi), 24 * 3600).await;
+                            send(s, v, sub, &trip_message(&t, &sub.locale, multi), TTL_TRIP).await;
                         }
                     }
                 }
@@ -334,7 +351,7 @@ async fn monthly(s: &AppState, v: &Vapid) -> anyhow::Result<()> {
                 AND ($3::int4[] IS NULL OR cardinality($3::int4[]) = 0 OR car_id = ANY($3::int4[]))")
             .bind(&sub.tz).bind(&month).bind(&sub.car_ids).fetch_one(&s.db).await?;
         if n == 0 { continue; }   // nothing driven: no "your report is ready" for an empty report
-        send(s, v, &sub, &monthly_message(&month, &sub.locale, km, n), 3 * 24 * 3600).await;
+        send(s, v, &sub, &monthly_message(&month, &sub.locale, km, n), TTL_MONTHLY).await;
     }
     Ok(())
 }
@@ -483,7 +500,7 @@ pub async fn test(State(s): State<AppState>, Json(b): Json<EndpointBody>) -> Res
     let Some(v) = load_vapid(&s).await? else { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, MISSING)) };
     let Some(sub) = sqlx::query_as::<_, Sub>("SELECT id, endpoint, p256dh, auth, tz, locale, car_ids, fail_count FROM drivelens.push_subscriptions WHERE endpoint = $1")
         .bind(&b.endpoint).fetch_optional(&s.db).await? else { return Ok(err(StatusCode::NOT_FOUND, "subscription not found")) };
-    Ok(match send(&s, &v, &sub, &test_message(&sub.locale), 600).await {
+    Ok(match send(&s, &v, &sub, &test_message(&sub.locale), TTL_TEST).await {
         Outcome::Sent => Json(serde_json::json!({"sent": true})).into_response(),
         Outcome::Gone(c) => err(StatusCode::GONE, &format!("the push service says this subscription has expired ({c}); it was removed")),
         Outcome::Failed(e) => err(StatusCode::BAD_GATEWAY, &format!("push service: {e}")),
@@ -514,6 +531,36 @@ mod tests {
         assert_eq!(monthly_message("2026-10", "zh", Some(12.0), 1).title, "10 月月报已生成");
         assert_eq!(monthly_message("2026-01", "ja", None, 0).body, "タップして先月のレポートを表示。");
     }
+    /// Opt-in end-to-end check against a real push service (FCM / Mozilla autopush):
+    /// `DRIVELENS_PUSH_E2E=<file>` with `{"sub": <PushSubscription.toJSON()>, "vapid_private": "<base64url d>"}`
+    /// from a browser that subscribed with that key. Sends with the monthly report's 3-day TTL; expects 201.
+    #[tokio::test]
+    async fn real_push_service_accepts_the_monthly_ttl() {
+        let Ok(path) = std::env::var("DRIVELENS_PUSH_E2E") else { return };
+        let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let v = vapid_from(j["vapid_private"].as_str().unwrap(), DEFAULT_SUBJECT.into()).unwrap();
+        let sub = Sub { id: 1, endpoint: j["sub"]["endpoint"].as_str().unwrap().into(),
+            p256dh: j["sub"]["keys"]["p256dh"].as_str().unwrap().into(), auth: j["sub"]["keys"]["auth"].as_str().unwrap().into(),
+            tz: "UTC".into(), locale: "en".into(), car_ids: None, fail_count: 0 };
+        assert!(valid_endpoint(&sub.endpoint));
+        // plain client: push_client()'s public-address-only resolver refuses sandboxes whose DNS answers with proxy addresses
+        let client = reqwest::Client::new();
+        let send = |req: axum::http::Request<Vec<u8>>| { let client = client.clone(); async move {
+            let (parts, body) = req.into_parts();
+            let mut rb = client.post(parts.uri.to_string()).body(body).header("Urgency", "normal");
+            for (k, val) in parts.headers.iter() { rb = rb.header(k.as_str(), val.as_bytes()); }
+            let r = rb.send().await.map_err(|e| e.without_url()).unwrap();
+            (r.status().as_u16(), r.headers().get("ttl").map(|h| h.to_str().unwrap_or("").to_string()))
+        } };
+        let msg = serde_json::to_vec(&monthly_message("2026-09", "en", Some(1234.0), 45)).unwrap();
+        // the pre-0.14.1 way (JWT exp = TTL = 3 days), for comparison only
+        let old = builder(&sub).unwrap().with_valid_duration(std::time::Duration::from_secs(TTL_MONTHLY))
+            .with_vapid(&v.kp, &v.subject).build(msg.clone()).unwrap();
+        eprintln!("push e2e: old JWT (exp 3 d) → HTTP {:?}", send(old).await);
+        let (status, ttl) = send(build_request(&v, &sub, msg, TTL_MONTHLY).unwrap()).await;
+        eprintln!("push e2e: fixed (TTL 3 d, JWT exp 12 h) → HTTP {status}, TTL header in response {ttl:?}");
+        assert_eq!(status, 201);
+    }
     #[test]
     fn vapid_roundtrip_and_encrypt() {
         let k = Base64UrlUnpadded::encode_string(&ES256KeyPair::generate().to_bytes());
@@ -541,6 +588,34 @@ mod tests {
         let req = builder(&sub).unwrap().with_vapid(&v.kp, &v.subject).build(msg.clone()).unwrap();
         let plain = web_push_native::decrypt(req.into_body(), &ua, &Auth::clone_from_slice(&auth)).unwrap();
         assert_eq!(plain, msg);
+    }
+    /// RFC 8292: the VAPID JWT `exp` must be ≤ 24 h ahead, whatever the message TTL (trip 24 h, monthly 3 days, test 10 min).
+    #[test]
+    fn vapid_exp_is_short_and_ttl_is_kept() {
+        let v = vapid_from(&Base64UrlUnpadded::encode_string(&ES256KeyPair::generate().to_bytes()), DEFAULT_SUBJECT.into()).unwrap();
+        let sub = Sub { id: 1, endpoint: "https://fcm.googleapis.com/fcm/send/abc".into(),
+            p256dh: "BLn9b-VR0ca83knDNZ32dCHGyjJp-1riX9ZTN40MqV8K_LpQmLqxC_DoHvqvFXO_nGdAB4W9dogZb_sM-uV4JbY".into(),
+            auth: "_ordMnz7uTCmrpBTeUV4Bw".into(), tz: "UTC".into(), locale: "en".into(), car_ids: None, fail_count: 0 };
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let kinds = [("trip", trip_message(&trip(), "en", false), TTL_TRIP), ("report", monthly_message("2026-09", "en", Some(1.0), 1), TTL_MONTHLY),
+            ("test", test_message("en"), TTL_TEST)];
+        assert_eq!(TTL_MONTHLY, 3 * 24 * 3600, "monthly reminder keeps its 3-day TTL");
+        for (kind, msg, ttl) in kinds {
+            let req = build_request(&v, &sub, serde_json::to_vec(&msg).unwrap(), ttl).unwrap();
+            assert_eq!(req.headers()["ttl"].to_str().unwrap(), ttl.to_string(), "{kind}: TTL header");
+            let auth = req.headers()["authorization"].to_str().unwrap().to_string();
+            assert_eq!(req.headers().get_all("authorization").iter().count(), 1, "{kind}: one Authorization header");
+            let jwt = auth.strip_prefix("vapid t=").unwrap().split(',').next().unwrap();
+            let claims: serde_json::Value = serde_json::from_slice(&Base64UrlUnpadded::decode_vec(jwt.split('.').nth(1).unwrap()).unwrap()).unwrap();
+            let exp = claims["exp"].as_u64().unwrap();
+            assert!(exp > now && exp <= now + 24 * 3600, "{kind}: exp {exp} must be within 24 h of {now}");
+            assert!(exp <= now + 12 * 3600 + 60, "{kind}: exp uses the 12 h VAPID validity");
+            assert_eq!(claims["aud"], "https://fcm.googleapis.com", "{kind}: audience = push service origin");
+            // the public key in k= verifies the token
+            let k = auth.split("k=").nth(1).unwrap().trim();
+            assert_eq!(k, v.public_b64);
+            v.kp.public_key().verify_token::<serde_json::Map<String, serde_json::Value>>(jwt, None).unwrap();
+        }
     }
     #[test]
     fn endpoints() {
