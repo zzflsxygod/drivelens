@@ -11,7 +11,7 @@ DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的第三�
 ```
 drivelens/
 ├── api/                  # drivelens-api（Rust / Axum），Dockerfile，deny.toml / about.toml（依赖许可证）
-│   └── src/              # main.rs（路由、鉴权、迁移）、summary / report / insights / journey / phase2 / push.rs
+│   └── src/              # main.rs（路由、迁移）、auth.rs（鉴权、设备 Token）、summary / report / insights / journey / phase2 / push.rs
 ├── app/                  # 前端（Vite + TypeScript + MapLibre GL），同一套代码构建网页版和（暂停的）Tauri App
 │   ├── src/              # main.ts 入口，locales/{zh,en,ja}.ts 文案，demo/ 演示模式数据
 │   ├── web-public/       # 只用于网页版的静态文件（_headers、图标）
@@ -90,7 +90,7 @@ cd app && npm run build && npm run build:web            # 两者都会先跑 npm
 ## 数据库原则
 
 - **绝不修改 TeslaMate 的表**。对 TeslaMate 只有 SELECT；DriveLens 自己的数据（地点别名、手动费用、旅程、天气缓存、推送订阅等）只放在 `drivelens` schema。
-- `deploy/setup.sql` 创建只读账号 `drivelens_ro` 和 `drivelens` schema（可重复执行）；API 启动时自动创建 / 升级 `drivelens` 里的表（`main.rs` 的 `migrate()`、`phase2::try_migrate`、`push::try_migrate`）。没有权限或表不存在时只关闭对应功能，并在启动日志里显示 `disabled features: …`。
+- `deploy/setup.sql` 创建只读账号 `drivelens_ro` 和 `drivelens` schema（可重复执行）；API 启动时自动创建 / 升级 `drivelens` 里的表（`main.rs` 的 `migrate()`、`journey::try_create_tables`、`phase2::try_migrate`、`push::try_migrate`、`auth::try_migrate`）。没有权限或表不存在时只关闭对应功能，并在启动日志里显示 `disabled features: …`。
 - `deploy/drivelens-init.sql`、`drivelens-v*.sql` 是早期手动建表的安装用的升级脚本，新安装不需要。
 - 能耗按 TeslaMate Grafana 的算法：`(起始额定续航 − 结束额定续航) × cars.efficiency`。
 
