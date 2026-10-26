@@ -254,21 +254,21 @@ Demo mode answers API requests in the browser from a generated dataset, with its
 
 ## 6. Issues that span modules
 
-These summarize section 7 rows that appear in more than one spec or affect more than one module, plus one notable single-module finding of the review (X-11). The second column is the review verdict at 9b1c39c; none of these is fixed by the specs PR. Each item links to the rows that hold the evidence.
+These summarize section 7 rows that appear in more than one spec or affect more than one module, plus one notable single-module finding of the review (X-11). The second column is the review verdict at 9b1c39c; X-2, X-8 and X-11 were fixed in v1.2.3 / API 0.14.1; the others are open. Each item links to the rows that hold the evidence.
 
 | # | Summary | Review verdict | Rows |
 |---|---------|-----------|------|
 | X-1 | Queries for drives, charges, the report, trends and journeys always join `drivelens.address_aliases`. Without that table they return 500, although docs say the read features keep working. `api-push` checks for the table first. | real, rare in practice | api-storage CB-1, api-insights CB-8 |
-| X-2 | A database error in the table probe (`tables_ok`) of the 5-minute device reload marks device auth unavailable and clears the device index. Every device token then gets 401, and the app deletes its saved connection on 401, so a short outage can sign out every device. This contradicts the comment at `api/src/auth.rs:342`. The next successful reload restores the index, but apps that saw the 401 have already deleted their credentials. | real, notable (`api/src/auth.rs:96-102`, `:344-349`) | api-auth CB-1 |
+| X-2 | A database error in the table probe (`tables_ok`) of the 5-minute device reload marks device auth unavailable and clears the device index. Every device token then gets 401, and the app deletes its saved connection on 401, so a short outage can sign out every device. This contradicts the comment at `api/src/auth.rs:342`. The next successful reload restores the index, but apps that saw the 401 have already deleted their credentials. | real, notable (`api/src/auth.rs:96-102`, `:344-349`); **fixed in v1.2.3 / API 0.14.1** | api-auth CB-1 |
 | X-3 | `DELETE /api/charges/{id}/cost` and `DELETE /api/addresses/{id}/alias` cast the id with `as i32` without an existence check. An id above 2^31 wraps around and can delete another record's cost or alias. | real, low severity (needs an authenticated full-scope client) | api-records CB-1 |
 | X-4 | Setup hints in API errors and in the app still point to legacy `deploy/drivelens-v0.x.sql` files instead of `setup.sql`. | real, text only | api-storage CB-4, api-push CB-1, api-journeys CB-7, app-notifications CB-1 |
 | X-5 | Some paths that need missing tables return 500 instead of 503: speed bands and the alias endpoints. | real, minor | api-storage CB-2, CB-3; api-journeys CB-4 |
 | X-6 | Trip notifications carry `&car=<id>`, but the app never reads it, so tapping one does not switch the selected car. | real, minor (multi-car only) | app-shell CB-1, app-notifications CB-2 |
 | X-7 | On a cold start with several cars, list requests use the car selector (still empty) while cache keys and totals use the remembered car. | real, minor (multi-car cold start only) | app-records CB-4, app-journeys CB-4 |
-| X-8 | A journey note cannot be cleared: the API treats `note: null` as "not sent", and the app sends `null` when the note is emptied. | real, user-facing | api-journeys CB-1, app-journeys CB-1 |
+| X-8 | A journey note cannot be cleared: the API treats `note: null` as "not sent", and the app sends `null` when the note is emptied. | real, user-facing; **fixed in v1.2.3 / API 0.14.1** | api-journeys CB-1, app-journeys CB-1 |
 | X-9 | The demo mock differs from the Rust API in several validation rules and response shapes. | real, low impact | app-demo CB-1, CB-2 |
 | X-10 | Contributor documentation trails the code: schema changes are now self-migrated, and auth moved to `auth.rs`. | real, documentation | api-storage CB-5, ops-delivery CB-3 |
-| X-11 | `web-push-native` uses the notification validity also as the VAPID JWT `exp`: monthly reminders are signed for 72 h and trip summaries for exactly 24 h, while RFC 8292 caps `exp` at 24 h and push services reject longer tokens. The first monthly reminder (2026-11-01) is likely to fail on every push service. | likely real (library source + RFC; not run against a live push service); fix before 2026-11-01 | api-push CB-3, PUSH-075 |
+| X-11 | `web-push-native` uses the notification validity also as the VAPID JWT `exp`: monthly reminders are signed for 72 h and trip summaries for exactly 24 h, while RFC 8292 caps `exp` at 24 h and push services reject longer tokens. The first monthly reminder (2026-11-01) is likely to fail on every push service. | real (confirmed against FCM and Mozilla autopush: 403 / 401); **fixed in v1.2.3 / API 0.14.1** | api-push CB-3, PUSH-075 |
 
 ## 7. Coverage and limits
 
