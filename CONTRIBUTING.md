@@ -11,7 +11,9 @@ Thanks for helping! DriveLens is maintained by one person, so a little coordinat
 
 ## Ground rules
 
-- **Never modify TeslaMate's tables.** drivelens-api only reads them. Anything DriveLens stores goes into the `drivelens` schema. A change that needs a schema migration must ship the SQL in `deploy/` and say so in the pull request.
+- **Never modify TeslaMate's tables.** drivelens-api only reads them. Anything DriveLens stores goes into the `drivelens` schema.
+- **Schema changes are applied by the API itself.** On every start, drivelens-api upgrades its `drivelens` tables (`migrate()` in `api/src/main.rs` and each module's `try_migrate` / `try_create_tables`). New tables or columns go there. The DDL must be idempotent (check that the object exists first), non-fatal (on failure log a warning and turn off only that feature) and limited to the `drivelens` schema. `deploy/setup.sql` is a one-time manual step that users run as the TeslaMate admin; it only sets up the `drivelens_ro` role, grants and the schema, so change it only for privileges.
+- **Any change that needs DDL** (a new table, column or index, or a `setup.sql` change) must list the exact SQL in the pull request and needs the maintainer's approval before it is merged.
 - **Privacy:** the app must never send the server URL or the API token anywhere except the user's own server, and must not add telemetry, analytics or third-party trackers.
 - **UI:** portrait layout, no new bottom tabs, follow the existing style in `app/src/style.css`. All user-facing text goes through `app/src/locales/{en,zh,ja}.ts` (`npm run check:i18n` checks that every key exists in all three).
 - Keep pull requests focused: one topic per pull request.
