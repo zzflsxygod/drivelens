@@ -201,7 +201,7 @@ export function mountDevices(slot: HTMLElement, onLeft: () => void) {
   void manageable().then(m => { me = m; render(); if (m) void reload(); });
 }
 
-const confirmSignOut = () => confirmSheet({ title: t("dev.signOut"), text: t(isDemo() ? "dev.signOutDemo" : "dev.signOutText"), ok: t("dev.signOutOk"), danger: true });
+const confirmSignOut = () => confirmSheet({ title: t("dev.signOut"), text: t(isDemo() ? "dev.signOutDemo" : loadSettings().tokenKind === "device" ? "dev.signOutText" : "dev.signOutTextOwner"), ok: t("dev.signOutOk"), danger: true });
 
 /** Settings › "Sign out of this device" (device token or owner key; demo: leave the demo). */
 export function signOutCardHTML() {
