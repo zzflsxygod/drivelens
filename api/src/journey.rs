@@ -123,8 +123,14 @@ pub async fn list(State(s): State<AppState>, Query(q): Query<ListParams>) -> Res
 
 #[derive(Deserialize)]
 pub struct CreateBody { name: String, note: Option<String>, drive_ids: Vec<i64> }
+/// `note`: field absent = unchanged (`None`), `null` or "" = clear (`Some(None)`), text = set.
 #[derive(Deserialize)]
-pub struct PatchBody { name: Option<String>, note: Option<Option<String>> }
+pub struct PatchBody { name: Option<String>, #[serde(default, deserialize_with = "present")] note: Option<Option<String>> }
+/// serde maps an explicit `null` to `None` for `Option<Option<T>>`, i.e. "not sent"; this keeps it as `Some(None)`.
+/// (Only called when the field is present; `default` covers the absent case.)
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
+}
 #[derive(Deserialize)]
 pub struct DrivesBody { drive_ids: Vec<i64> }
 
@@ -430,4 +436,24 @@ pub async fn restore_dismissed(State(s): State<AppState>) -> Result<Response, Ap
     if !dismiss_ok(&s).await? { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, DISMISS_MISSING)); }
     let r = sqlx::query("DELETE FROM drivelens.dismissed_suggestions").execute(&s.db).await?;
     Ok(Json(serde_json::json!({"restored": r.rows_affected()})).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn patch(j: &str) -> PatchBody { serde_json::from_str(j).unwrap() }
+    /// api-journeys CB-1: an explicit `null` clears the note, an absent field leaves it unchanged.
+    #[test]
+    fn patch_note_null_clears_absent_keeps() {
+        assert_eq!(patch(r#"{"name":"x"}"#).note, None, "absent = unchanged");
+        assert_eq!(patch(r#"{"note":null}"#).note, Some(None), "null = clear");
+        assert_eq!(patch(r#"{"name":"x","note":"hi"}"#).note, Some(Some("hi".into())));
+        assert_eq!(patch(r#"{"note":""}"#).note, Some(Some(String::new())));
+        // what update() stores: "" and null both clear
+        assert_eq!(clean_note(Some("  ")).unwrap(), None);
+        assert_eq!(clean_note(None).unwrap(), None);
+        assert_eq!(clean_note(Some(" a ")).unwrap(), Some("a".into()));
+        assert!(clean_note(Some(&"x".repeat(2001))).is_err());
+        assert_eq!(patch(r#"{"name":null}"#).name, None);
+    }
 }

@@ -325,7 +325,7 @@ export async function showJourney(ctx: Ctx, id: number) {
   v.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => ctx.showDrive(Number(el.dataset.drive), self));
   v.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => ctx.showCharge(Number(el.dataset.charge), self));
   const edit = () => nameDialog({ title: t("j.edit"), name: j.name, note: j.note ?? "", ok: t("common.save"),
-    save: async (name, note) => { await api(`/api/journeys/${id}`, "PATCH", { name, note }); self(); },
+    save: async (name, note) => { await api(`/api/journeys/${id}`, "PATCH", { name, note: note ?? "" }); self(); },   // "" clears the note (also on servers before 0.14.1, which read null as "unchanged")
     del: async () => { await api(`/api/journeys/${id}`, "DELETE"); showJourneys(ctx); } });
   if (rw) {
     (v.querySelector("#jedit") as HTMLElement).onclick = edit;
