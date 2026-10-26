@@ -93,13 +93,21 @@ pub async fn try_migrate(db: &PgPool) {
     }
 }
 
-async fn tables_ok(db: &PgPool) -> bool {
+/// `Ok(false)` = the tables are missing or the role lacks privileges (an SQL error of class 42 / 3F counts as that,
+/// since PostgreSQL may evaluate `has_table_privilege` on a missing table); `Err` = the database could not be asked
+/// (connection, pool timeout, server shutting down …), i.e. nothing is known about the tables.
+async fn tables_ok(db: &PgPool) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar::<_, bool>(
         "SELECT to_regclass('drivelens.devices') IS NOT NULL AND to_regclass('drivelens.pairing_codes') IS NOT NULL
            AND has_table_privilege('drivelens.devices', 'SELECT,INSERT,UPDATE,DELETE')
            AND has_table_privilege('drivelens.pairing_codes', 'SELECT,INSERT,UPDATE,DELETE')
            AND has_sequence_privilege('drivelens.devices_id_seq', 'USAGE')
-           AND has_sequence_privilege('drivelens.pairing_codes_id_seq', 'USAGE')").fetch_one(db).await.unwrap_or(false)
+           AND has_sequence_privilege('drivelens.pairing_codes_id_seq', 'USAGE')").fetch_one(db).await
+        .or_else(|e| if schema_error(&e) { Ok(false) } else { Err(e) })
+}
+/// SQL errors that mean "objects missing / not permitted" (classes 42 and 3F), as opposed to a transient failure.
+fn schema_error(e: &sqlx::Error) -> bool {
+    matches!(e, sqlx::Error::Database(d) if d.code().is_some_and(|c| c.starts_with("42") || c.starts_with("3F")))
 }
 
 // ---------------- tokens, codes, names ----------------
@@ -339,9 +347,13 @@ impl AuthState {
     pub fn owner_matches(&self, candidate: &str) -> bool { constant_time_eq(&sha256(candidate), &self.owner_hash) }
 
     /// Re-detect the tables and reload all devices (deleting expired ones and stale pairing codes first).
-    /// On a database error the current index is kept.
+    /// On a database error the current index and availability are kept: a short outage must not turn every
+    /// device token into a 401 (the app treats a 401 on its device token as "revoked" and forgets the server).
     pub async fn refresh(&self, db: &PgPool) {
-        let ok = tables_ok(db).await;
+        let ok = match tables_ok(db).await {
+            Ok(ok) => ok,
+            Err(e) => { tracing::warn!("device auth: cannot check the device tables ({e}); keeping the current device list"); return; }
+        };
         self.push_link.store(ok && push_link_exists(db).await, Ordering::Relaxed);
         if !ok {
             if self.available.swap(false, Ordering::Relaxed) { tracing::warn!("device auth: tables are no longer usable; {UNAVAILABLE}"); }
@@ -474,6 +486,9 @@ pub async fn check(a: &AuthState, mut req: Request, next: Next) -> Response {
     let bearer = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
     let principal = match bearer {
         // device tokens are always evaluated, even while this client is blocked: the owner's devices keep working
+        // device auth not available (tables unusable, or not loaded yet after a database error at startup): the token
+        // cannot be checked, which is not the same as "unknown" → 503, not 401, so apps keep their saved connection
+        Some(t) if t.starts_with(TOKEN_PREFIX) && !a.available() => return unavailable(),
         Some(t) if t.starts_with(TOKEN_PREFIX) => a.device_for(t, ip),
         Some(t) => {
             // pair-only: a blocked client (or too many failures overall) cannot keep guessing the owner key.
@@ -824,7 +839,25 @@ mod tests {
         let a = Arc::new(AuthState::for_tests(OWNER, OwnerKeyMode::Full, false));
         a.add_test_device(DEV_FULL, 1, Scope::Full, None);
         assert_eq!(call(&a, "GET", "/api/cars", Some(OWNER)).await.0, StatusCode::OK);
-        assert_eq!(call(&a, "GET", "/api/cars", Some(DEV_FULL)).await.0, StatusCode::UNAUTHORIZED);
+        // the token cannot be checked: 503 (the app keeps its connection), not 401 (the app would forget the server)
+        let (st, body) = call(&a, "GET", "/api/cars", Some(DEV_FULL)).await;
+        assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(body.contains("\"device_auth_unavailable\""), "{body}");
+        assert_eq!(call(&a, "GET", "/api/cars", Some("dlt_unknownunknownunknownunknownunknownunknown")).await.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(failures(&a.fails, "127.0.0.1", Instant::now()), 0, "not counted as failures");
+    }
+
+    /// api-auth CB-1: a database error during the periodic reload keeps the index and availability.
+    #[tokio::test]
+    async fn reload_db_error_keeps_devices() {
+        let a = state(OwnerKeyMode::Full);
+        let down = sqlx::postgres::PgPoolOptions::new().acquire_timeout(Duration::from_millis(500))
+            .connect_lazy("postgres://nobody@127.0.0.1:1/none").unwrap();
+        a.refresh(&down).await;
+        assert!(a.available(), "availability kept");
+        assert_eq!(call(&a, "GET", "/api/cars", Some(DEV_FULL)).await.0, StatusCode::OK, "device token still accepted");
+        assert_eq!(call(&a, "GET", "/api/cars", Some(DEV_READ)).await.0, StatusCode::OK);
+        assert_eq!(call(&a, "GET", "/api/cars", Some("dlt_unknownunknownunknownunknownunknownunknown")).await.0, StatusCode::UNAUTHORIZED, "unknown token is still 401");
     }
 
     #[tokio::test]
