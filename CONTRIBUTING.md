@@ -7,6 +7,7 @@ Thanks for helping! DriveLens is maintained by one person, so a little coordinat
 - **New features or larger changes:** please [open an issue](https://github.com/zzflsxygod/drivelens/issues) first and describe what you want to do. Not every feature fits DriveLens, and it is better to agree on the approach before you write code.
 - **Small fixes** (bugs, typos, translations, docs): a pull request without an issue is fine.
 - **Security problems:** do not open a public issue. See [SECURITY.md](SECURITY.md).
+- **AI coding agents:** follow [AGENTS.md](AGENTS.md) (specs workflow, hard rules, build and test commands).
 
 ## Ground rules
 
