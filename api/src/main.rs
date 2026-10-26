@@ -866,6 +866,49 @@ mod auth_tests {
         let v: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap()).unwrap();
         assert_eq!(v, serde_json::json!({"kind": "owner", "device": null, "device_auth": false, "owner_key_mode": "full"}));
     }
+
+    /// Needs DRIVELENS_TEST_DATABASE_URL (see db_device_flow). api-journeys CB-1: PATCH `note: null` / "" clears the note,
+    /// an absent `note` keeps it. api-auth CB-1: a reload that cannot reach the database keeps device tokens working,
+    /// and the 401 for an unknown token keeps its `{"error":"unauthorized"}` body (the app signs out only on that).
+    #[tokio::test]
+    async fn db_journey_note_and_auth_reload() {
+        let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_journey_note_and_auth_reload skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
+        let db = PgPoolOptions::new().max_connections(3).connect(&url).await.unwrap();
+        migrate(&db).await.unwrap();
+        let key = "test-owner-key-note-0123456789abcdef";
+        let a = auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await;
+        let state = test_state(db.clone(), a);
+        let app = router(state.clone());
+        let drive: i64 = sqlx::query_scalar("SELECT d.id::int8 FROM drives d WHERE d.end_date IS NOT NULL
+            AND d.id NOT IN (SELECT drive_id FROM drivelens.journey_drives) ORDER BY d.id LIMIT 1").fetch_one(&db).await.unwrap();
+        let (st, j) = send(&app, "POST", "/api/journeys", Some(key), Some(serde_json::json!({"name": "note test", "note": "first", "drive_ids": [drive]}))).await;
+        assert_eq!(st, StatusCode::OK, "{j}");
+        let id = j["id"].as_i64().unwrap();
+        let path = format!("/api/journeys/{id}");
+        let (st, j) = send(&app, "PATCH", &path, Some(key), Some(serde_json::json!({"name": "renamed"}))).await;
+        assert_eq!((st, j["name"].as_str(), j["note"].as_str()), (StatusCode::OK, Some("renamed"), Some("first")), "absent note = unchanged");
+        let (_, j) = send(&app, "PATCH", &path, Some(key), Some(serde_json::json!({"note": null}))).await;
+        assert!(j["note"].is_null(), "null clears: {j}");
+        let (_, j) = send(&app, "PATCH", &path, Some(key), Some(serde_json::json!({"note": "second"}))).await;
+        assert_eq!(j["note"], "second");
+        let (_, j) = send(&app, "PATCH", &path, Some(key), Some(serde_json::json!({"name": "renamed", "note": ""}))).await;
+        assert!(j["note"].is_null(), "\"\" clears: {j}");
+        assert_eq!(send(&app, "DELETE", &path, Some(key), None).await.0, StatusCode::NO_CONTENT);
+
+        // device token, then a reload whose database is unreachable
+        let (st, v) = send(&app, "POST", "/api/auth/devices", Some(key), Some(serde_json::json!({"name": "reload test"}))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let t = v["token"].as_str().unwrap().to_string();
+        let down = PgPoolOptions::new().connect_lazy(&url).unwrap();
+        down.close().await;
+        state.auth.refresh(&down).await;
+        assert!(state.auth.available());
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t), None).await.0, StatusCode::OK, "device token survives a failed reload");
+        let (st, body) = send(&app, "GET", "/api/cars", Some("dlt_unknownunknownunknownunknownunknownunknown"), None).await;
+        assert_eq!((st, body), (StatusCode::UNAUTHORIZED, serde_json::json!({"error": "unauthorized"})));
+        assert_eq!(send(&app, "DELETE", "/api/auth/devices/current", Some(&t), None).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, "GET", "/api/cars", Some(&t), None).await.0, StatusCode::UNAUTHORIZED, "revoked = 401");
+    }
 }
 
 /// All routes. /api/* except /api/auth/pair go through the auth middleware (`route_layer` only wraps the routes
