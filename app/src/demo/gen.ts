@@ -12,7 +12,7 @@ export interface Addr { id: number; name: string; city: string; lat: number; lng
 export interface Pos { date: number; lat: number; lng: number; speed: number | null; elevation: number | null; battery_level: number; power: number | null; odometer: number; ideal: number; rated: number; drive_id: number | null }
 export interface DDrive { id: number; start: number; end: number; sa: number; ea: number; sg: number | null; eg: number | null; distance: number; duration_min: number;
   speed_max: number; srr: number; err: number; temp: number; pos: Pos[]; route: string; precip: number }
-export interface CPoint { date: number; battery_level: number; charge_energy_added: number; charger_power: number; charger_voltage: number; charger_actual_current: number; charger_phases: number | null; fast: boolean }
+export interface CPoint { date: number; battery_level: number; charge_energy_added: number; charger_power: number; charger_voltage: number; charger_actual_current: number; charger_phases: number | null; fast: boolean; fast_charger_brand: string | null; fast_charger_type: string | null }
 export interface DCharge { id: number; start: number; end: number; addr: number; geo: number | null; lat: number; lng: number; odometer: number; added: number; used: number;
   sl: number; el: number; srr: number; err: number; duration_min: number; temp: number; cost: number | null; points: CPoint[] }
 export interface DB { now: number; car: { id: number; name: string; model: string; marketing_name: string | null; trim_badging: string; exterior_color: string; wheel_type: string; vin: string; efficiency: number };
@@ -133,8 +133,12 @@ export function generate(nowMs: number = Date.now()): DB {
       else kw = (lv < 12 ? 125 + lv * 4 : lv < 40 ? 168 : lv < 60 ? 168 - (lv - 40) * 3 : lv < 80 ? 108 - (lv - 60) * 2.4 : 60 - (lv - 80) * 2.4) * (0.96 + rnd() * 0.06);
       const dkwh = kw * step / 3600 * 0.97;
       added += dkwh; lv += dkwh / cap(t) * 100; t += step * 1000;
+      // brand/type mirror TeslaMate: Supercharger → brand+type "Tesla"; third-party DC → neither (stays "other" unless the place name matches).
+      const brand = kind === "sc" ? "Tesla" : null;
+      const ftype = kind === "sc" ? "Tesla" : null;
       pts.push({ date: t, battery_level: Math.min(100, Math.round(lv)), charge_energy_added: Math.round(added * 100) / 100, charger_power: Math.round(kw),
-        charger_voltage: fast ? 2 : 202, charger_actual_current: fast ? 0 : Math.round(kw * 1000 / 202), charger_phases: fast ? null : 1, fast });
+        charger_voltage: fast ? 2 : 202, charger_actual_current: fast ? 0 : Math.round(kw * 1000 / 202), charger_phases: fast ? null : 1, fast,
+        fast_charger_brand: brand, fast_charger_type: ftype });
       if (pts.length > 2000) break;
     }
     const end = t + 60e3;
