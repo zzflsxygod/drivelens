@@ -37,6 +37,8 @@ export interface InfOpts<T> {
   empty: string;
   /** toolbar row (right side) to put the month-jump button in; default: own row above the list */
   toolbar?: HTMLElement;
+  /** when false, hide the month-jump control (e.g. while place-searching) */
+  allowJump?: boolean;
 }
 
 const PAGE = 50;
@@ -144,7 +146,7 @@ export function infiniteList<T>(o: InfOpts<T>) {
   jumpBtn.onclick = () => { fillJump(); popMenu(jumpBtn,
     [{ value: "", label: t("list.latest"), active: !S.jumpedTo }, ...monthList.map(m => ({ value: m, label: monthLabel(m), active: S.jumpedTo === m }))],
     v => reset(v || null), t("list.jump")); };
-  if (!o.paging) jumpBtn.hidden = true;
+  if (!o.paging || o.allowJump === false) jumpBtn.hidden = true;
   if (o.monthsSupported && o.carId != null && !S.months) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     api<MonthRow[]>(`/api/cars/${o.carId}/months?tz=${encodeURIComponent(tz)}`).then(m => { if (!alive) return; S.months = m; fillJump(); refreshHeaders(); }).catch(() => { /* totals from loaded items */ });

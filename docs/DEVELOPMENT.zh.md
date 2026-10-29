@@ -61,13 +61,13 @@ cd app && npm run build && npm run build:web            # 两者都会先跑 npm
 
 ## API
 
-除 `/health` 和 `POST /api/auth/pair` 外都需要 `Authorization: Bearer <token>`：服务器 Token（主密钥，`API_TOKEN`）或设备 Token（`dlt_…`，0.14.0 起）。`GET /health` 返回 `{"status","version","api_level"}`（当前 `api_level` 15）；`GET /api/health` 额外检查数据库和各功能是否可用。
+除 `/health` 和 `POST /api/auth/pair` 外都需要 `Authorization: Bearer <token>`：服务器 Token（主密钥，`API_TOKEN`）或设备 Token（`dlt_…`，0.14.0 起）。`GET /health` 返回 `{"status","version","api_level"}`（当前 `api_level` 16）；`GET /api/health` 额外检查数据库和各功能是否可用。
 
 | 接口 | 说明 |
 |---|---|
 | `GET /api/cars` | 车辆列表 |
 | `GET /api/cars/:id/status` · `/last-activity` · `/stats?tz=` · `/summary?tz=` | 首页数据（状态、最近行程 / 充电、本月与累计统计） |
-| `GET /api/drives` · `/api/charges`（`car_id`、`paged=true&before=<游标>&limit=`） | 行程 / 充电列表（keyset 分页，返回 `{items, next_cursor}`；旧的 `limit/offset` 仍可用） |
+| `GET /api/drives` · `/api/charges`（`car_id`、`paged=true&before=<游标>&limit=`；`/drives` 另可选 `q` 地点子串搜索，api_level ≥ 16） | 行程 / 充电列表（keyset 分页，返回 `{items, next_cursor}`；旧的 `limit/offset` 仍可用） |
 | `GET /api/drives/:id`、`/api/drives/:id/path`、`/api/charges/:id` | 详情、GPS 轨迹、充电曲线 |
 | `GET /api/cars/:id/months?tz=` | 月度汇总（列表的月份标题 / 跳转） |
 | `GET /api/cars/:id/report?month=YYYY-MM&tz=&currency=`、`/trends` | 月度报告 |

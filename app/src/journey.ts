@@ -10,6 +10,7 @@ import { trackPopover } from "./ui";
 import { navPage, navRoot } from "./nav";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { focusField } from "./sheets";
+import { lacks } from "./version";
 
 export interface Ctx {
   view: HTMLElement;
@@ -74,8 +75,13 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   const v = ctx.view;
   const car = await ctx.carId();
   const canSelect = ctx.journeysAvailable() && ctx.canWrite();   // multi-select exists to create journeys
+  const canSearch = !lacks("driveSearch");
   v.innerHTML = `<div class="list-toolbar">${segHTML("drives", ctx) || `<h2 class="tb-title">${t("seg.drives")}</h2>`}
-      <div class="tb-right" id="d-tb">${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
+      <div class="tb-right" id="d-tb">${canSearch ? `<button id="d-search" class="tb-btn" type="button" aria-pressed="false"></button>` : ""}${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
+    <div class="drive-search" id="d-search-bar" hidden>
+      <input id="d-q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${t("drives.searchPh")}" maxlength="100">
+      <button type="button" class="ghost small" id="d-q-clear" hidden>${t("drives.searchClear")}</button>
+    </div>
     ${canSelect ? `<div class="sel-tip muted" id="seltip" hidden></div>` : ""}
     <div id="dlist"></div><div id="abar"></div>`;
   bindSeg(ctx);
@@ -108,21 +114,83 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
         save: async (name, note) => { const j = await api<Journey>("/api/journeys", "POST", { name, note, drive_ids: [...sel] }); selectMode = false; sel.clear(); showJourney(ctx, j.id); } });
     };
   };
-  const list = infiniteList<Drive>({
-    container: v.querySelector<HTMLElement>("#dlist")!, toolbar: v.querySelector<HTMLElement>("#d-tb")!, key: `drives:${car ?? "all"}`, path: `/api/drives?x=1${ctx.carQ()}`,
-    paging: ctx.pagingAvailable(), carId: car, monthsSupported: ctx.pagingAvailable(), restore,
-    dateOf: d => d.start_date, card: cardHTML, empty: t("home.noDrives"),
-    header: (m, tot, loaded) => `<b>${monthLabel(m)}</b><span>${tot ? `${t("drives.monthHead", { n: tot.drive_count, km: n(tot.distance_km, 0) })} · ${fmtDur(tot.duration_min)}`
-      : t("drives.monthHead", { n: loaded.length, km: n(loaded.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0) })}</span>`,
-    bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
-      const id = Number(el.dataset.id), d = byId.get(id);
-      if (!selectMode) { list.leave(); window.scrollTo(0, 0); return ctx.showDrive(id, () => showDriveList(ctx, undefined, [], true)); }
-      if (d?.journey_id) return;
-      sel.has(id) ? sel.delete(id) : sel.add(id);
-      el.classList.toggle("selected", sel.has(id)); el.querySelector(".chk")!.textContent = sel.has(id) ? "✓" : "";
-      bar();
-    }),
-  });
+
+  let q = "";
+  let list: ReturnType<typeof infiniteList> | null = null;
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  const searchBar = v.querySelector<HTMLElement>("#d-search-bar")!;
+  const qIn = v.querySelector<HTMLInputElement>("#d-q")!;
+  const qClear = v.querySelector<HTMLButtonElement>("#d-q-clear")!;
+  const searchBtn = v.querySelector<HTMLElement>("#d-search");
+
+  const mountList = (doRestore: boolean) => {
+    list?.leave();
+    const box = v.querySelector<HTMLElement>("#dlist")!;
+    box.innerHTML = "";
+    const qParam = q ? `&q=${encodeURIComponent(q)}` : "";
+    const key = q ? `drives:${car ?? "all"}:q:${q}` : `drives:${car ?? "all"}`;
+    list = infiniteList<Drive>({
+      container: box, toolbar: v.querySelector<HTMLElement>("#d-tb")!, key, path: `/api/drives?x=1${ctx.carQ()}${qParam}`,
+      paging: ctx.pagingAvailable(), carId: car, monthsSupported: ctx.pagingAvailable() && !q, allowJump: !q,
+      restore: doRestore && !q, dateOf: d => d.start_date, card: cardHTML,
+      empty: q ? t("drives.noSearch") : t("home.noDrives"),
+      header: (m, tot, loaded) => `<b>${monthLabel(m)}</b><span>${tot ? `${t("drives.monthHead", { n: tot.drive_count, km: n(tot.distance_km, 0) })} · ${fmtDur(tot.duration_min)}`
+        : t("drives.monthHead", { n: loaded.length, km: n(loaded.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0) })}</span>`,
+      bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
+        const id = Number(el.dataset.id), d = byId.get(id);
+        if (!selectMode) { list!.leave(); window.scrollTo(0, 0); return ctx.showDrive(id, () => showDriveList(ctx, undefined, [], true)); }
+        if (d?.journey_id) return;
+        sel.has(id) ? sel.delete(id) : sel.add(id);
+        el.classList.toggle("selected", sel.has(id)); el.querySelector(".chk")!.textContent = sel.has(id) ? "✓" : "";
+        bar();
+      }),
+    });
+  };
+
+  const paintSearch = () => {
+    if (searchBtn) {
+      searchBtn.innerHTML = ICON.search;
+      searchBtn.title = t("drives.search"); searchBtn.setAttribute("aria-label", t("drives.search"));
+      searchBtn.classList.toggle("on", !searchBar.hidden);
+      searchBtn.setAttribute("aria-pressed", String(!searchBar.hidden));
+    }
+    qClear.hidden = !q;
+  };
+
+  if (searchBtn) {
+    searchBtn.onclick = () => {
+      const open = searchBar.hidden;
+      searchBar.hidden = !open;
+      if (open) { paintSearch(); focusField(qIn); }
+      else {
+        // closing the bar clears the query
+        if (q) { q = ""; qIn.value = ""; mountList(false); }
+        paintSearch();
+      }
+    };
+  }
+  qClear.onclick = () => { q = ""; qIn.value = ""; qClear.hidden = true; mountList(false); paintSearch(); focusField(qIn); };
+  qIn.oninput = () => {
+    qClear.hidden = !qIn.value.trim();
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      const next = qIn.value.trim();
+      if (next === q) return;
+      q = next;
+      mountList(false);
+      paintSearch();
+    }, 300);
+  };
+  qIn.onkeydown = e => {
+    if (e.key === "Escape") {
+      if (qIn.value) { qIn.value = ""; q = ""; qClear.hidden = true; mountList(false); paintSearch(); }
+      else if (searchBtn) searchBtn.click();
+    }
+  };
+
+  mountList(restore);
+  paintSearch();
+
   const sm = v.querySelector<HTMLElement>("#selmode");
   if (sm) sm.onclick = () => {
     selectMode = !selectMode; if (!selectMode) sel.clear();
@@ -131,7 +199,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
       const d = byId.get(Number(el.dataset.id)); if (!d) return;
       const t = document.createElement("div"); t.innerHTML = cardHTML(d); el.replaceWith(t.firstElementChild!);
     });
-    list.rebind(); bar();
+    list?.rebind(); bar();
   };
   bar();
 }

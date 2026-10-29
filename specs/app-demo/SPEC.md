@@ -169,9 +169,10 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
   - apply `limit` (default 50, clamped to 1–500) and `offset` (≥ 0);
   - honour `before` as `<ISO time>~<id>` or as a bare date;
   - with `paged=true`, return `{items, next_cursor}`, where `next_cursor` is `<start_date>~<id>` of the last row when the page is full and `null` otherwise;
-  - without it, return a plain array.
+  - without it, return a plain array;
+  - for `/api/drives` only, when `q` is non-empty after trim (max 100 chars), filter to drives whose start or end display name contains the query case-insensitively before paging (issue #18).
 
-  (src: app/src/demo/server.ts:180-193)
+  (src: app/src/demo/server.ts `list` / `/api/drives`)
 - **DEMO-072** When `tz` is given to stats, months, report, trends or footprint and is not a valid IANA zone, the mock SHALL return `400 {"error":"unknown tz"}`. Without `tz` it SHALL use UTC. (src: app/src/demo/server.ts:45, 151, 173, 208, 242, 258)
 - **DEMO-073** When `month` is given to report, trends or footprint and does not match `YYYY-MM`, the mock SHALL return `400 "month must be YYYY-MM"`. A report for a future month SHALL get `400 "month is in the future"`. (src: app/src/demo/server.ts:209, 212, 243, 259)
 - **DEMO-074** When `currency` is not three letters, the mock SHALL use `JPY` as the default currency. (src: app/src/demo/server.ts:57)

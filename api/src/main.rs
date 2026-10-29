@@ -106,6 +106,8 @@ struct ListParams {
     before: Option<String>,
     /// paged=true → {items, next_cursor}; otherwise a plain array (compatibility)
     paged: Option<bool>,
+    /// place search (drives only): case-insensitive partial match on start/end display names
+    q: Option<String>,
 }
 impl ListParams {
     /// (timestamp text without zone, id) for keyset pagination
@@ -116,7 +118,55 @@ impl ListParams {
     }
     fn limit(&self) -> i64 { self.limit.unwrap_or(50).clamp(1, 500) }
     fn offset(&self) -> i64 { self.offset.unwrap_or(0).max(0) }
+    /// Trimmed `q` for drives place search: empty → None; longer than 100 chars truncated; `!`/`%`/`_` escaped for ILIKE (ESCAPE '!').
+    fn search_pattern(&self) -> Option<String> {
+        let raw = self.q.as_deref()?.trim();
+        if raw.is_empty() { return None; }
+        let cut: String = raw.chars().take(100).collect();
+        Some(ilike_pattern(&cut))
+    }
 }
+
+/// Build an ILIKE pattern with ESCAPE '!': wrap in `%`, escape `!` `%` `_`.
+pub(crate) fn ilike_pattern(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('%');
+    for c in s.chars() {
+        // ESCAPE '!' in SQL — avoid backslash quoting issues in PostgreSQL string literals.
+        if matches!(c, '!' | '%' | '_') { out.push('!'); }
+        out.push(c);
+    }
+    out.push('%');
+    out
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::ilike_pattern;
+
+    #[test]
+    fn ilike_pattern_wraps_and_escapes() {
+        assert_eq!(ilike_pattern("羽田"), "%羽田%");
+        assert_eq!(ilike_pattern("a%b_c"), "%a!%b!_c%");
+        assert_eq!(ilike_pattern("x!y"), "%x!!y%");
+    }
+
+    #[test]
+    fn search_pattern_trims_empty_and_caps() {
+        use super::ListParams;
+        let empty = ListParams { car_id: None, limit: None, offset: None, id: None, before: None, paged: None, q: Some("  ".into()) };
+        assert_eq!(empty.search_pattern(), None);
+        let none = ListParams { car_id: None, limit: None, offset: None, id: None, before: None, paged: None, q: None };
+        assert_eq!(none.search_pattern(), None);
+        let long: String = "あ".repeat(120);
+        let p = ListParams { car_id: None, limit: None, offset: None, id: None, before: None, paged: None, q: Some(long) };
+        let pat = p.search_pattern().unwrap();
+        // 100 chars + two % 
+        assert_eq!(pat.chars().count(), 102);
+        assert!(pat.starts_with('%') && pat.ends_with('%'));
+    }
+}
+
 
 const TS: &str = "YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"";
 
@@ -299,8 +349,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0)
-pub(crate) const API_LEVEL: u32 = 15;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = GET /drives?q= place search (v0.15.0)
+pub(crate) const API_LEVEL: u32 = 16;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -435,21 +485,26 @@ pub(crate) fn drive_select(journeys: bool) -> String {
 }
 
 async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> ApiResult<Vec<Drive>> {
+    // Place expressions match REC-003 / drive_select display names (alias → geofence → name/road+city).
     let sql = format!(
         "{} WHERE ($1::int8 IS NULL OR d.car_id = $1) AND ($4::int8 IS NULL OR d.id = $4) AND d.end_date IS NOT NULL
            AND ($5::timestamptz IS NULL OR (d.start_date, d.id) < (($5::timestamptz AT TIME ZONE 'UTC'), $6::int4))
+           AND ($7::text IS NULL OR
+                COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) ILIKE $7 ESCAPE '!'
+             OR COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) ILIKE $7 ESCAPE '!')
            ORDER BY d.start_date DESC, d.id DESC LIMIT $2 OFFSET $3",
         drive_select(journey::tables_ok(&s).await?)
     );
     let (before, bid) = q.cursor();
+    let pat = q.search_pattern();
     let rows = sqlx::query_as::<_, Drive>(&sql)
-        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(q.id).bind(before).bind(bid)
+        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(q.id).bind(before).bind(bid).bind(pat)
         .fetch_all(&s.db).await?;
     Ok(Json(rows))
 }
 
 async fn get_drive(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    let q = ListParams { car_id: None, limit: Some(1), offset: None, id: Some(id), before: None, paged: None };
+    let q = ListParams { car_id: None, limit: Some(1), offset: None, id: Some(id), before: None, paged: None, q: None };
     let Json(mut rows) = list_drives(State(s), Query(q)).await?;
     Ok(match rows.pop() {
         Some(d) => Json(d).into_response(),
@@ -851,7 +906,7 @@ mod auth_tests {
         let res = app.oneshot(axum::http::Request::builder().uri("/health").body(axum::body::Body::empty()).unwrap()).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":15"));
+        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":16"));
     }
 
     /// GET /api/auth/me without device auth: owner, device_auth false, mode full.

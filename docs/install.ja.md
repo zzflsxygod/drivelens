@@ -81,7 +81,7 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 
 `disabled features: …` や `cannot read TeslaMate tables` と表示された場合は手順 3 が完了していません。`setup.sql` をもう一度実行し、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api` を実行してください。
 
-サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":15}` を返します。
+サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":16}` を返します。
 
 compose ファイルの初期設定では API を `127.0.0.1:8080` にだけ公開するので、ほかのマシンからは接続できません。**8080 番ポートをインターネットに直接公開しないでください**。下の https の方法のどちらかを使います。
 

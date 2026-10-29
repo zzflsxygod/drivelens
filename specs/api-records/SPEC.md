@@ -1,6 +1,6 @@
 # api-records — Cars, drives, charges, place aliases and manual charging costs
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.15.0, API level 16).
 > Sources: `api/src/main.rs` (records part: `LOC_CURRENCY`, `ListParams`, `Car`, `ChargeSummary`, `ChargePoint`, `fill_power`, `Drive`, `PathPoint`, `charge_select`, `drive_select`, `paged`, `drives_route`, `charges_route`, `car_months`, `list_cars`, `list_charges`, `get_charge`, `list_drives`, `get_drive`, `drive_path`, alias and cost handlers); `testdata/schema.sql` (TeslaMate columns read).
 > In this document, "the system" means the drivelens-api HTTP handlers for cars, drives, charges, drive paths, per-month totals, place aliases and manual charging costs.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).
@@ -53,7 +53,7 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/cars` | Car list |
-| GET | `/api/drives` | Completed drives, newest first; optional keyset paging |
+| GET | `/api/drives` | Completed drives, newest first; optional keyset paging; optional `q` place search (api_level ≥ 16) |
 | GET | `/api/drives/{id}` | One completed drive |
 | GET | `/api/drives/{id}/path` | All positions of a drive |
 | GET | `/api/charges` | Completed charging sessions, newest first; optional keyset paging |
@@ -91,7 +91,8 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 - **REC-029** When a drive is returned, the system SHALL include `id`, `car_id`, `start_date`, `end_date`, `start_address`, `end_address` (REC-003), `start_address_id`, `end_address_id`, `start_alias`, `end_alias` (the raw alias or null), `distance_km`, `duration_min`, `speed_max`, `start_battery_level` / `end_battery_level` (from the drive's start / end position), `outside_temp_avg`, `start_lat`, `start_lng`, `end_lat`, `end_lng`, `journey_id`, `journey_name`. (src: api/src/main.rs:224-255, 410-433)
 - **REC-030** When a drive is returned, the system SHALL compute `energy_kwh` as `(start_rated_range_km − end_rated_range_km) × cars.efficiency`, and `efficiency_wh_km` as `energy_kwh × 1000 / distance` when `distance > 0`, else `null`. (src: api/src/main.rs:418-419; comment: api/src/main.rs:241 "same as TeslaMate's Grafana")
 - **REC-031** When the journey tables are available, the system SHALL fill `journey_id` / `journey_name` with the journey the drive belongs to (or null); when they are not available, both SHALL be `null`. (src: api/src/main.rs:251-254, 405-408, 442)
-- **REC-032** When an `id` query parameter is sent, the system SHALL ignore it (it is not deserialized from the query string). (src: api/src/main.rs:103-104)
+- **REC-032** When an `id` query parameter is sent, the system SHALL ignore it (it is not deserialized from the query string). (src: api/src/main.rs ListParams)
+- **REC-033** When `GET /api/drives` receives a `q` query parameter, the system SHALL trim it, ignore it when empty, truncate it to 100 Unicode scalars, escape `!` `%` `_` for `ILIKE … ESCAPE '!'`, and return only drives whose start or end display name (same expression as REC-003) matches case-insensitively as a substring. The filter SHALL combine with `car_id`, `before`/`paged` and `limit`/`offset`. (src: api/src/main.rs `list_drives` / `ilike_pattern` / `ListParams::search_pattern`; test: `search_tests`; issue #18)
 
 ### 3.4 Single drive and drive path
 
