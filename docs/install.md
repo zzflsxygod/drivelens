@@ -352,7 +352,7 @@ After updating the server (drivelens-api), rebuild the web app from the same rel
 
 ```bash
 cd teslamate
-TAG=v1.3.0   # the new release
+TAG=v1.3.1   # the new release
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
