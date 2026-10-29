@@ -50,6 +50,8 @@ struct AppState {
     http: reqwest::Client,
     /// owner key, device-token index and failure limits (see auth.rs)
     auth: Arc<auth::AuthState>,
+    /// Per-car TPMS snapshot (5 min TTL); home status refreshes often (see summary::TpmsCache).
+    tpms_cache: Arc<summary::TpmsCache>,
 }
 
 /// Is the optional manual-cost table available? Re-checked until it appears, so re-running
@@ -789,7 +791,8 @@ mod auth_tests {
     fn test_state(db: PgPool, a: auth::AuthState) -> AppState {
         AppState { db, costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()),
             cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()), push_ok: Arc::new(Default::default()),
-            vapid: Arc::new(Default::default()), http: push::push_client().unwrap(), auth: Arc::new(a) }
+            vapid: Arc::new(Default::default()), http: push::push_client().unwrap(), auth: Arc::new(a),
+            tpms_cache: Arc::new(summary::TpmsCache::new()) }
     }
     /// The real router, with a lazy (never connected) pool: only routes that need no database are reached.
     fn real_app(a: auth::AuthState) -> Router {
@@ -1039,7 +1042,8 @@ async fn main() -> anyhow::Result<()> {
     let auth = auth::AuthState::init(db.clone(), &token, mode).await;
     let state = AppState { db, costs_ok: Arc::new(Default::default()), journeys_ok: Arc::new(Default::default()), dismiss_ok: Arc::new(Default::default()), cover_ok: Arc::new(Default::default()), weather_ok: Arc::new(Default::default()),
         push_ok: Arc::new(Default::default()), vapid: Arc::new(Default::default()),
-        http: push::push_client()?, auth: Arc::new(auth) };
+        http: push::push_client()?, auth: Arc::new(auth),
+        tpms_cache: Arc::new(summary::TpmsCache::new()) };
     log_features(&state).await;
     push::spawn(state.clone());
     auth::spawn(state.clone());
