@@ -118,7 +118,7 @@ impl ListParams {
     }
     fn limit(&self) -> i64 { self.limit.unwrap_or(50).clamp(1, 500) }
     fn offset(&self) -> i64 { self.offset.unwrap_or(0).max(0) }
-    /// Trimmed `q` for drives place search: empty → None; longer than 100 chars truncated; `!`/`%`/`_` escaped for ILIKE (ESCAPE '!').
+    /// Trimmed `q` for drives/journeys place search: empty → None; longer than 100 chars truncated; `!`/`%`/`_` escaped for ILIKE (ESCAPE '!').
     fn search_pattern(&self) -> Option<String> {
         let raw = self.q.as_deref()?.trim();
         if raw.is_empty() { return None; }

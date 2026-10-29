@@ -67,7 +67,7 @@ cd app && npm run build && npm run build:web            # 两者都会先跑 npm
 |---|---|
 | `GET /api/cars` | 车辆列表 |
 | `GET /api/cars/:id/status` · `/last-activity` · `/stats?tz=` · `/summary?tz=` | 首页数据（状态、最近行程 / 充电、本月与累计统计） |
-| `GET /api/drives` · `/api/charges`（`car_id`、`paged=true&before=<游标>&limit=`；`/drives` 另可选 `q` 地点子串搜索，api_level ≥ 16） | 行程 / 充电列表（keyset 分页，返回 `{items, next_cursor}`；旧的 `limit/offset` 仍可用） |
+| `GET /api/drives` · `/api/charges`（`car_id`、`paged=true&before=<游标>&limit=`；`/drives` 与 `/journeys` 另可选 `q` 地点/名称搜索，api_level ≥ 16） | 行程 / 充电列表（keyset 分页，返回 `{items, next_cursor}`；旧的 `limit/offset` 仍可用） |
 | `GET /api/drives/:id`、`/api/drives/:id/path`、`/api/charges/:id` | 详情、GPS 轨迹、充电曲线 |
 | `GET /api/cars/:id/months?tz=` | 月度汇总（列表的月份标题 / 跳转） |
 | `GET /api/cars/:id/report?month=YYYY-MM&tz=&currency=`、`/trends` | 月度报告 |
