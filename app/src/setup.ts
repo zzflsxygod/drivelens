@@ -11,7 +11,7 @@ import { installGuideUrl } from "./links";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const LATEST_LEVEL = Math.max(...Object.values(FEATURE_LEVEL));
-export const LATEST_SERVER = "0.14.1";
+export const LATEST_SERVER = "0.15.0";
 
 /** What gets saved after a successful test. A device token replaces the owner key, which is then not kept anywhere. */
 export interface Creds { token: string; tokenKind?: "owner" | "device"; deviceId?: number; deviceScope?: "full" | "read" }

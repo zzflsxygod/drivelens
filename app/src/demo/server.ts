@@ -439,7 +439,19 @@ export function handle(method: string, url: string, body: unknown): Res {
     switch (m[2]) { case "status": return ok(status()); case "last-activity": return ok(lastActivity()); case "stats": return stats(q); case "months": return months(q);
       case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); }
   }
-  if (p === "/api/drives") return list(db.drives, q, driveJson);
+  if (p === "/api/drives") {
+    const raw = (q.get("q") ?? "").trim().slice(0, 100);
+    let rows = db.drives;
+    if (raw) {
+      const needle = raw.toLowerCase();
+      rows = rows.filter(d => {
+        const s = (place(d.sa, d.sg) ?? "").toLowerCase();
+        const e = (place(d.ea, d.eg) ?? "").toLowerCase();
+        return s.includes(needle) || e.includes(needle);
+      });
+    }
+    return list(rows, q, driveJson);
+  }
   if ((m = p.match(/^\/api\/drives\/(\d+)$/))) { const d = driveById(Number(m[1])); return d ? ok(driveJson(d)) : err(404, "not found"); }
   if ((m = p.match(/^\/api\/drives\/(\d+)\/path$/))) return drivePath(Number(m[1]));
   if (p === "/api/charges") return list(db.charges, q, chargeJson);

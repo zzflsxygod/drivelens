@@ -70,7 +70,15 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **AJRN-012** When the drive list is shown, the system SHALL request `/api/drives` filtered by the selected car and render each drive as a card with "start → end", start time, duration, a journey badge (name) when the drive belongs to a journey, distance (km), battery % start → end and Wh/km, under month headers with drive count, km and duration. (src: `app/src/journey.ts:84-90`, `:112-117`, `:53`)
 - **AJRN-013** When the user taps a drive card outside select mode, the system SHALL open that drive's detail; its back action SHALL return to the drive list at the previous scroll position. (src: `app/src/journey.ts:118-120`; doc: `CHANGELOG.md` v1.2.1 "Lists keep their scroll position")
 
-### 3.3 Select mode and creating a journey
+### 3.3 Drive list: place search (api_level ≥ 16)
+
+- **AJRN-014** When the server supports drive place search (`driveSearch`, api_level ≥ 16), the system SHALL show a search button in the drive-list toolbar; on older servers the button SHALL be hidden. (src: `app/src/journey.ts` `canSearch` / `lacks("driveSearch")`; issue #18)
+- **AJRN-015** When the search button is tapped, the system SHALL show an inline search input under the toolbar (not a new bottom tab). Closing the bar or Escape with an empty query SHALL hide it; Escape or clear with a non-empty query SHALL clear the query and restore the unfiltered list. (src: `app/src/journey.ts` search bar)
+- **AJRN-016** When the user types in the search input, the system SHALL debounce (~300 ms), trim the query, and reload the drive infinite list with `q=<query>` on `GET /api/drives`, using a distinct cache key. Empty query SHALL omit `q`. (src: `app/src/journey.ts` `mountList`; depends: `api-records` REC-033)
+- **AJRN-017** Place search SHALL apply only to the Drives segment (not Journeys). While a non-empty search is active, month jump SHALL be hidden/disabled (`allowJump: false`). Switching to Journeys leaves search (segment remounts the journeys view). (src: `app/src/journey.ts` `allowJump: !q`; `app/src/infinite.ts` `allowJump`)
+- **AJRN-018** When a search returns no drives, the system SHALL show the empty-state message for no place matches (`drives.noSearch`). (src: `app/src/journey.ts` `empty`; `app/src/locales`)
+
+### 3.4 Select mode and creating a journey
 - **AJRN-020** When journeys are available and the device can write, the system SHALL show a Select button in the list toolbar; otherwise no Select button is shown. (src: `app/src/journey.ts:77-80`; comment: `:77`)
 - **AJRN-021** When the user taps Select, the system SHALL enter select mode: the button becomes a "✕ Cancel" pill, the tip "Select drives to merge (drives already in a journey can't be picked)" appears, and loaded cards show check boxes without losing the scroll position. Tapping Cancel SHALL leave select mode and clear the selection. (src: `app/src/journey.ts:91-98`, `:128-136`; `app/src/locales/en.ts:371`)
 - **AJRN-022** When a drive already belongs to a journey, the system SHALL show its card disabled in select mode and ignore taps on it. (src: `app/src/journey.ts:84`, `:121`)
@@ -78,18 +86,18 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **AJRN-024** When the user taps "Merge into journey", the system SHALL open the name dialog with the default name "<start of earliest selected drive> → <end of latest selected drive>" (`?` for unknown parts; "New journey" when no selected drive is loaded) and a hint with the count and time range; on save it SHALL `POST /api/journeys` with `{name, note, drive_ids}`, leave select mode and open the new journey's detail. (src: `app/src/journey.ts:103-110`; `app/src/locales/en.ts:375-376`)
 - **AJRN-025** When the browser or Android back button is pressed in select mode, the system SHALL leave select mode instead of leaving the screen. (src: `app/src/platform.ts:45-46`; `app/src/nav.ts:35`; doc: `CHANGELOG.md` v1.2.1)
 
-### 3.4 Name / note dialog
+### 3.5 Name / note dialog
 - **AJRN-030** When the name/note dialog is open, the system SHALL limit the name input to 200 characters and the note to 2000, submit on Enter (not while an IME is composing), close on Cancel or a backdrop tap, and show the error "Name can't be empty" inline when the trimmed name is empty. (src: `app/src/journey.ts:141-157`; `app/src/locales/en.ts:14`)
 - **AJRN-031** When saving, the system SHALL send the trimmed name and the trimmed note; editing a journey sends `""` for an empty note (clears it on every server version; v1.2.3+), creating one sends `null`, and show a server error message inline without closing the dialog. (src: `app/src/journey.ts:156-160`)
 - **AJRN-032** When the dialog has a delete action, the first tap on "Delete journey" SHALL only change the label to "Delete? (the drives themselves are kept)", and the second tap SHALL delete. (src: `app/src/journey.ts:161-165`; `app/src/locales/en.ts:380-381`)
 
-### 3.5 Journey list
+### 3.6 Journey list
 - **AJRN-040** When the Journeys segment is shown, the system SHALL request `GET /api/journeys?limit=200` filtered by the selected car and show "My journeys" with the count, then one card per journey with name, drive count, start – end time, "start → end" place, km, duration and kWh. (src: `app/src/journey.ts:176-184`; `app/src/locales/en.ts:382-384`)
 - **AJRN-041** When there are no journeys, the system SHALL show "No journeys yet. In Drives, tap “Select” and merge a few drives — or create one from a suggestion above." (src: `app/src/journey.ts:184`; `app/src/locales/en.ts:385`)
 - **AJRN-042** When loading the list fails, the system SHALL show the error with a Retry button. (src: `app/src/journey.ts:54-55`, `:186`)
 - **AJRN-043** When the user taps a journey card, the system SHALL open its detail page. (src: `app/src/journey.ts:185`)
 
-### 3.6 Suggestions
+### 3.7 Suggestions
 - **AJRN-050** When the suggestions setting is off or the device is read-only, the system SHALL show no suggestions. (src: `app/src/journey.ts:189`)
 - **AJRN-051** When loading suggestions, the system SHALL call `GET /api/journeys/suggestions?gap_min=<journeyGap setting, default 60>&car_id=<current car>`; `charge_gap_min` is not sent, so the server default applies. (src: `app/src/journey.ts:174-175`, `:190`)
 - **AJRN-052** When suggestions arrive, the system SHALL drop those that contain a drive dismissed on this device and show at most 5. (src: `app/src/journey.ts:192-193`)
@@ -100,13 +108,13 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **AJRN-057** When the user taps a suggestion card outside its buttons, the system SHALL open the drive list in select mode with the suggestion's drives preselected. (src: `app/src/journey.ts:225-227`)
 - **AJRN-058** When loading suggestions fails, the system SHALL hide the section without an error. (src: `app/src/journey.ts:228`)
 
-### 3.7 Journeys settings (rendered by `app-shell`)
+### 3.8 Journeys settings (rendered by `app-shell`)
 - **AJRN-060** When the user picks a suggestion gap in Settings, the system SHALL offer 30, 60, 90, 120, 180 and 240 minutes and store it as `journeyGap` (default 60). (src: `app/src/main.ts:426`, `:454-456`)
 - **AJRN-061** When the user toggles "Show journey suggestions", the system SHALL store `suggestionsOff`. (src: `app/src/main.ts:428`, `:457-459`)
 - **AJRN-063** When the user edits the speed-color upper limit in Settings, the system SHALL show a numeric text field (`inputmode=numeric`) with a "km/h" suffix, accept an integer, clamp it to 30–250 on change/blur (empty or non-integer restores the last saved value, or 120 when none), store it as `speedColorMax` (default 120), and use it for the map colour expression and legend on both journey and drive detail maps. (src: `app/src/main.ts` settings; `app/src/map.ts` `speedColorMax` / `clampSpeedColorMax`; issue #19)
 - **AJRN-062** When the user taps "Restore dismissed suggestions" (shown only on devices that can write), the system SHALL clear the local dismissed list and, if the server supports dismissals, call `DELETE /api/journeys/suggestions/dismissed`; it SHALL report "Restored <n>" (server + local count), "Restored (this device)", "No dismissed suggestions", "Restored on this device (sync isn't enabled on the server)" or "Sync isn't enabled on the server, and there are no dismissed suggestions on this device". (src: `app/src/journey.ts:408-414`; `app/src/main.ts:429`, `:460-464`; `app/src/locales/en.ts:430-434`)
 
-### 3.8 Journey detail
+### 3.9 Journey detail
 - **AJRN-070** When a journey is opened, the system SHALL register a back level `journey:<id>` whose back action returns to the journey list, request `GET /api/journeys/{id}`, and on failure show the error with Back and Retry. (src: `app/src/journey.ts:254-261`)
 - **AJRN-071** When the journey has a cover and the server supports level 11, the system SHALL show a hero with the cover as background (skeleton until it is loaded), the name, "<start> – <end> · <n> drives[ · <n> charges]", km, kWh, Wh/km and costs; otherwise a title with the same meta line. (src: `app/src/journey.ts:289`, `:292-300`, `:421-424`)
 - **AJRN-072** When the journey has a note, the system SHALL show it under the title. (src: `app/src/journey.ts:302`)
@@ -118,20 +126,20 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **AJRN-078** When the user taps a drive or charge in the timeline, the system SHALL open its detail page with a back action that returns to this journey. (src: `app/src/journey.ts:262`, `:325-326`)
 - **AJRN-079** When loading the path, weather or speed bands fails, the system SHALL show the error in that section with a Retry button that reloads the whole journey page. (src: `app/src/journey.ts:363-365`, `:471-472`, `:478`)
 
-### 3.9 Editing
+### 3.10 Editing
 - **AJRN-080** When the device can write, the system SHALL show a ✎ (edit title and note) next to the name and the buttons "Add / remove drives" and "Delete journey"; "Delete journey" SHALL open the edit dialog, where deletion is confirmed as in AJRN-032. (src: `app/src/journey.ts:290-291`, `:323`, `:327-334`)
 - **AJRN-081** When the user saves the edit dialog, the system SHALL `PATCH /api/journeys/{id}` with `{name, note}` and re-render the page; when the user deletes, it SHALL `DELETE /api/journeys/{id}` and show the journey list. (src: `app/src/journey.ts:327-329`)
 - **AJRN-082** When the user opens "Add / remove drives", the system SHALL register a back level `jedit:<id>` and list the journey's drives (selected) and the server's candidates (drives within 24 hours) in time order, with candidates that belong to another journey disabled and badged. (src: `app/src/journey.ts:369-381`, `:386`; `app/src/locales/en.ts:429`)
 - **AJRN-083** When the user saves the drive selection, the system SHALL `PUT /api/journeys/{id}/drives` with the selected ids and reopen the detail; on failure it SHALL show the error in the action bar. Save SHALL be disabled when no drive is selected. (src: `app/src/journey.ts:382-392`)
 
-### 3.10 Cover (level 11, devices that can write)
+### 3.11 Cover (level 11, devices that can write)
 - **AJRN-090** When the device can write, the system SHALL show a ⋯ menu with "Use a photo as cover", "Use current map as cover" and — only when a cover exists — "↺ Restore default cover"; the menu SHALL close on a tap outside it. (src: `app/src/journey.ts:295-296`, `:425-435`; `app/src/locales/en.ts:405-407`)
 - **AJRN-091** When the user picks "Use current map as cover", the system SHALL wait until the map style, tiles and route are rendered (up to 3 waits of 4 s, then one idle of up to 1.5 s), capture the map as a JPEG (quality 0.82, at most 1080 px wide), `PUT` it as the cover and re-render; when no image can be captured it SHALL show "The map hasn't finished loading; try again shortly". (src: `app/src/journey.ts:436-441`; `app/src/journey2.ts:20-35`; `app/src/locales/en.ts:435-436`)
 - **AJRN-092** When the user picks a photo, the system SHALL decode it with EXIF orientation applied, scale the long edge to at most 1600 px, encode a JPEG on a white background starting at quality 0.82, lower the quality in steps of 0.08 (not below ~0.5) and then shrink by 20 % (not below 400 px wide) until the data is about 500 KB or less, upload it and re-render; an undecodable file SHALL show "Couldn't read this image (JPEG, PNG, WebP and other common formats are supported)". (src: `app/src/journey.ts:442-451`; `app/src/journey2.ts:36-51`; `app/src/locales/en.ts:342`)
 - **AJRN-093** When the user picks "Restore default cover", the system SHALL `DELETE` the cover and re-render. (src: `app/src/journey.ts:452-453`)
 - **AJRN-094** When a cover cannot be loaded, the system SHALL show the hero without an image. (src: `app/src/journey2.ts:16-18`; `app/src/journey.ts:421-424`)
 
-### 3.11 Share card (level 11, all devices)
+### 3.12 Share card (level 11, all devices)
 - **AJRN-100** When the server supports level 11, the system SHALL show the share button on the journey detail, also on read-only devices. (src: `app/src/journey.ts:293-294`)
 - **AJRN-101** When the user taps share, the system SHALL show "Generating…", take a fresh snapshot of the live map (≤ 1080 px wide, quality 0.9) and use the saved cover only if no snapshot is available. (src: `app/src/journey.ts:455-460`; comment: `:459`)
 - **AJRN-102** When rendering the card, the system SHALL draw a 1080×1350 image in the current light/dark theme: the top 760 px hold the image (cover-fit) or, without an image, the route drawn with a green start and red end dot; below come the journey name, "<date or date range> · <n> days · <n> drives[ · <n> charges]", "from → to", four cells (Distance km, Energy kWh, Efficiency Wh/km, Charging cost), and a "DriveLens" mark; long texts are shortened with "…". (src: `app/src/journey2.ts:111-162`; `app/src/journey.ts:461-467`; `app/src/locales/en.ts:354-359`)
@@ -142,17 +150,17 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **AJRN-107** When the user taps "Copy image", the system SHALL write the PNG to the clipboard and show "Copied to the clipboard — paste it straight into a chat", or "Copy failed: <error>". (src: `app/src/journey2.ts:193-197`; `app/src/locales/en.ts:365-366`)
 - **AJRN-108** When the user taps "Share…", the system SHALL use the Android share sheet in the app, or the Web Share API with the PNG file in a browser; when the browser cannot share files it SHALL show "This device can't share images directly; use “Save image” or “Copy image”"; a user cancel SHALL show nothing. (src: `app/src/journey2.ts:198-205`; `app/src/locales/en.ts:367-368`)
 
-### 3.12 Weather and energy by speed (level 11)
+### 3.13 Weather and energy by speed (level 11)
 - **AJRN-110** When weather data arrives, the system SHALL add a chip to each drive in the timeline with a rain icon and "<temp>°C · <mm> mm" when precipitation ≥ 0.1 mm, otherwise a sun icon and "<temp>°C"; drives without a temperature get no chip. (src: `app/src/journey.ts:473-476`; `app/src/journey2.ts:59-60`)
 - **AJRN-111** When showing "Weather & efficiency", the system SHALL list drives of at least 1 km with start time, weather, a bar proportional to Wh/km and the Wh/km value, and the note "Weather at each drive's start time and place (Open-Meteo). Units: Wh/km"; with no such drive it SHALL show "No drives to analyze". (src: `app/src/journey2.ts:63-67`, `:78-83`; `app/src/locales/en.ts:343`, `:345`)
 - **AJRN-112** When at least 4 listed drives have a temperature, the system SHALL add "Drives below <median>°C averaged <x> Wh/km; the rest <y> Wh/km", with distance-weighted averages. (src: `app/src/journey2.ts:68-77`; `app/src/locales/en.ts:344`)
 - **AJRN-113** When the server marks the weather as partial, the system SHALL add "Some weather data couldn't be fetched; it will be retried next time". (src: `app/src/journey.ts:477`; `app/src/locales/en.ts:440`)
 - **AJRN-114** When speed bands arrive and their total distance is below 0.5 km, the system SHALL show "Not enough track data"; otherwise a share bar and one row per band with the localized label (City / Suburban / Highway; the server label only for unknown keys), the range (<40, 40–80, >80 km/h), km, share %, kWh and a Wh/km bar, plus a note naming the method (power, mixed or distance). (src: `app/src/journey2.ts:87-102`; `app/src/locales/en.ts:346-353`)
 
-### 3.13 Read-only devices
+### 3.14 Read-only devices
 - **AJRN-120** When the device is read-only, the system SHALL hide select mode, suggestions, the edit pen, "Add / remove drives", "Delete journey", the cover menu and the Settings "Restore dismissed suggestions" button, and keep viewing and the share card. (src: `app/src/journey.ts:30-31`, `:77`, `:189`, `:290-296`, `:323`; `app/src/main.ts:429`; doc: `CHANGELOG.md` v1.2.0)
 
-### 3.14 Server error texts (mapped by `app-connection`)
+### 3.15 Server error texts (mapped by `app-connection`)
 - **AJRN-130** When the server answers `503` because the journey tables are missing, the system SHALL show "Journeys aren't enabled on the server: run deploy/setup.sql there and restart drivelens-api (see the install guide)"; for a missing cover column or weather table, "Covers / weather aren't enabled on the server: …". (src: `app/src/api.ts:82-85`; `app/src/locales/en.ts:135-136`)
 
 ## 4. Key design decisions

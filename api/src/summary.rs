@@ -152,7 +152,7 @@ async fn load_status(db: &PgPool, id: i64) -> Result<Option<Status>, ApiError> {
 }
 
 async fn load_activity(s: &AppState, id: i64) -> Result<LastActivity, ApiError> {
-    let one = |car_id| ListParams { car_id: Some(car_id), limit: Some(1), offset: None, id: None, before: None, paged: None };
+    let one = |car_id| ListParams { car_id: Some(car_id), limit: Some(1), offset: None, id: None, before: None, paged: None, q: None };
     let (Json(mut drives), Json(mut charges)) = tokio::try_join!(
         list_drives(State(s.clone()), Query(one(id))),
         super::list_charges(State(s.clone()), Query(one(id))),

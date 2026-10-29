@@ -1,6 +1,6 @@
 [package]
 name = "drivelens-api"
-version = "0.14.1"
+version = "0.15.0"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/zzflsxygod/drivelens"
 edition = "2021"

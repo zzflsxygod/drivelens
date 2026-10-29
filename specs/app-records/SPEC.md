@@ -75,7 +75,7 @@ place when the user comes back from a detail page (doc: CHANGELOG.md v0.6.0 – 
 
 ### 3.3 Infinite list: month jump
 
-- **AREC-020** When paging is supported, the system SHALL show a month-jump button in the list toolbar; without paging, the button SHALL be hidden. (src: app/src/infinite.ts:61-67, 147)
+- **AREC-020** When paging is supported, the system SHALL show a month-jump button in the list toolbar; without paging, or when the caller sets `allowJump: false`, the button SHALL be hidden. (src: app/src/infinite.ts; issue #18 drive place search)
 - **AREC-021** When the month-jump button is tapped, the system SHALL show a menu "Jump to month" with "Latest" and every month (from server totals, else from loaded items), with a checkmark on the active choice. (src: app/src/infinite.ts:140-146; doc: app/src/locales/en.ts:139-140)
 - **AREC-022** When a month is picked, the system SHALL clear the list, scroll to the top and load items starting at that month and going back in time. The cursor is the start of the following month in local time, as an ISO timestamp without an id part. (src: app/src/infinite.ts:131-137; comment: app/src/infinite.ts:133)
 - **AREC-023** When a month jump is active, the system SHALL show a button "↑ Show records after {month}" at the top. Tapping it, choosing "Latest", tapping the active tab, or pressing back-to-top SHALL reload the list from the newest records. (src: app/src/infinite.ts:93-95, 163-164; app/src/totop.ts:11-14; app/src/main.ts:927; doc: app/src/locales/en.ts:142)
