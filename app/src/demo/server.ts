@@ -136,12 +136,15 @@ function status() {
   const r100 = lastPos.rated / Math.max(1, lastPos.battery_level) * 100;
   const end = charged ? c.end : d.end;
   const asleep = db.now - end > 25 * 60e3;
+  // TPMS snapshot: FL deliberately low (2.3) so the home warning is visible in demo (issue #24).
+  const tpmsDate = TS(Math.max(end - 45 * 60e3, end - 3600e3));
   return { car: { ...db.car, id: DEMO_CAR_ID },
     state: { state: asleep ? "asleep" : "online", since: TS(asleep ? end + 25 * 60e3 : end) },
     position: { date: TS(end), latitude: charged ? c.lat : lastPos.lat, longitude: charged ? c.lng : lastPos.lng, battery_level: lvl, usable_battery_level: lvl,
       rated_battery_range_km: r1(lvl / 100 * r100), ideal_battery_range_km: r1(lvl / 100 * r100 * 1.02), est_battery_range_km: r1(lvl / 100 * r100 * 0.89),
       odometer_km: charged ? c.odometer : lastPos.odometer, outside_temp: r1(climate(db.now)), inside_temp: asleep ? r1(climate(db.now) + 3) : 21.5, speed: null },
-    software: { version: db.software.version, installed_at: TS(db.software.installed) } };
+    software: { version: db.software.version, installed_at: TS(db.software.installed) },
+    tpms: { date: tpmsDate, fl: 2.3, fr: 2.8, rl: 2.7, rr: 2.8 } };
 }
 function lastActivity() {
   const d = [...db.drives].sort(byStartDesc)[0], c = [...db.charges].sort(byStartDesc)[0];

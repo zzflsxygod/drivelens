@@ -436,6 +436,13 @@ function showSettings() {
     <div class="card set-group">
     <label>${t("set.speedMax")}<span class="unit-field"><input id="speedmax" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done" aria-describedby="speedmax-hint" value="${speedColorMax()}"><span class="unit-suf" aria-hidden="true">${t("set.speedMaxUnit")}</span></span></label>
     <p class="muted" id="speedmax-hint">${t("set.speedMaxHint")}</p>
+    ${lacks("tpms") ? "" : `<div class="section-title"><span>${t("set.tpms")}</span></div>
+    <div class="set-row tpms-set">
+      <div><b>${t("set.tpms")}</b><div class="muted">${t("set.tpmsOn")}</div></div>
+      <label class="nt-switch${tpmsWarnOn() ? " on" : ""}" id="tpms-warn-wrap"><input type="checkbox" id="tpms-warn" ${tpmsWarnOn() ? "checked" : ""}><i></i></label>
+    </div>
+    <label id="tpms-bar-label">${t("set.tpmsBar")}<span class="unit-field"><input id="tpmsbar" type="number" inputmode="decimal" min="1.5" max="4" step="0.1" autocomplete="off" enterkeyhint="done" aria-describedby="tpmsbar-hint" value="${tpmsWarnBar()}" ${tpmsWarnOn() ? "" : "disabled"}><span class="unit-suf" aria-hidden="true">${t("set.tpmsUnit")}</span></span></label>
+    <p class="muted" id="tpmsbar-hint">${t("set.tpmsHint")}</p>`}
     <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
@@ -476,6 +483,28 @@ function showSettings() {
   speedMaxIn.onchange = commitSpeedMax;
   speedMaxIn.onblur = commitSpeedMax;
   speedMaxIn.onkeydown = e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); speedMaxIn.blur(); } };
+  const tpmsWarn = document.getElementById("tpms-warn") as HTMLInputElement | null;
+  const tpmsBar = document.getElementById("tpmsbar") as HTMLInputElement | null;
+  const tpmsWrap = document.getElementById("tpms-warn-wrap");
+  if (tpmsWarn && tpmsBar) {
+    const syncTpmsUi = () => {
+      tpmsWrap?.classList.toggle("on", tpmsWarn.checked);
+      tpmsBar.disabled = !tpmsWarn.checked;
+    };
+    tpmsWarn.onchange = () => {
+      saveSettings({ ...loadSettings(), tpmsWarn: tpmsWarn.checked });
+      syncTpmsUi();
+    };
+    const commitTpmsBar = () => {
+      const v = Number(tpmsBar.value);
+      if (!Number.isFinite(v)) { tpmsBar.value = String(tpmsWarnBar()); return; }
+      const next = clampTpmsBar(v);
+      tpmsBar.value = String(next);
+      if (next !== (loadSettings().tpmsWarnBar ?? 2.5)) saveSettings({ ...loadSettings(), tpmsWarnBar: next });
+    };
+    tpmsBar.onchange = commitTpmsBar;
+    tpmsBar.onblur = commitTpmsBar;
+  }
   const gapSel = document.getElementById("jgap") as HTMLSelectElement;
   gapSel.value = String(s.journeyGap ?? 60);
   gapSel.onchange = () => saveSettings({ ...loadSettings(), journeyGap: Number(gapSel.value) });
@@ -564,6 +593,8 @@ interface Summary {
               usable_battery_level: number | null; rated_battery_range_km: number | null; ideal_battery_range_km: number | null;
               est_battery_range_km: number | null; odometer_km: number | null; outside_temp: number | null;
               inside_temp: number | null; speed: number | null } | null;
+  /** Latest TPMS snapshot (api_level ≥ 16); omitted on older servers. */
+  tpms?: { date: string | null; fl: number | null; fr: number | null; rl: number | null; rr: number | null } | null;
   location: { name: string | null; address_id: number | null; source: string } | null;
   software: { version: string | null; installed_at: string | null } | null;
   last_drive: Drive | null; last_charge: Charge | null;
@@ -584,7 +615,7 @@ const colorLabel = (c: string) => (COLORS as readonly string[]).includes(c) ? t(
 
 function ago(iso: string | null) { return iso ? agoIso(iso) : ""; }
 
-type Status = Pick<Summary, "car" | "state" | "position" | "software">;
+type Status = Pick<Summary, "car" | "state" | "position" | "software" | "tpms">;
 type Activity = Pick<Summary, "location" | "last_drive" | "last_charge">;
 type StatsData = Pick<Summary, "stats" | "this_month">;
 interface HomeCache { status?: Status; activity?: Activity; stats?: StatsData; savedAt?: number }
@@ -620,6 +651,48 @@ const sk = (w = "60%", h = "14px") => `<span class="sk" style="width:${w};height
 const skCard = () => `<div class="card sk-card">${sk("70%", "16px")}<br>${sk("45%")}<br>${sk("85%")}</div>`;
 const skGrid = (n: number) => `<div class="grid">${Array.from({ length: n }, () => `<div>${sk("50%", "10px")}<br>${sk("70%", "16px")}</div>`).join("")}</div>`;
 
+
+const TPMS_WHEELS = ["fl", "fr", "rl", "rr"] as const;
+type TpmsWheel = typeof TPMS_WHEELS[number];
+const tpmsWarnOn = () => loadSettings().tpmsWarn !== false;   // default ON
+const clampTpmsBar = (v: number) => Math.min(4, Math.max(1.5, Math.round(v * 10) / 10));
+const tpmsWarnBar = () => clampTpmsBar(loadSettings().tpmsWarnBar ?? 2.5);
+const tpmsVal = (t: Status["tpms"], w: TpmsWheel) => t?.[w] ?? null;
+function lowWheels(s: Status): { w: TpmsWheel; v: number }[] {
+  const tp = s.tpms; if (!tp || lacks("tpms") || !tpmsWarnOn()) return [];
+  const thr = tpmsWarnBar();
+  return TPMS_WHEELS.map(w => ({ w, v: tpmsVal(tp, w) })).filter((x): x is { w: TpmsWheel; v: number } => x.v != null && x.v < thr);
+}
+function tpmsAgeMs(iso: string | null | undefined) {
+  if (!iso) return null;
+  const t = Date.parse(iso.includes("T") || iso.includes("Z") ? iso : iso.replace(" ", "T") + "Z");
+  return Number.isFinite(t) ? Date.now() - t : null;
+}
+function tpmsRowHTML(s: Status) {
+  if (lacks("tpms") || !s.tpms) return "";
+  const tp = s.tpms;
+  const any = TPMS_WHEELS.some(w => tpmsVal(tp, w) != null);
+  if (!any) return "";
+  const age = tpmsAgeMs(tp.date);
+  const stale = age != null && age > 24 * 3600e3;
+  const asleep = (s.state?.state ?? "") === "asleep";
+  const note = (stale || asleep) && tp.date
+    ? `<span class="muted tpms-age">${esc(asleep && !stale ? t("tpms.asleep", { t: ago(tp.date) }) : t("tpms.stale", { t: ago(tp.date) }))}</span>`
+    : "";
+  const cells = TPMS_WHEELS.map(w => {
+    const v = tpmsVal(tp, w);
+    const low = v != null && tpmsWarnOn() && v < tpmsWarnBar();
+    return `<span class="tpms-cell${low ? " low" : ""}"><small>${t(`tpms.${w}`)}</small><b>${v != null ? n(v, 1) : "—"}</b></span>`;
+  }).join("");
+  return `<div class="tpms-row" title="${esc(t("tpms.row"))}"><span class="tpms-label muted">${t("tpms.row")}</span>${cells}${note}</div>`;
+}
+function tpmsWarnHTML(s: Status) {
+  const lows = lowWheels(s);
+  if (!lows.length) return "";
+  const parts = lows.map(x => t("tpms.wheel", { w: t(`tpms.${x.w}`), v: n(x.v, 1) })).join(" · ");
+  return `<div class="warn tpms-warn" role="status">${ic("alert")} ${esc(t("tpms.warn"))}: ${esc(parts)}</div>`;
+}
+
 function heroHTML(s: Status) {
   const p = s.position, c = s.car;
   const driving = s.state?.state === "online" && (p?.speed ?? 0) > 0;
@@ -644,7 +717,9 @@ function heroHTML(s: Status) {
       [t("hero.odo"), p?.odometer_km != null ? `${fmtNum(Math.round(p.odometer_km))} km` : "—"],
       [t("hero.sw"), s.software?.version?.split(" ")[0] || "—"],
       [t("hero.temps"), `${deg(p?.outside_temp)} / ${deg(p?.inside_temp)}`],
-    ])}`;
+    ])}
+    ${tpmsRowHTML(s)}
+    ${tpmsWarnHTML(s)}`;
 }
 /** Whole degrees for the hero tile ("-0" → "0"); the tile is too narrow for decimals on phones. */
 const deg = (v: number | null | undefined) => v == null || !isFinite(v) ? "—" : `${Math.round(v) || 0}°`;

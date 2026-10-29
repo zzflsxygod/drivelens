@@ -83,7 +83,7 @@ Tauri (Windows / Android) builds.
   | Export (`platform.ts`) | `setRootBack(fn)`, `inAppBack()` | In-app back step |
   | Export (`links.ts`) | `PUBLIC_REPO`, `installGuideUrl()`, `RELEASES_URL`, `ISSUES_URL`, `SOURCE_URL`, `THIRD_PARTY_URL` | Public links |
   | localStorage | `drivelens-last-car` (demo: namespaced via `skey`) | Remembered car |
-  | localStorage | `drivelens-settings` fields `uiLang`, `theme`, `labelLang`, `currency`, `journeyGap`, `suggestionsOff` (written through `app-connection`) | Preferences |
+  | localStorage | `drivelens-settings` fields `uiLang`, `theme`, `labelLang`, `currency`, `journeyGap`, `speedColorMax`, `tpmsWarn`, `tpmsWarnBar`, `suggestionsOff` (written through `app-connection`) | Preferences |
   | sessionStorage | `drivelens-left-notice` | Notice shown by the wizard after sign-out |
   | CSS variable | `--hdr-h` on `<body>` | Real header height |
   | Body class | `demo` | Demo mode chrome |
@@ -168,6 +168,7 @@ Tauri (Windows / Android) builds.
 - **SHELL-095** When the user toggles "Show journey suggestions", the system SHALL store `suggestionsOff` as the inverse of the checkbox. (src: app/src/main.ts:428, 457-459)
 - **SHELL-096** When the device can write, the system SHALL show "Restore dismissed suggestions"; tapping it SHALL show `…` and then the result text returned by `app-journeys` `restoreDismissed`. On a read-only device the button SHALL NOT be shown. (src: app/src/main.ts:429, 460-464)
 - **SHELL-097** When any preference is saved, the system SHALL merge the changed field into the current stored settings and keep all other fields. (src: app/src/main.ts:450, 453, 456, 459, 467, 469-471; src: app/src/api.ts:24-28)
+- **SHELL-098** When the server supports TPMS (api_level ≥ 16), Settings SHALL offer a tire-pressure warning toggle (default on) and a threshold number input in bar (step 0.1, range 1.5–4.0, default 2.5), stored in `tpmsWarn` / `tpmsWarnBar`. On older servers the controls SHALL be hidden. (src: `app/src/main.ts` settings; `app/src/api.ts` Settings; issue #24)
 
 ### 3.10 Settings › Server section
 - **SHELL-100** When Settings is shown in demo mode, the Server section SHALL contain only the version line (app version, server label, Check button). (src: app/src/main.ts:349-351)
