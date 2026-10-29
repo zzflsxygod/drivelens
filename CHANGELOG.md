@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.3.1 — 2026-10-29
+- **Home tire pressure layout:** the four wheels are now the fourth tile in the 2×2 home grid (front axle on top, rear below), matching the other status tiles. A low wheel uses the warning color and a warning icon on the tile title; turning the feature off restores the previous three-tile row.
+- **Settings:** tire-pressure options moved out of the Journeys card into their own Tire pressure card.
+- No server update needed.
+
 ## v1.3.0 — 2026-10-29
 - **Place search on Drives and Journeys:** a search field above the list filters by place name (or journey name). The same query stays when you switch between the two tabs; suggestions and the month jump hide while you search. Clearing is the × inside the field.
 - **Speed color upper limit is now a number you type** (30–250 km/h, default 120) instead of fixed presets. The drive detail map has the same speed / plain color toggle as journeys (shared setting).
