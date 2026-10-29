@@ -202,34 +202,57 @@ impl TpmsCache {
 /// Any-wheel non-null predicate shared by primary + fallback.
 const TPMS_ANY: &str = "(tpms_pressure_fl IS NOT NULL OR tpms_pressure_fr IS NOT NULL OR tpms_pressure_rl IS NOT NULL OR tpms_pressure_rr IS NOT NULL)";
 
+/// Completed drive window used to bound a BRIN(date) scan on positions.
+#[derive(FromRow)]
+struct DriveWindow {
+    id: i64,
+    /// Naive UTC text (`YYYY-MM-DD HH24:MI:SS[.US]`) for `$n::timestamp` binds.
+    start_date: String,
+    end_date: String,
+}
+
 fn tpms_select_sql(from_where: &str) -> String {
     format!(
         "SELECT to_char(date, '{TS}') AS date,                 tpms_pressure_fl::float8 AS fl, tpms_pressure_fr::float8 AS fr,                 tpms_pressure_rl::float8 AS rl, tpms_pressure_rr::float8 AS rr          {from_where}"
     )
 }
 
-/// Primary: TPMS on positions of the car's few newest completed drives.
-/// Uses `positions(drive_id, date)` — btree on current TeslaMate, BRIN on some installs —
-/// scoped to 3 drive ids (tiny), not a car-wide date window. `drives` via `trips_car_id_index`.
-async fn tpms_from_recent_drives(db: &PgPool, id: i64) -> Result<Option<Tpms>, ApiError> {
-    let sql = tpms_select_sql(&format!(
-        "FROM positions
-         WHERE drive_id IN (
-             SELECT id FROM drives
+/// Primary: per recent drive, BRIN-prune positions with `date BETWEEN start AND end`
+/// plus `drive_id = $id`. TeslaMate recent builds replaced btree `positions_drive_id_date_index`
+/// with BRIN minmax_multi; a bare `drive_id IN (…)` semi-join was planned as a Parallel Seq Scan
+/// over the whole table (~2M rows). Bound date params force Bitmap Index Scan on the BRIN.
+async fn tpms_from_recent_drives(db: &PgPool, car_id: i64) -> Result<Option<Tpms>, ApiError> {
+    let drives = sqlx::query_as::<_, DriveWindow>(
+        &format!(
+            "SELECT id::int8 AS id, start_date::text AS start_date, end_date::text AS end_date
+             FROM drives
              WHERE car_id = $1 AND end_date IS NOT NULL
              ORDER BY start_date DESC
-             LIMIT {TPMS_RECENT_DRIVES}
-         )
+             LIMIT {TPMS_RECENT_DRIVES}"
+        ),
+    ).bind(car_id).fetch_all(db).await?;
+
+    let sql = tpms_select_sql(&format!(
+        "FROM positions
+         WHERE date BETWEEN $1::timestamp AND $2::timestamp
+           AND drive_id = $3
            AND {TPMS_ANY}
          ORDER BY date DESC
          LIMIT 1"
     ));
-    Ok(sqlx::query_as::<_, Tpms>(&sql).bind(id).fetch_optional(db).await?)
+    for d in &drives {
+        if let Some(tpms) = sqlx::query_as::<_, Tpms>(&sql)
+            .bind(&d.start_date).bind(&d.end_date).bind(d.id)
+            .fetch_optional(db).await?
+        {
+            return Ok(Some(tpms));
+        }
+    }
+    Ok(None)
 }
 
-/// Fallback: 7-day car window. Rare (no TPMS on recent drives). Still uses BRIN(date) but much
-/// cheaper than 90 days; skipped when primary hits. Prefer null over another expensive scan if
-/// the car simply has no recent TPMS.
+/// Fallback: 7-day car window. Rare (no TPMS on recent drives). BRIN(date) prunes the window;
+/// kept for parked-only updates. Prefer null over another expensive scan if nothing recent.
 async fn tpms_from_recent_window(db: &PgPool, id: i64) -> Result<Option<Tpms>, ApiError> {
     let sql = tpms_select_sql(&format!(
         "FROM positions
@@ -401,17 +424,19 @@ mod tpms_tests {
     }
 
     #[test]
-    fn tpms_sql_targets_drive_ids_not_90_day_car_scan() {
+    fn tpms_sql_uses_date_bounds_not_drive_id_in_or_90_day_scan() {
         let primary = tpms_select_sql(&format!(
-            "FROM positions WHERE drive_id IN (SELECT id FROM drives WHERE car_id = $1 AND end_date IS NOT NULL ORDER BY start_date DESC LIMIT {TPMS_RECENT_DRIVES}) AND {TPMS_ANY} ORDER BY date DESC LIMIT 1"
+            "FROM positions WHERE date BETWEEN $1::timestamp AND $2::timestamp AND drive_id = $3 AND {TPMS_ANY} ORDER BY date DESC LIMIT 1"
         ));
-        assert!(primary.contains("drive_id IN"));
-        assert!(primary.contains("LIMIT 3"));
+        assert!(primary.contains("date BETWEEN"));
+        assert!(primary.contains("drive_id = $3"));
+        assert!(!primary.contains("drive_id IN"));
         assert!(!primary.contains("90 days"));
         let fallback = tpms_select_sql(&format!(
             "FROM positions WHERE car_id = $1 AND date >= (now() AT TIME ZONE 'UTC') - interval '7 days' AND {TPMS_ANY} ORDER BY date DESC LIMIT 1"
         ));
         assert!(fallback.contains("7 days"));
         assert!(!fallback.contains("90 days"));
+        assert_eq!(TPMS_RECENT_DRIVES, 3);
     }
 }
