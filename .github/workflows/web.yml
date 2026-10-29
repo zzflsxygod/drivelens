@@ -1,20 +1,24 @@
 name: Web app (PWA)
 
 # Builds the browser / PWA bundle (app/dist-web) and keeps it as an artifact.
-# On release tags (and manual runs with deploy=true) it is also deployed to Cloudflare Pages —
-# only when the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets exist; otherwise the deploy is skipped.
+# Deploy targets (Cloudflare Pages project from CF_PAGES_PROJECT, default drivelens-app):
+#   - production (Pages branch `main`): release tags, or a manual run with target=production
+#   - preview    (Pages branch `preview` → https://preview.drivelens-app.pages.dev):
+#                 manual run with target=preview (any git ref). Sets VITE_DRIVELENS_CHANNEL=preview.
+# Deploy is skipped when CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are missing.
 # Optional repository *variables* (Settings → Secrets and variables → Actions → Variables):
 #   DONATE_URL        donation page shown at the bottom of Settings (empty → card hidden)
 #   CF_PAGES_PROJECT  Cloudflare Pages project name (default: drivelens-app)
-#   WEB_ORIGIN        public origin of the web app (default: https://drivelens-app.oharuru.com)
+#   WEB_ORIGIN        public origin of the production web app (default: https://drivelens-app.oharuru.com)
 
 on:
   workflow_dispatch:
     inputs:
-      deploy:
-        description: "Deploy to Cloudflare Pages (production)"
-        type: boolean
-        default: false
+      target:
+        description: "Deploy target (none = build artifact only)"
+        type: choice
+        options: [none, preview, production]
+        default: none
   push:
     branches: [main]
     tags: ["v*"]
@@ -45,7 +49,10 @@ jobs:
         working-directory: app
         env:
           VITE_DONATE_URL: ${{ vars.DONATE_URL }}
-          VITE_WEB_ORIGIN: ${{ vars.WEB_ORIGIN || 'https://drivelens-app.oharuru.com' }}
+          # Preview builds point at the Pages preview alias; production keeps WEB_ORIGIN / official default.
+          VITE_WEB_ORIGIN: ${{ inputs.target == 'preview' && 'https://preview.drivelens-app.pages.dev' || vars.WEB_ORIGIN || 'https://drivelens-app.oharuru.com' }}
+          # Only preview deploys set the channel; production and build-only runs stay unmarked.
+          VITE_DRIVELENS_CHANNEL: ${{ inputs.target == 'preview' && 'preview' || '' }}
         run: |
           npm run build:web
           test -f dist-web/sw.js && test -f dist-web/manifest.webmanifest && test -f dist-web/_headers
@@ -58,8 +65,8 @@ jobs:
           path: app/dist-web/
           if-no-files-found: error
 
-      - name: Deploy to Cloudflare Pages
-        if: startsWith(github.ref, 'refs/tags/') || inputs.deploy
+      - name: Deploy to Cloudflare Pages (production)
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -73,3 +80,19 @@ jobs:
           # first deploy: create the Pages project (no-op error when it already exists)
           npx --yes wrangler@4.152.0 pages project create "$PROJECT" --production-branch main >/dev/null 2>&1 || true
           npx --yes wrangler@4.152.0 pages deploy dist-web --project-name "$PROJECT" --branch main --commit-dirty=true
+
+      - name: Deploy to Cloudflare Pages (preview)
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'preview'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CF_PAGES_PROJECT || 'drivelens-app' }}
+        working-directory: app
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping the Cloudflare Pages preview deploy (bundle is in the DriveLens-web artifact)"
+            exit 0
+          fi
+          npx --yes wrangler@4.152.0 pages project create "$PROJECT" --production-branch main >/dev/null 2>&1 || true
+          # Pages branch alias: https://preview.<project>.pages.dev
+          npx --yes wrangler@4.152.0 pages deploy dist-web --project-name "$PROJECT" --branch preview --commit-dirty=true

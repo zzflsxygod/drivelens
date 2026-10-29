@@ -212,6 +212,8 @@ const en: Record<keyof typeof zh, string> = {
   "demo.tryHint": "No server needed: explore every feature offline with a fictional car and about 3 months of made-up data.",
   "demo.banner": "Demo mode",
   "demo.bannerSub": "fictional data",
+  "preview.banner": "Preview",
+  "preview.bannerSub": "pre-release check, not production",
   "demo.exit": "Exit",
   "demo.title": "Demo mode",
   "demo.on": "You are in demo mode: all data is fictional, and edits (place names, costs, journeys, covers, dismissed suggestions) stay on this device and are discarded when you exit. Your server settings are kept as they are.",

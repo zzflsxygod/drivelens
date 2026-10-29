@@ -9,4 +9,6 @@ interface ImportMetaEnv {
   readonly VITE_DONATE_URL?: string;
   /** "1" → show the support card only in the web build (e.g. for store builds whose rules forbid external payment links). */
   readonly VITE_DONATE_WEB_ONLY?: string;
+  /** "preview" → show the preview strip and use the preview PWA name. Empty/unset → production look. */
+  readonly VITE_DRIVELENS_CHANNEL?: string;
 }

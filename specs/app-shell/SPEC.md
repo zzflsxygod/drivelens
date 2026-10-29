@@ -30,7 +30,7 @@ Tauri (Windows / Android) builds.
 - Settings screen composition and the shell-owned Settings controls: Display, Journeys, Server section, demo cards,
   Help & feedback, Support and Install cards.
 - Reaction to sign-out / revocation (`leftServer`, `drivelens-signed-out`).
-- Publishing the header height (`--hdr-h`), the demo strip in the header, pull-to-refresh on Home.
+- Publishing the header height (`--hdr-h`), the preview and demo strips in the header, pull-to-refresh on Home.
 - Public links (`links.ts`).
 
 ### 2.2 Out of scope
@@ -94,7 +94,7 @@ Tauri (Windows / Android) builds.
 ### 3.1 Start-up
 - **SHELL-001** When the app bundle starts, the system SHALL import the URL privacy guard before any other application module, so `api` / `token` / `key` query parameters are handled before other code runs. (src: app/src/main.ts:14; comment: app/src/main.ts:14)
 - **SHELL-002** When the app bundle starts in demo mode, the system SHALL have installed the demo fetch layer before the first API request. (src: app/src/main.ts:20; src: app/src/demo.ts:82; comment: app/src/main.ts:20)
-- **SHELL-003** When the app starts, the system SHALL set the theme, then mount the demo strip (demo mode only), start header-height tracking, initialise sheets, platform glue, web/PWA glue, the root back handler, the back-to-top button, the UI enhancer, the overlay scrollbar and the navigation tabs, and only then choose the first screen. (src: app/src/main.ts:44-46, 906-959)
+- **SHELL-003** When the app starts, the system SHALL set the theme, then mount the preview strip (when `VITE_DRIVELENS_CHANNEL=preview`) and the demo strip (demo mode only), start header-height tracking, initialise sheets, platform glue, web/PWA glue, the root back handler, the back-to-top button, the UI enhancer, the overlay scrollbar and the navigation tabs, and only then choose the first screen. (src: app/src/main.ts:mountPreviewBanner, mountDemoBanner, boot sequence)
 - **SHELL-004** When the app starts and no server URL is stored and demo mode is off, the system SHALL show the setup wizard; when the wizard finishes, it SHALL start the server check, load the car list and show Home. (src: app/src/main.ts:956-958; src: app/src/api.ts:18-21)
 - **SHELL-005** When the app starts with a stored server URL (or in demo mode), the system SHALL start the server check (`/health`, then device-auth initialisation), load the car list and open the screen named by the `view` query parameter, or Home when there is none. (src: app/src/main.ts:955, 959)
 - **SHELL-006** When the setup wizard is shown at start-up, the system SHALL pass it the notice stored in `sessionStorage` key `drivelens-left-notice` and delete that key. (src: app/src/main.ts:957)
@@ -202,8 +202,9 @@ Tauri (Windows / Android) builds.
 
 ### 3.14 Header, layout and gestures
 - **SHELL-150** When the header changes size, the system SHALL set the CSS variable `--hdr-h` on `<body>` to the header's rendered height in whole pixels (via `ResizeObserver`, or window `resize` when it is unavailable). (src: app/src/main.ts:324-333; comment: app/src/main.ts:324-326)
-- **SHELL-151** When `<body>` has class `setup-mode`, the system SHALL hide the header, the bottom navigation, the server banner and the demo strip. (src: app/src/style.css:114)
+- **SHELL-151** When `<body>` has class `setup-mode`, the system SHALL hide the header, the bottom navigation, the server banner, the preview strip and the demo strip. (src: app/src/style.css)
 - **SHELL-152** When the Home tab is active and the page is scrolled to the top, a downward touch drag SHALL grow a hint of up to 70 px that reads "Pull to refresh" and, beyond 60 px, "Release to refresh"; releasing beyond 60 px SHALL re-render Home. (src: app/src/main.ts:888-904; src: app/src/locales/en.ts:118-119)
+- **SHELL-153** When `VITE_DRIVELENS_CHANNEL` is `preview` at build time, the system SHALL add class `preview` to `<body>` and show a slim accent-colored strip inside the sticky header with the translated `preview.banner` / `preview.bannerSub` labels (zh/en/ja); production builds SHALL show no such strip. (src: app/src/main.ts:mountPreviewBanner; src: app/src/style.css:.preview-banner; src: app/src/locales/{zh,en,ja}.ts)
 
 ## 4. Key design decisions
 - **D-1 Imperative screens, no router.** Each screen renders HTML into `#view`; the back stack is a list of detail-page keys plus counted overlays. Rationale: "The app renders its screens imperatively, so instead of a router this keeps the browser history *as deep* as the UI." (comment: app/src/nav.ts:4-5). Consequence: screen state is not addressable by URL except through `?view=`.

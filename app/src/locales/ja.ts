@@ -212,6 +212,8 @@ const ja: Record<keyof typeof zh, string> = {
   "demo.tryHint": "サーバー不要：架空の車と約 3 か月分の架空データで、すべての機能をオフラインで体験できます。",
   "demo.banner": "デモモード",
   "demo.bannerSub": "架空のデータ",
+  "preview.banner": "プレビュー",
+  "preview.bannerSub": "公開前の確認用・本番ではありません",
   "demo.exit": "終了",
   "demo.title": "デモモード",
   "demo.on": "現在デモモードです。データはすべて架空で、編集（地点名・費用・旅程・カバー・提案の非表示）はこの端末内だけに保存され、終了すると消去されます。サーバー設定はそのまま残ります。",

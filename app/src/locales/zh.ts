@@ -211,6 +211,8 @@ const zh = {
   "demo.tryHint": "无需服务器：用一辆虚构的车和约 3 个月的虚构数据离线体验全部功能。",
   "demo.banner": "演示模式",
   "demo.bannerSub": "虚构数据",
+  "preview.banner": "预览版",
+  "preview.bannerSub": "发版前确认用，非正式",
   "demo.exit": "退出",
   "demo.title": "演示模式",
   "demo.on": "当前是演示模式：数据均为虚构，修改（地点改名、费用、旅程、封面、忽略建议）只保存在本机，退出演示即清除。你的服务器设置不受影响。",

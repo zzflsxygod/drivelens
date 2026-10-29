@@ -46,7 +46,7 @@ cd ../app && npm ci && npm run dev
 - 网页版构建：`npm run build:web` → `app/dist-web/`（额外生成 `manifest.webmanifest`、只缓存 App 外壳的 `sw.js`、`_headers`、`third-party-licenses.txt`）；预览：`npm run preview:web`（`http://localhost:4174`）。
 - 不连服务器也可以用演示模式：引导页「试用演示」或打开 `/?demo`（数据在 `app/src/demo/`，完全离线）。
 - 性能测试：示例数据之后再执行 `testdata/bigdata.sql`（约 300 万条 positions）。电池健康度的对照数据：`testdata/gen_battery_health.py`。
-- 构建变量：`VITE_DONATE_URL`（设置页底部「支持」卡片，空 = 不显示）、`VITE_DONATE_WEB_ONLY=1`、`VITE_WEB_ORIGIN`（默认官方网页版地址）。
+- 构建变量：`VITE_DONATE_URL`（设置页底部「支持」卡片，空 = 不显示）、`VITE_DONATE_WEB_ONLY=1`、`VITE_WEB_ORIGIN`（默认官方网页版地址）、`VITE_DRIVELENS_CHANNEL=preview`（仅预览部署：页眉预览条 + 独立 PWA 名称）。
 
 ## 提交前检查
 
@@ -114,6 +114,16 @@ Windows / Android 打包从 v0.15.0 起暂停：`.github/workflows/windows.yml`�
 - `scripts/release.sh`：把 HEAD 推到 `release/vX.Y.Z` → 开 PR「release: vX.Y.Z」（正文取自 CHANGELOG）→ 等检查通过后 rebase 合并 → 等 main 上合并后的 commit 构建 Docker 镜像（`ghcr.io/zzflsxygod/drivelens-api`，amd64 + arm64，`.github/workflows/docker.yml`）→ `api/` 有改动时等服务器 `/health` 显示新版本 → 给 main 上的合并 commit 打 tag，`web.yml` 构建网页版并部署 → 发布 Release。`X.Y.Z` 为正式版（Latest），带后缀的版本为预发布。中途失败直接重跑：已开的 PR 会复用，已合并的会跳过，tag 已存在时直接用 tag 指向的 commit。`--dry-run` 只做检查并显示第 1 步要做什么。tag 不受分支保护影响（仓库没有 tag 规则）。
 - 发布说明取自根目录 `CHANGELOG.md` 中对应版本的段落；版本号要同时改 `api/Cargo.toml`（服务器有改动时）、`app/package.json`、`app/src-tauri/tauri.conf.json`、`app/src-tauri/Cargo.toml`。
 - 网页版部署需要仓库 secrets `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`（fork 没有时自动跳过部署，只上传构建产物）。
+
+### 预览环境（发版 / 合并前确认）
+
+- 同一 Cloudflare Pages 项目 `drivelens-app`；手动跑 `gh workflow run web.yml --ref <分支> -f target=preview` 会部署到 Pages 的 `preview` 分支，固定别名 `https://preview.drivelens-app.pages.dev`。
+- 预览构建会带 `VITE_DRIVELENS_CHANNEL=preview`（页眉「预览版」条 + 独立的 PWA 名称）。正式版（release tag 或 `-f target=production`）外观不变，仍部署到 Pages `main`。
+- 服务器 `.env` 的 `DRIVELENS_CORS_ORIGINS` 需同时包含正式 origin 与预览 origin，例如：
+  `DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com,https://preview.drivelens-app.pages.dev`
+  （不要把预览 origin 写进 API 默认 CORS 白名单。）改完后重启 `drivelens-api`。
+- 可在 Cloudflare Pages 项目设置里给 **preview deployments** 开 Access（只允许自己的邮箱）；API 请求直连自己的服务器，不受影响。
+
 
 ## 许可证
 

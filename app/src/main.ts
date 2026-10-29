@@ -332,7 +332,7 @@ function demoSettingsCard() {
     <button id="demo-exit" class="primary">${t("demo.exitBtn")}</button>
     <p class="muted tiny">${esc(DEMO_CREDIT)}</p></div>`;
 }
-/** Publishes the real height of the sticky header (safe-area padding + car pill + demo strip) as --hdr-h,
+/** Publishes the real height of the sticky header (safe-area padding + car pill + preview/demo strips) as --hdr-h,
  *  so everything that sticks below it (server banner, month headers, page heads) lines up exactly instead of
  *  relying on a hard-coded guess. */
 function trackHeaderHeight() {
@@ -341,6 +341,17 @@ function trackHeaderHeight() {
   const set = () => { const v = Math.round(h.getBoundingClientRect().height); if (v > 0) document.body.style.setProperty("--hdr-h", `${v}px`); };
   set();
   if ("ResizeObserver" in window) new ResizeObserver(set).observe(h); else addEventListener("resize", set);
+}
+/** Build-time channel (VITE_DRIVELENS_CHANNEL). Only the Cloudflare Pages preview deploy sets this to "preview". */
+const IS_PREVIEW = import.meta.env.VITE_DRIVELENS_CHANNEL === "preview";
+/** Slim strip in the sticky header for preview builds — accent (not warn), no dismiss. */
+function mountPreviewBanner() {
+  if (!IS_PREVIEW) return;
+  document.body.classList.add("preview");
+  const b = document.createElement("div");
+  b.id = "preview-banner"; b.className = "preview-banner"; b.setAttribute("role", "status");
+  b.innerHTML = `<span class="preview-dot" aria-hidden="true"></span><b>${t("preview.banner")}</b><span class="preview-sub">· ${t("preview.bannerSub")}</span>`;
+  document.querySelector("header")!.append(b);
 }
 /** Slim persistent strip at the bottom of the header while demo mode is active.
  *  It lives *inside* the sticky header (not as a separately sticky sibling), so it can never drift. */
@@ -1006,6 +1017,7 @@ window.addEventListener("touchend", e => {
   if (dy > 60) showHome();
 });
 
+mountPreviewBanner();
 mountDemoBanner();
 trackHeaderHeight();
 initSheets();
