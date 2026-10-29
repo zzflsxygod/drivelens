@@ -16,12 +16,18 @@ const WEB_ORIGIN = process.env.VITE_WEB_ORIGIN || "https://drivelens-app.oharuru
  * The Tauri build (`npm run build` → dist/) gets none of this.
  */
 function pwa(): Plugin {
-  const NAME = "DriveLens";
+  // Preview builds (VITE_DRIVELENS_CHANNEL=preview) get a distinct installed-app name so they are
+  // not confused with the production PWA. Production builds stay "DriveLens".
+  const PREVIEW = process.env.VITE_DRIVELENS_CHANNEL === "preview";
+  const NAME = PREVIEW ? "DriveLens Preview" : "DriveLens";
+  const SHORT = PREVIEW ? "DL Preview" : "DriveLens";
   return {
     name: "drivelens-pwa",
     apply: "build",
     transformIndexHtml(html) {
-      return html.replace("</head>", `  <meta name="description" content="DriveLens — a viewer for your own TeslaMate data (self-hosted drivelens-api)" />
+      return html
+        .replace(/<title>[^<]*<\/title>/, `<title>${NAME}</title>`)
+        .replace("</head>", `  <meta name="description" content="DriveLens — a viewer for your own TeslaMate data (self-hosted drivelens-api)" />
   <meta name="theme-color" content="#f3f4f7" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#07080a" media="(prefers-color-scheme: dark)" />
   <meta name="color-scheme" content="light dark" />
@@ -38,7 +44,7 @@ function pwa(): Plugin {
     },
     generateBundle(_o, bundle) {
       const manifest = {
-        id: "/", name: NAME, short_name: NAME,
+        id: "/", name: NAME, short_name: SHORT,
         description: "TeslaMate drives, charges, journeys and reports — connects to your own drivelens-api server.",
         start_url: "/?source=pwa", scope: "/", display: "standalone", display_override: ["standalone", "minimal-ui"],
         orientation: "portrait", background_color: "#f3f4f7", theme_color: "#f3f4f7",

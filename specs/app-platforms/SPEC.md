@@ -89,16 +89,18 @@ This module defines what each build produces and the security headers / CSP of e
   - two `theme-color` metas, `#f3f4f7` for light and `#07080a` for dark color schemes;
   - `color-scheme: light dark` and `referrer: no-referrer`;
   - the manifest link, favicon and 32 px PNG icon links, and the `apple-touch-icon` link;
-  - `mobile-web-app-capable` and the Apple web-app metas (title `DriveLens`, status bar `black-translucent`).
+  - `mobile-web-app-capable` and the Apple web-app metas (title equal to the PWA `name` below, status bar `black-translucent`);
+  - and SHALL set the document `<title>` to that same name.
 
-  (src: app/vite.config.ts:23-37)
-- **PLAT-011** When building for the web, the system SHALL emit `manifest.webmanifest` with these values:
+  (src: app/vite.config.ts:27-43)
+- **PLAT-011** When building for the web without `VITE_DRIVELENS_CHANNEL=preview`, the system SHALL emit `manifest.webmanifest` with these values:
   - `id` `/`, `name` and `short_name` `DriveLens`, `start_url` `/?source=pwa`, `scope` `/`;
   - `display` `standalone`, with `display_override` `["standalone", "minimal-ui"]`;
   - `orientation` `portrait`, background and theme color `#f3f4f7`, `lang` `en`;
   - icons: 192 px and 512 px (`any`) and a 512 px maskable icon.
 
-  (src: app/vite.config.ts:39-52)
+  (src: app/vite.config.ts:21-23, 45-57)
+- **PLAT-012** When building for the web with `VITE_DRIVELENS_CHANNEL=preview`, the system SHALL use PWA `name` `DriveLens Preview` and `short_name` `DL Preview` (and the matching document / Apple titles); all other manifest fields SHALL match PLAT-011. (src: app/vite.config.ts:21-23, 45-57; doc: AGENTS.md §8)
 
 ### 3.3 Service worker: app-shell cache
 - **PLAT-020** When building for the web, the system SHALL generate the service worker's shell list from `/`, every emitted bundle file except source maps, `/manifest.webmanifest`, `/favicon.ico` and the six listed icons, de-duplicated and without `/index.html`. (src: app/vite.config.ts:53-57; comment: app/vite.config.ts:53)
@@ -188,7 +190,7 @@ This module defines what each build produces and the security headers / CSP of e
 - **PLAT-091** When the license file is linked, the web build SHALL link to `/third-party-licenses.txt`, and the Tauri builds to `<__WEB_ORIGIN__>/third-party-licenses.txt`. (src: app/src/links.ts:17)
 
 ### 3.12 Built targets
-- **PLAT-095** When app files change on `main` or a `v*` tag is pushed, CI SHALL build the web bundle. It SHALL check that `sw.js`, `manifest.webmanifest` and `_headers` exist, and on tags or a manual deploy request it SHALL deploy the bundle to Cloudflare Pages. (src: .github/workflows/web.yml:11-21, 44-52, 61-75)
+- **PLAT-095** When app files change on `main` or a `v*` tag is pushed, CI SHALL build the web bundle. It SHALL check that `sw.js`, `manifest.webmanifest` and `_headers` exist; on tags or a manual `target=production` it SHALL deploy to the Pages production branch, and on a manual `target=preview` it SHALL deploy to the Pages `preview` branch with `VITE_DRIVELENS_CHANNEL=preview`. (src: .github/workflows/web.yml; see ops-delivery OPS-050–OPS-055)
 - **PLAT-096** When started by hand, CI SHALL build these native packages. Neither build runs automatically while they are paused.
   - Windows: an NSIS `.exe` and a `.msi`.
   - Android: a universal APK and an AAB for `aarch64`, `armv7` and `x86_64`.

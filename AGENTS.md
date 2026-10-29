@@ -146,7 +146,28 @@ builds), and the tag triggers in `windows.yml` / `android.yml` are commented out
 - **Releases are done by the maintainer** (`scripts/release.sh`). Agents must not bump release versions, create
   tags or publish releases unless the maintainer asks. `scripts/pr.sh` merges automatically and is for maintainers.
 
-## 8. License
+## 8. Preview web app (before merge / release)
+
+The official web app is only updated on release. Before merging a user-visible UI change, or before
+asking the maintainer to release, deploy the branch to the **preview** Pages branch and have the
+maintainer check it on a real phone with real data:
+
+```bash
+gh workflow run web.yml --ref <branch> -f target=preview
+# alias: https://preview.drivelens-app.pages.dev
+```
+
+- Same Cloudflare Pages project as production (`drivelens-app`); preview uses `--branch preview`.
+- Preview builds set `VITE_DRIVELENS_CHANNEL=preview` (visible "Preview" strip + distinct PWA name).
+- Production deploy is unchanged: release tags (and manual `target=production`) deploy to Pages `main`.
+  A preview run must never write to production.
+- The maintainer's server must list both origins in `DRIVELENS_CORS_ORIGINS` (official +
+  `https://preview.drivelens-app.pages.dev`). Do not put the preview origin in the API's default CORS list.
+- Preview may be locked with Cloudflare Access (Pages project → preview deployments); the API itself is
+  not behind that Access policy.
+- Agents still do not merge or release unless the maintainer asks.
+
+## 9. License
 
 DriveLens is [AGPL-3.0-or-later](LICENSE). Contributions are under the same license. New source files carry
 `SPDX-License-Identifier: AGPL-3.0-or-later`. New dependencies must have AGPL-compatible licenses (`api/deny.toml`).

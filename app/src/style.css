@@ -111,7 +111,17 @@ body.demo header { flex-wrap: wrap; row-gap: 0; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--warn) 0%, transparent); } }
 .demo-banner button { flex: none; height: 22px; border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); background: var(--card); color: var(--warn);
   font-size: 12px; font-weight: 700; border-radius: var(--r-pill); padding: 0 12px; }
-body.setup-mode header, body.setup-mode nav, body.setup-mode #srv-banner, body.setup-mode .demo-banner { display: none !important; }
+/* preview strip (build-time VITE_DRIVELENS_CHANNEL=preview); accent, not warn */
+body.preview header { flex-wrap: wrap; row-gap: 0; }
+.preview-banner { flex: 0 0 calc(100% + 2 * var(--hpad)); order: 98; margin: 10px calc(-1 * var(--hpad)) -10px; height: 28px; display: flex; align-items: center; gap: 8px;
+  padding: 0 calc(var(--hpad) - 8px) 0 var(--hpad);
+  font-size: 12px; color: var(--accent); background: var(--accent-soft); border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.preview-banner b { font-weight: 700; white-space: nowrap; }
+.preview-banner .preview-sub { color: var(--text-2); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); flex: none; }
+body.preview.demo .preview-banner { margin-bottom: 0; }
+body.preview.demo .demo-banner { margin-top: 0; }
+body.setup-mode header, body.setup-mode nav, body.setup-mode #srv-banner, body.setup-mode .demo-banner, body.setup-mode .preview-banner { display: none !important; }
 
 .srv-banner { position: sticky; top: var(--hdr-h); z-index: 999; display: flex; align-items: center; gap: 10px; padding: 8px max(16px, calc((100vw - 772px) / 2)); font-size: 13px;
   background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
