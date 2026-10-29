@@ -3,11 +3,14 @@
 //! Read-only. Reads only drives / charging_processes (+ an indexed per-process probe of `charges`), never positions.
 //!
 //! Charge type rule (3 buckets):
-//! - 超充 (supercharger): a DC session (any `charges` row with fast_charger_present) at a place whose
-//!   alias / geofence / address name contains "Supercharger" / "超充" / "スーパーチャージャー" / "Tesla".
+//! - 超充 (supercharger): a DC session (any `charges` row with `fast_charger_present`) that is a Tesla
+//!   Supercharger — any row with `fast_charger_brand` = "Tesla" (case-insensitive) or `fast_charger_type`
+//!   starting with "Tesla" (same signals TeslaMate uses for free-SuC cost / Grafana SuC panels), OR the
+//!   place alias / geofence / address name matches `(supercharger|超充|スーパーチャージャー|tesla)` as a
+//!   fallback when the car reports `<invalid>` / null for brand and type.
 //! - 家充 (home): an AC session (not DC) at a home-named place (alias/geofence containing home/自宅/家/うち),
 //!   or at the car's most frequent AC charging location over the last 12 months.
-//! - 其他 (other): everything else (other AC, and non-Tesla DC fast chargers).
+//! - 其他 (other): everything else (other AC, and non-Tesla DC fast chargers such as CHAdeMO / CCS).
 use super::*;
 use std::collections::BTreeMap;
 
@@ -214,7 +217,8 @@ pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str) -> Strin
              to_char((cp.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
              {PLACE} AS address, cp.charge_energy_added::float8 AS energy_kwh,
              {cc_amount}::float8 AS cost, {cc_cur} AS currency,
-             CASE WHEN fx.fast AND (CONCAT_WS(' ', al.name, g.name, a.name, a.display_name) ~* '(supercharger|超充|スーパーチャージャー|tesla)') THEN 'supercharger'
+             CASE WHEN fx.fast AND (fx.tesla_fc
+                       OR CONCAT_WS(' ', al.name, g.name, a.name, a.display_name) ~* '(supercharger|超充|スーパーチャージャー|tesla)') THEN 'supercharger'
                   WHEN NOT fx.fast AND (CONCAT_WS(' ', al.name, g.name) ~* '(home|自宅|家|うち|house)'
                        OR cp.address_id = (SELECT address_id FROM home_addr)) THEN 'home'
                   ELSE 'other' END AS kind,
@@ -228,6 +232,10 @@ pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str) -> Strin
            {cc_join}
            -- per-process probe via TeslaMate's charges(charging_process_id) index
            CROSS JOIN LATERAL (SELECT COALESCE(bool_or(ch.fast_charger_present), false) AS fast,
+                                      COALESCE(bool_or(
+                                        ch.fast_charger_brand ~* '^tesla$'
+                                        OR ch.fast_charger_type ~* '^tesla'
+                                      ), false) AS tesla_fc,
                                       max(ch.charger_power)::float8 AS peak_kw
                                FROM charges ch WHERE ch.charging_process_id = cp.id) fx
            WHERE cp.car_id = $1 AND cp.start_date >= $2::timestamp AND cp.start_date < $4::timestamp AND cp.end_date IS NOT NULL"#
@@ -284,4 +292,28 @@ pub async fn car_trends(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
         m.home_kwh = r1(m.home_kwh); m.supercharger_kwh = r1(m.supercharger_kwh); m.other_kwh = r1(m.other_kwh);
         round_money(&mut m.costs); m }).collect();
     Ok(Json(serde_json::json!({"months": out, "timezone": tz})).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::charges_sql;
+
+    #[test]
+    fn charges_sql_classifies_tesla_fc_before_name_fallback() {
+        let s = charges_sql("NULL", "NULL", "");
+        assert!(s.contains("fx.tesla_fc"), "session probe must expose tesla_fc");
+        assert!(
+            s.contains("fast_charger_brand ~* '^tesla$'")
+                && s.contains("fast_charger_type ~* '^tesla'"),
+            "must match TeslaMate brand=Tesla / type starting with Tesla"
+        );
+        assert!(
+            s.contains("(supercharger|超充|スーパーチャージャー|tesla)"),
+            "name-based match remains as fallback"
+        );
+        assert!(
+            s.contains("fx.fast AND (fx.tesla_fc"),
+            "supercharger requires DC (fast) plus tesla_fc or name"
+        );
+    }
 }

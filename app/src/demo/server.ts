@@ -90,12 +90,17 @@ function chargeJson(c: DCharge) {
 function chargePoints(c: DCharge) {
   return c.points.map(p => ({ date: TS(p.date), battery_level: p.battery_level, charge_energy_added: p.charge_energy_added, charger_power: p.charger_power,
     charger_voltage: p.charger_voltage, charger_actual_current: p.charger_actual_current, charger_phases: p.charger_phases, fast_charger_present: p.fast,
+    fast_charger_brand: p.fast_charger_brand, fast_charger_type: p.fast_charger_type,
     power_kw: p.charger_power, power_source: "reported" }));
 }
 const isFast = (c: DCharge) => c.points.some(p => p.fast);
+const isTeslaFc = (c: DCharge) => c.points.some(p =>
+  (p.fast_charger_brand != null && /^tesla$/i.test(p.fast_charger_brand))
+  || (p.fast_charger_type != null && /^tesla/i.test(p.fast_charger_type)));
 function kindOf(c: DCharge, home: number | null) {
   const a = addr(c.addr); const txt = [aliasOf(c.addr), geo(c.geo)?.name, a?.name].filter(Boolean).join(" ");
-  if (isFast(c) && /(supercharger|超充|スーパーチャージャー|tesla)/i.test(txt)) return "supercharger";
+  // Match api/src/report.rs: DC + (Tesla brand/type OR name fallback).
+  if (isFast(c) && (isTeslaFc(c) || /(supercharger|超充|スーパーチャージャー|tesla)/i.test(txt))) return "supercharger";
   if (!isFast(c) && (/(home|自宅|家|うち|house)/i.test([aliasOf(c.addr), geo(c.geo)?.name].filter(Boolean).join(" ")) || c.addr === home)) return "home";
   return "other";
 }
