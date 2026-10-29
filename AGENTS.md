@@ -169,7 +169,9 @@ gh workflow run web.yml --ref <branch> -f target=preview
 - Production deploy is unchanged: release tags (and manual `target=production`) deploy to Pages `main`.
   A preview run must never write to production.
 - The maintainer's server must list both origins in `DRIVELENS_CORS_ORIGINS` (official +
-  `https://preview.drivelens-app.pages.dev`). Do not put the preview origin in the API's default CORS list.
+  `https://preview.drivelens-app.pages.dev`), pass that variable through the compose `environment:` block
+  (uncomment `- DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}`), and recreate the container. A value in
+  `.env` alone is not enough. Do not put the preview origin in the API's default CORS list.
 - Preview may be locked with Cloudflare Access (Pages project → preview deployments); the API itself is
   not behind that Access policy.
 - Agents still do not merge or release unless the maintainer asks.

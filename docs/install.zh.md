@@ -139,7 +139,7 @@ drivelens-api 0.14.0 以上时，App 会用服务器 Token 换一个这台设备
 | 浏览器拦截了 http 服务器地址 | 改用 https 地址（第 5 步） |
 | 连不上 / 超时 | 检查地址、Tunnel 或 Tailscale 是否在运行、证书是否有效 |
 | 不是 DriveLens API | 你填的是 TeslaMate 或 Grafana 的地址，请填 drivelens-api 的地址 |
-| 服务器不允许此网站（CORS） | 更新 drivelens-api；如果设置了 `DRIVELENS_CORS_ORIGINS`，需要包含 `https://drivelens-app.oharuru.com` |
+| 服务器不允许此网站（CORS） | 更新 drivelens-api；如果设置了 `DRIVELENS_CORS_ORIGINS`，需包含 `https://drivelens-app.oharuru.com`，并通过 compose 的 `environment:` 传入后重建容器 |
 | 服务器版本太旧 | 更新 drivelens-api（第 8 步） |
 | 配对码不正确或已失效 | 配对码 10 分钟内有效，只能用一次。请在已连接的设备上重新生成 |
 | 请把服务器更新到 v0.14.0 以上（配对码） | 服务器版本低于 0.14.0：更新 drivelens-api（第 8 步），或者改用服务器 Token 连接 |
@@ -160,7 +160,7 @@ drivelens-api 0.14.0 以上配合 App 1.2.0 以上时，每台手机、平板或
 - **手机丢了？**在另一台设备上解除它的连接。它在下一次请求时就会退出，缓存的数据也会被删除。
 - **解除其他所有设备**会让除当前设备以外的所有设备退出。
 - **更换服务器 Token**（怀疑泄露时）：把新的 `DRIVELENS_API_TOKEN` 写进 `.env`，执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`。使用设备 Token 的设备保持连接，只有还在用服务器 Token 的旧版 App（1.2.0 之前）需要填新 Token。
-- 可选加固：`DRIVELENS_OWNER_KEY_MODE=pair-only` 让服务器 Token 只能用来添加和管理设备（见[环境变量](#环境变量)）。
+- 可选加固：在 `.env` 里设置 `DRIVELENS_OWNER_KEY_MODE=pair-only`，取消 `docker-compose.drivelens.yml` 里 `environment:` 下对应行的注释，并重建容器（见[环境变量](#环境变量)）。这样服务器 Token 只能用来添加和管理设备。
 
 设备列表需要 `drivelens` schema 的 `CREATE` 权限，并且 DriveLens 的表属于 `drivelens_ro`（`deploy/setup.sql` 会设置好）。不满足时 API 会在日志里输出 `device auth disabled`，其他功能照常使用服务器 Token；一次性的修复方法见[升级到 0.14.0](#升级到-0140)。
 
@@ -213,9 +213,9 @@ drivelens-api 读取的变量：
 | --- | --- | --- |
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`；compose 文件根据 `.env` 生成 |
 | `API_TOKEN` | ✅ | 服务器 Token（主密钥）：用于设备首次登录和管理设备（至少 16 个字符，建议 32 个以上随机字符）；compose 文件取自 `DRIVELENS_API_TOKEN` |
-| `DRIVELENS_OWNER_KEY_MODE` | | `full`（默认）：服务器 Token 对所有请求都有效，和以前一样。`pair-only`：服务器 Token 只能用来添加和管理设备（`/api/auth/*`，其他请求返回 403 `owner_key_pair_only`），失败次数过多后在 10 分钟内连检查都不做，猜测它就没有意义了，而你的设备照常可用。需要设备认证可用，否则 API 会退回 `full` 并在日志里报错 |
+| `DRIVELENS_OWNER_KEY_MODE` | | `full`（默认）：服务器 Token 对所有请求都有效，和以前一样。`pair-only`：服务器 Token 只能用来添加和管理设备（`/api/auth/*`，其他请求返回 403 `owner_key_pair_only`），失败次数过多后在 10 分钟内连检查都不做，猜测它就没有意义了，而你的设备照常可用。需要设备认证可用，否则 API 会退回 `full` 并在日志里报错。用 compose 时：在 `.env` 里设置，**并**取消 `environment:` 下 `- DRIVELENS_OWNER_KEY_MODE=${DRIVELENS_OWNER_KEY_MODE}` 的注释 |
 | `BIND_ADDR` | | 监听地址；镜像内为 `0.0.0.0:8080` |
-| `DRIVELENS_CORS_ORIGINS` | | 允许从浏览器调用 API 的网页来源，逗号分隔；`*` 表示任意来源。默认只允许官方网页版（以及已暂停的原生 App 的来源）。旧名称 `CORS_ORIGINS` 仍然有效 |
+| `DRIVELENS_CORS_ORIGINS` | | 允许从浏览器调用 API 的网页来源，逗号分隔；`*` 表示任意来源。默认只允许官方网页版（以及已暂停的原生 App 的来源）。旧名称 `CORS_ORIGINS` 仍然有效。用 compose 时：在 `.env` 里设置，**并**取消 `environment:` 下 `- DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}` 的注释（保持注释 = 沿用默认；空值会清掉默认） |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | 推送签名密钥（base64url P-256）。通常不用设置：第一次启动时自动生成并保存在数据库里 |
 | `DRIVELENS_VAPID_SUBJECT` | | 发给推送服务的联系方式（`mailto:you@example.com` 或 https 网址）。默认是 DriveLens 项目页 |
 | `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = 登录失败次数限制按 `CF-Connecting-IP` / `X-Forwarded-For` 区分客户端（只认来自本机 / 内网地址的请求，即你的隧道或反向代理）。默认关闭：按连接本身的地址计算，隧道后面所有客户端共用一个限制。设备 Token 始终会被检查，已连接的设备不会被拦在外面；默认模式下正确的服务器 Token 也会被接受 |
@@ -223,6 +223,8 @@ drivelens-api 读取的变量：
 | `RUST_LOG` | | 日志级别，默认 `info` |
 
 `.env` 里（`docker-compose.drivelens.yml` 使用）：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`，可选的 `DRIVELENS_DB_NAME`（默认 `teslamate`）、`DRIVELENS_IMAGE`（默认 `ghcr.io/zzflsxygod/drivelens-api:latest`）和 `CLOUDFLARE_TUNNEL_TOKEN`（只给 cloudflared 服务用）。
+
+API 读取的可选变量（`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_OWNER_KEY_MODE`，以及你若设置的 `DRIVELENS_TRUST_PROXY_HEADERS` / `DRIVELENS_VAPID_*` / `DRIVELENS_PUSH_HOSTS`）**默认不会**传进容器：先写进 `.env`，再在 `docker-compose.drivelens.yml` 的 `drivelens-api` → `environment:` 下添加或取消注释对应的 `- NAME=${NAME}` 行，然后执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`。不用时保持注释——空值会清掉 API 的默认设置。
 
 ## 常见问题
 

@@ -17,13 +17,17 @@ services:
       - DATABASE_URL=postgres://drivelens_ro:${DRIVELENS_DB_PASS:?set DRIVELENS_DB_PASS in .env}@database:5432/${DRIVELENS_DB_NAME:-teslamate}
       - API_TOKEN=${DRIVELENS_API_TOKEN:?set DRIVELENS_API_TOKEN in .env}
       - RUST_LOG=info
-      # Optional (v0.11.0+): web origins allowed to call the API from a browser, comma-separated. Unset = only the official
-      # web app https://drivelens-app.oharuru.com (the paused native apps are always allowed). Normally leave this unset;
+      # Optional (v0.11.0+): web origins allowed to call the API from a browser, comma-separated.
+      # Leave this line commented to keep the default (official web app https://drivelens-app.oharuru.com; the
+      # paused native apps are always allowed). Do not uncomment with an empty value — that would clear the default.
+      # To allow extra origins: set DRIVELENS_CORS_ORIGINS=… in `.env`, uncomment the line below, then
+      # `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`.
       # * = any origin. The web app needs an https server address (Cloudflare Tunnel / tailscale serve).
-      # - DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com
+      # - DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}
       # Optional (v0.14.0+): `full` (default) = the server token works for every request; `pair-only` = it only adds /
       # manages devices (/api/auth/*) and is not even checked after too many failures. See docs/install.md → Devices.
-      # - DRIVELENS_OWNER_KEY_MODE=full
+      # Same as CORS: set DRIVELENS_OWNER_KEY_MODE in `.env`, uncomment, then recreate the container (do not leave empty).
+      # - DRIVELENS_OWNER_KEY_MODE=${DRIVELENS_OWNER_KEY_MODE}
     # cloudflared in this compose project (service below) → you can remove `ports`, nothing is published
     # cloudflared or `tailscale serve` on the host → keep this loopback-only port (never publish 8080 publicly)
     ports:

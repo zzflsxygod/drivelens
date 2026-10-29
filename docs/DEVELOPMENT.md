@@ -119,9 +119,27 @@ Windows / Android packaging has been paused since v0.15.0: `.github/workflows/wi
 
 - Same Cloudflare Pages project `drivelens-app`. Running `gh workflow run web.yml --ref <branch> -f target=preview` by hand deploys to the Pages `preview` branch; the stable alias is `https://preview.drivelens-app.pages.dev`.
 - Preview builds set `VITE_DRIVELENS_CHANNEL=preview` (header “Preview” strip + distinct PWA name). Production (release tag or `-f target=production`) looks unchanged and still deploys to Pages `main`.
-- The server `.env` `DRIVELENS_CORS_ORIGINS` must list both the official origin and the preview origin, for example:
-  `DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com,https://preview.drivelens-app.pages.dev`
-  (Do not put the preview origin in the API's default CORS allow-list.) Restart `drivelens-api` after changing it.
+- To let the preview origin call the API, set both the official and preview origins in `.env`, **and** pass the
+  variable into the container (Compose does not forward it unless the `environment:` line is present). Example:
+
+  ```bash
+  # in TeslaMate's compose directory .env:
+  DRIVELENS_CORS_ORIGINS=https://drivelens-app.oharuru.com,https://preview.drivelens-app.pages.dev
+  ```
+
+  In `docker-compose.drivelens.yml`, under `drivelens-api` → `environment:`, uncomment (or add):
+
+  ```yaml
+  - DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}
+  ```
+
+  Then recreate the service (do not leave the line uncommented with an empty value — that clears the default):
+
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api
+  ```
+
+  Do not put the preview origin in the API's default CORS allow-list in code.
 - You can enable Access for **preview deployments** in the Cloudflare Pages project settings (your own email only); API requests go straight to your server and are unaffected.
 
 ## License

@@ -139,7 +139,7 @@ drivelens-api 0.14.0 以上では、アプリはサーバーのトークンを�
 | ブラウザが http のサーバーアドレスをブロック | https のアドレスを使う（手順 5） |
 | 接続できない / タイムアウト | アドレス、トンネルや Tailscale が動いているか、証明書が有効かを確認 |
 | DriveLens の API ではない | TeslaMate や Grafana のアドレスを入力しています。drivelens-api のアドレスを入力する |
-| サーバーがこのサイトを許可していない（CORS） | drivelens-api を更新する。`DRIVELENS_CORS_ORIGINS` を設定している場合は `https://drivelens-app.oharuru.com` を含める |
+| サーバーがこのサイトを許可していない（CORS） | drivelens-api を更新する。`DRIVELENS_CORS_ORIGINS` を設定している場合は `https://drivelens-app.oharuru.com` を含め、compose の `environment:` 経由で渡し、コンテナを作り直す |
 | サーバーが古い | drivelens-api を更新する（手順 8） |
 | ペアリングコードが違う / 無効 | コードは 10 分以内に 1 回だけ使えます。接続済みの端末で新しいコードを発行する |
 | サーバーを v0.14.0 以上に更新してください（ペアリングコード） | サーバーが 0.14.0 より古い：drivelens-api を更新する（手順 8）か、サーバーのトークンで接続する |
@@ -160,7 +160,7 @@ drivelens-api 0.14.0 以上とアプリ 1.2.0 以上では、スマホ・タブ�
 - **スマホをなくしたら：** ほかの端末から接続を解除します。その端末は次のリクエストでサインアウトされ、キャッシュも消えます。
 - **ほかの端末をすべて解除** は、今使っている端末以外をすべてサインアウトします。
 - **サーバーのトークンを変える**（漏れた可能性があるとき）：`.env` に新しい `DRIVELENS_API_TOKEN` を書き、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api` を実行します。端末トークンの端末は接続されたままです。サーバーのトークンを使い続けている 1.2.0 より前のアプリだけ、新しいトークンの入力が必要です。
-- さらに守りを固めるには：`DRIVELENS_OWNER_KEY_MODE=pair-only` で、サーバーのトークンを端末の追加と管理にしか使えなくできます（[環境変数](#環境変数)を参照）。
+- さらに守りを固めるには：`.env` に `DRIVELENS_OWNER_KEY_MODE=pair-only` を書き、`docker-compose.drivelens.yml` の `environment:` 下の対応行のコメントを外してコンテナを作り直します（[環境変数](#環境変数)を参照）。これでサーバーのトークンは端末の追加と管理にしか使えなくなります。
 
 端末の一覧には、`drivelens` スキーマの `CREATE` 権限と、DriveLens のテーブルを `drivelens_ro` が所有していることが必要です（`deploy/setup.sql` が設定します）。満たしていない場合、API はログに `device auth disabled` と出し、ほかの機能はこれまでどおりサーバーのトークンで動きます。1 回だけの修正方法は [0.14.0 へのアップデート](#0140-へのアップデート) をご覧ください。
 
@@ -213,9 +213,9 @@ drivelens-api が読み取る変数：
 | --- | --- | --- |
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`。compose ファイルが `.env` から組み立てます |
 | `API_TOKEN` | ✅ | サーバーのトークン（オーナーキー）：端末の最初のサインインと端末の管理に使います（16 文字以上、32 文字以上のランダムな文字列を推奨）。compose ファイルは `DRIVELENS_API_TOKEN` から取ります |
-| `DRIVELENS_OWNER_KEY_MODE` | | `full`（既定）：サーバーのトークンはこれまでどおりすべてのリクエストで有効。`pair-only`：サーバーのトークンは端末の追加と管理（`/api/auth/*`）だけに使え、それ以外は 403 `owner_key_pair_only`。失敗が多すぎると 10 分間はトークンを評価すらしないため、推測しても無駄になり、ご自身の端末はそのまま使えます。端末認証が必要で、使えない場合は `full` に戻してログにエラーを出します |
+| `DRIVELENS_OWNER_KEY_MODE` | | `full`（既定）：サーバーのトークンはこれまでどおりすべてのリクエストで有効。`pair-only`：サーバーのトークンは端末の追加と管理（`/api/auth/*`）だけに使え、それ以外は 403 `owner_key_pair_only`。失敗が多すぎると 10 分間はトークンを評価すらしないため、推測しても無駄になり、ご自身の端末はそのまま使えます。端末認証が必要で、使えない場合は `full` に戻してログにエラーを出します。compose を使う場合：`.env` に設定し、**あわせて** `environment:` 下の `- DRIVELENS_OWNER_KEY_MODE=${DRIVELENS_OWNER_KEY_MODE}` のコメントを外します |
 | `BIND_ADDR` | | 待ち受けアドレス。イメージ内では `0.0.0.0:8080` |
-| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せるウェブのオリジン（カンマ区切り）。`*` はすべて許可。初期設定は公式ウェブ版のみ（と、一時停止中のネイティブアプリのオリジン）。旧名の `CORS_ORIGINS` も使えます |
+| `DRIVELENS_CORS_ORIGINS` | | ブラウザから API を呼び出せるウェブのオリジン（カンマ区切り）。`*` はすべて許可。初期設定は公式ウェブ版のみ（と、一時停止中のネイティブアプリのオリジン）。旧名の `CORS_ORIGINS` も使えます。compose を使う場合：`.env` に設定し、**あわせて** `environment:` 下の `- DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}` のコメントを外します（コメントのまま = 既定を維持。空の値にすると既定が消えます） |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | プッシュの署名鍵（base64url P-256）。通常は設定不要で、初回起動時に生成してデータベースに保存します |
 | `DRIVELENS_VAPID_SUBJECT` | | プッシュサービスに送る連絡先（`mailto:you@example.com` または https の URL）。初期値は DriveLens のプロジェクトページ |
 | `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` にすると、ログイン失敗回数の制限で `CF-Connecting-IP` / `X-Forwarded-For` からクライアントを区別します（ローカル / プライベートアドレスから来たリクエスト、つまりトンネルやリバースプロキシ経由のものだけ）。既定はオフ：接続元アドレスで数えるため、トンネルの後ろではすべてのクライアントが 1 つの制限を共有します。端末トークンは常に評価されるため、接続済みの端末が締め出されることはありません。既定のモードでは正しいサーバーのトークンも受け付けます |
@@ -223,6 +223,8 @@ drivelens-api が読み取る変数：
 | `RUST_LOG` | | ログレベル。初期値は `info` |
 
 `.env`（`docker-compose.drivelens.yml` が使用）：`DRIVELENS_DB_PASS`、`DRIVELENS_API_TOKEN`、任意で `DRIVELENS_DB_NAME`（初期値 `teslamate`）、`DRIVELENS_IMAGE`（初期値 `ghcr.io/zzflsxygod/drivelens-api:latest`）、`CLOUDFLARE_TUNNEL_TOKEN`（cloudflared サービス用）。
+
+API が読む任意の変数（`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_OWNER_KEY_MODE`、および設定する場合の `DRIVELENS_TRUST_PROXY_HEADERS` / `DRIVELENS_VAPID_*` / `DRIVELENS_PUSH_HOSTS`）は **既定ではコンテナに渡りません**。先に `.env` に書き、`docker-compose.drivelens.yml` の `drivelens-api` → `environment:` に対応する `- NAME=${NAME}` 行を追加するかコメントを外し、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api` を実行します。使わないときはコメントのままにしてください。空の値にすると API の既定が消えます。
 
 ## トラブルシューティング
 
