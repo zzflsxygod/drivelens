@@ -381,7 +381,6 @@ const en: Record<keyof typeof zh, string> = {
   "drives.monthHead": "{n} {n|drive|drives} · {km} km",
   "drives.search": "Search places",
   "drives.searchPh": "Start or end place",
-  "drives.searchClear": "Clear",
   "drives.noSearch": "No drives match this place",
   "j.namePh": "Journey name",
   "j.delete": "Delete journey",

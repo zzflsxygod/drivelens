@@ -381,7 +381,6 @@ const ja: Record<keyof typeof zh, string> = {
   "drives.monthHead": "{n} 件 · {km} km",
   "drives.search": "地点を検索",
   "drives.searchPh": "出発地・目的地",
-  "drives.searchClear": "クリア",
   "drives.noSearch": "一致する走行がありません",
   "j.namePh": "旅程の名前",
   "j.delete": "旅程を削除",

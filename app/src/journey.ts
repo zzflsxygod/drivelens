@@ -80,7 +80,6 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
       <div class="tb-right" id="d-tb">${canSearch ? `<button id="d-search" class="tb-btn" type="button" aria-pressed="false"></button>` : ""}${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
     <div class="drive-search" id="d-search-bar" hidden>
       <input id="d-q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${t("drives.searchPh")}" maxlength="100">
-      <button type="button" class="ghost small" id="d-q-clear" hidden>${t("drives.searchClear")}</button>
     </div>
     ${canSelect ? `<div class="sel-tip muted" id="seltip" hidden></div>` : ""}
     <div id="dlist"></div><div id="abar"></div>`;
@@ -120,7 +119,6 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   let debounce: ReturnType<typeof setTimeout> | null = null;
   const searchBar = v.querySelector<HTMLElement>("#d-search-bar")!;
   const qIn = v.querySelector<HTMLInputElement>("#d-q")!;
-  const qClear = v.querySelector<HTMLButtonElement>("#d-q-clear")!;
   const searchBtn = v.querySelector<HTMLElement>("#d-search");
 
   const mountList = (doRestore: boolean) => {
@@ -154,7 +152,6 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
       searchBtn.classList.toggle("on", !searchBar.hidden);
       searchBtn.setAttribute("aria-pressed", String(!searchBar.hidden));
     }
-    qClear.hidden = !q;
   };
 
   if (searchBtn) {
@@ -169,21 +166,25 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
       }
     };
   }
-  qClear.onclick = () => { q = ""; qIn.value = ""; qClear.hidden = true; mountList(false); paintSearch(); focusField(qIn); };
-  qIn.oninput = () => {
-    qClear.hidden = !qIn.value.trim();
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(() => {
-      const next = qIn.value.trim();
-      if (next === q) return;
-      q = next;
-      mountList(false);
-      paintSearch();
-    }, 300);
+  const applyQuery = (raw: string) => {
+    const next = raw.trim();
+    if (next === q) return;
+    q = next;
+    mountList(false);
+    paintSearch();
   };
+  qIn.oninput = () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => applyQuery(qIn.value), 300);
+  };
+  // native type=search × clears the field and fires "search" (and usually "input")
+  qIn.addEventListener("search", () => {
+    if (debounce) clearTimeout(debounce);
+    applyQuery(qIn.value);
+  });
   qIn.onkeydown = e => {
     if (e.key === "Escape") {
-      if (qIn.value) { qIn.value = ""; q = ""; qClear.hidden = true; mountList(false); paintSearch(); }
+      if (qIn.value) { qIn.value = ""; applyQuery(""); }
       else if (searchBtn) searchBtn.click();
     }
   };

@@ -380,7 +380,6 @@ const zh = {
   "drives.monthHead": "{n} 段 · {km} km",
   "drives.search": "搜索地点",
   "drives.searchPh": "出发地或目的地",
-  "drives.searchClear": "清除",
   "drives.noSearch": "没有匹配的行程",
   "j.namePh": "旅程名称",
   "j.delete": "删除旅程",
