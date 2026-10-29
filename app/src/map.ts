@@ -57,14 +57,23 @@ export interface Stop { p: [number, number]; kind: "stop" | "charge"; title: str
 export interface Overlay { route?: [number, number][]; point?: [number, number];
   lines?: { coords: [number, number][]; speeds: (number | null)[] }[]; stops?: Stop[]; speedColor?: boolean; noPins?: boolean }
 
-/** Allowed upper limits for the speed-colour scale (km/h). App is km/h-only (no mph setting). */
-export const SPEED_COLOR_MAX_OPTIONS = [80, 100, 120, 140] as const;
-export type SpeedColorMaxOpt = (typeof SPEED_COLOR_MAX_OPTIONS)[number];
+/** Speed-color scale upper limit (km/h). App is km/h-only (no mph setting). */
+export const SPEED_COLOR_MAX_MIN = 30;
+export const SPEED_COLOR_MAX_MAX = 250;
+export const SPEED_COLOR_MAX_DEFAULT = 120;
 
-/** Current upper limit from settings; invalid / absent → 120. */
-export function speedColorMax(): SpeedColorMaxOpt {
+/** Round to integer and clamp into 30–250; non-finite → default 120. */
+export function clampSpeedColorMax(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(String(raw ?? "").trim());
+  if (!Number.isFinite(n)) return SPEED_COLOR_MAX_DEFAULT;
+  return Math.min(SPEED_COLOR_MAX_MAX, Math.max(SPEED_COLOR_MAX_MIN, Math.round(n)));
+}
+
+/** Current upper limit from settings; missing / non-finite → 120, otherwise clamped to 30–250. */
+export function speedColorMax(): number {
   const v = loadSettings().speedColorMax;
-  return (SPEED_COLOR_MAX_OPTIONS as readonly number[]).includes(v as number) ? (v as SpeedColorMaxOpt) : 120;
+  if (v == null || !Number.isFinite(v)) return SPEED_COLOR_MAX_DEFAULT;
+  return clampSpeedColorMax(v);
 }
 
 /** slow red → fast green; stops scale proportionally with the upper limit (default 0/30/60/90/120). */

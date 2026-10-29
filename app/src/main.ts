@@ -25,7 +25,7 @@ import { initUI, popMenu, closeMenus } from "./ui";
 import { initSheets, focusField } from "./sheets";
 import { mountNotifications, initNotificationClicks } from "./notify";
 import { initOverlayScrollbar } from "./scrollbar";
-import { DriveMap, effectiveTheme, speedColorToolsHtml, bindSpeedColorToggle, SPEED_COLOR_MAX_OPTIONS, speedColorMax } from "./map";
+import { DriveMap, effectiveTheme, speedColorToolsHtml, bindSpeedColorToggle, speedColorMax, clampSpeedColorMax } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { batteryCardHTML, showBattery, type Battery } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
@@ -434,8 +434,8 @@ function showSettings() {
     </div>
     <div class="section-title"><span>${t("seg.journeys")}</span></div>
     <div class="card set-group">
-    <label>${t("set.speedMax")}<select id="speedmax">${SPEED_COLOR_MAX_OPTIONS.map(m => `<option value="${m}">${t("set.speedMaxOpt", { n: m })}</option>`).join("")}</select></label>
-    <p class="muted">${t("set.speedMaxHint")}</p>
+    <label>${t("set.speedMax")}<span class="unit-field"><input id="speedmax" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done" aria-describedby="speedmax-hint" value="${speedColorMax()}"><span class="unit-suf" aria-hidden="true">${t("set.speedMaxUnit")}</span></span></label>
+    <p class="muted" id="speedmax-hint">${t("set.speedMaxHint")}</p>
     <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
@@ -464,9 +464,18 @@ function showSettings() {
     location.reload();   // every view re-renders in the new language
   };
   themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
-  const speedMaxSel = document.getElementById("speedmax") as HTMLSelectElement;
-  speedMaxSel.value = String(speedColorMax());
-  speedMaxSel.onchange = () => saveSettings({ ...loadSettings(), speedColorMax: Number(speedMaxSel.value) as 80 | 100 | 120 | 140 });
+  const speedMaxIn = document.getElementById("speedmax") as HTMLInputElement;
+  const commitSpeedMax = () => {
+    const raw = speedMaxIn.value.trim();
+    // empty / non-integer / non-numeric → restore last saved (or default)
+    if (raw === "" || !/^-?\d+$/.test(raw)) { speedMaxIn.value = String(speedColorMax()); return; }
+    const next = clampSpeedColorMax(Number(raw));
+    speedMaxIn.value = String(next);
+    if (next !== loadSettings().speedColorMax) saveSettings({ ...loadSettings(), speedColorMax: next });
+  };
+  speedMaxIn.onchange = commitSpeedMax;
+  speedMaxIn.onblur = commitSpeedMax;
+  speedMaxIn.onkeydown = e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); speedMaxIn.blur(); } };
   const gapSel = document.getElementById("jgap") as HTMLSelectElement;
   gapSel.value = String(s.journeyGap ?? 60);
   gapSel.onchange = () => saveSettings({ ...loadSettings(), journeyGap: Number(gapSel.value) });
