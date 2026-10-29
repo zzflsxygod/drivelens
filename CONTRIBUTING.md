@@ -32,9 +32,13 @@ Signed-off-by: Your Name <you@example.com>
 
 ## Pull requests
 
+Commit messages and pull request titles/bodies are English. Issues follow the reporter's language (reply in that language); issues you open yourself default to English.
+
 `main` is protected and only changes through pull requests — for everyone, maintainers included. A pull request can be merged when the `api`, `app` and `dco` checks pass and the branch is up to date with `main`. Pull requests are merged with **rebase and merge**, so keep each commit meaningful (and signed off); fixup commits are best squashed before you ask for a merge. Maintainers can use `scripts/pr.sh <branch>` to push, open, wait for checks and merge in one step.
 
 ## Running DriveLens locally
+
+Longer notes (architecture, API overview, release and preview): [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) · [中文](docs/DEVELOPMENT.zh.md) · [日本語](docs/DEVELOPMENT.ja.md).
 
 Requirements: Rust stable (1.85+), Node.js 20+, PostgreSQL 14+ and Python 3 (for the sample data).
 

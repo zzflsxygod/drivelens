@@ -268,7 +268,7 @@ These summarize section 7 rows that appear in more than one spec or affect more 
 | X-7 | On a cold start with several cars, list requests use the car selector (still empty) while cache keys and totals use the remembered car. | real, minor (multi-car cold start only) | app-records CB-4, app-journeys CB-4 |
 | X-8 | A journey note cannot be cleared: the API treats `note: null` as "not sent", and the app sends `null` when the note is emptied. | real, user-facing; **fixed in v1.2.3 / API 0.14.1** | api-journeys CB-1, app-journeys CB-1 |
 | X-9 | The demo mock differs from the Rust API in several validation rules and response shapes. | real, low impact | app-demo CB-1, CB-2 |
-| X-10 | Contributor documentation trails the code: schema changes are now self-migrated, and auth moved to `auth.rs`. | real, documentation; **fixed in docs (2026-10-26, CONTRIBUTING.md, docs/DEVELOPMENT.zh.md, AGENTS.md)** | api-storage CB-5, ops-delivery CB-3 |
+| X-10 | Contributor documentation trails the code: schema changes are now self-migrated, and auth moved to `auth.rs`. | real, documentation; **fixed in docs (2026-10-26, CONTRIBUTING.md, docs/DEVELOPMENT.md, AGENTS.md)** | api-storage CB-5, ops-delivery CB-3 |
 | X-11 | `web-push-native` uses the notification validity also as the VAPID JWT `exp`: monthly reminders are signed for 72 h and trip summaries for exactly 24 h, while RFC 8292 caps `exp` at 24 h and push services reject longer tokens. The first monthly reminder (2026-11-01) is likely to fail on every push service. | real (confirmed against FCM and Mozilla autopush: 403 / 401); **fixed in v1.2.3 / API 0.14.1** | api-push CB-3, PUSH-075 |
 
 ## 7. Coverage and limits
