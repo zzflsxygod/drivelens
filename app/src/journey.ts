@@ -2,14 +2,13 @@
 // Drives tab (drive list with multi-select) + journeys: list, suggestions, detail, editing.
 import { api, fmtMoney, loadSettings, saveSettings, type Drive, type Charge } from "./api";
 import { ic } from "./icons";
-import { DriveMap, SPEED_STOPS } from "./map";
+import { DriveMap, speedColorToolsHtml, bindSpeedColorToggle, effectiveTheme } from "./map";
 import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
 import { ICON } from "./toolbar";
 import { trackPopover } from "./ui";
 import { navPage, navRoot } from "./nav";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
-import { effectiveTheme } from "./map";
 import { focusField } from "./sheets";
 
 export interface Ctx {
@@ -285,7 +284,6 @@ export async function showJourney(ctx: Ctx, id: number) {
   const extra = j.charges.filter(c => !used.has(c.id)); // e.g. charge at the very end
   extra.forEach(c => tl.push(`<div class="tl charge"><div class="card" data-charge="${c.id}"><div class="row"><b>${ic("bolt")} ${esc(c.address)}</b>${c.cost != null ? `<span class="cost">${fmtMoney(c.cost, c.currency)}</span>` : ""}</div>
     <div class="row muted">${fmtTime(c.start_date)} · +${n(c.charge_energy_added, 1)} kWh</div></div></div>`));
-  const grad = `linear-gradient(90deg, ${SPEED_STOPS.map(([k, c]) => `${c} ${k / 1.2}%`).join(", ")})`;
   const meta = `${fmtDate(s.start_date)} – ${fmtDate(s.end_date)} · ${t("j.meta", { n: j.drives.length })}${s.charge_count ? t("card.metaCharges", { n: s.charge_count }) : ""}`;
   const rw = ctx.canWrite();
   const pen = rw ? `<span class="pen" id="jedit" title="${t("j.editTitle")}">✎</span>` : "";
@@ -301,8 +299,7 @@ export async function showJourney(ctx: Ctx, id: number) {
     <div id="j-msg" class="muted"></div>
     ${j.note ? `<div class="jnote">${esc(j.note)}</div>` : ""}
     ${p2 ? "" : `<div class="muted small-note">${esc(t("j.p2Missing", { m: ctx.journey2Message() }))}</div>`}
-    <div class="map-tools"><div class="seg" id="j-color"><span data-v="speed" class="${speedOn ? "on" : ""}">${t("j.speedColor")}</span><span data-v="plain" class="${speedOn ? "" : "on"}">${t("j.plain")}</span></div>
-      <div class="speed-legend" ${speedOn ? "" : "hidden"}><span>${t("j.slow")}</span><i style="background:${grad}"></i><span>${t("j.fast")}</span></div></div>
+    ${speedColorToolsHtml(speedOn)}
     <div id="map"><div class="map-ph sk"></div></div>
     <div class="section-title">${t("j.elev")}</div><div class="elev-box" id="j-elev"><span class="sk" style="width:100%;height:120px"></span></div>
     <div class="grid">
@@ -337,13 +334,6 @@ export async function showJourney(ctx: Ctx, id: number) {
   if (p2) phase2(ctx, v, j, () => map, () => route, self);
 
   // map + elevation (path loaded separately; may be large)
-  v.querySelectorAll<HTMLElement>("#j-color span").forEach(sp => sp.onclick = () => {
-    const on = sp.dataset.v === "speed";
-    v.querySelectorAll("#j-color span").forEach(x => x.classList.toggle("on", x === sp));
-    (v.querySelector(".speed-legend") as HTMLElement).hidden = !on;
-    saveSettings({ ...loadSettings(), speedColor: on });
-    map?.setSpeedColor(on);
-  });
   try {
     const path = await api<{ points: JPoint[]; total_points: number; downsampled: boolean }>(`/api/journeys/${id}/path`);
     if (!document.body.contains(v.querySelector("#j-elev"))) return;
@@ -357,6 +347,7 @@ export async function showJourney(ctx: Ctx, id: number) {
     const mapEl = v.querySelector<HTMLElement>("#map")!; mapEl.innerHTML = "";
     if (lines.length) { map = new DriveMap(mapEl, { lines, stops, speedColor: speedOn }); ctx.setMap(map); }
     else mapEl.innerHTML = `<div class="muted" style="padding:20px;text-align:center">${t("j.noTrack")}</div>`;
+    bindSpeedColorToggle(v, null, () => map);
     // stop positions on the distance axis = km at the last point of the drive before the stop
     const stopsKm = j.stops.map(st => { const a = byDrive.get(st.after_drive_id); return { km: a?.length ? a[a.length - 1].km : -1, charge: st.charge_ids.length > 0 }; }).filter(x => x.km >= 0);
     v.querySelector("#j-elev")!.innerHTML = elevationChart(path.points, stopsKm) + (path.downsampled ? `<div class="muted small-note">${t("j.sampled", { a: path.points.length, b: path.total_points })}</div>` : "");

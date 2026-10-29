@@ -59,7 +59,7 @@ The DriveLens app is a static client that talks directly to the user's own drive
 | `tokenKind` | `app-connection` | `"device"` = device token, `"owner"` = owner key on a server without device auth, absent = unknown (pre-1.2.0 or older server) |
 | `deviceId`, `deviceScope` | `app-connection` | The device's id and scope (`full`/`read`), cached from the server |
 | `uiLang`, `theme`, `labelLang`, `currency` | `app-shell` / `app-i18n` | Display preferences |
-| `journeyGap`, `speedColor`, `suggestionsOff`, `suggestionsCollapsed`, `dismissedDrives` | `app-journeys` / `app-records` | Feature preferences |
+| `journeyGap`, `speedColor`, `speedColorMax`, `suggestionsOff`, `suggestionsCollapsed`, `dismissedDrives` | `app-journeys` / `app-records` | Feature preferences (speed colour shared by drive + journey maps) |
 
 ## 3. External behavior
 
