@@ -9,7 +9,7 @@ DriveLens has two parts:
 
 > DriveLens **never modifies TeslaMate's tables**. Its database account can only read them. DriveLens' own data (place names, manual charging costs, journeys, covers, push subscriptions, weather cache, connected devices) lives in a separate `drivelens` schema.
 
-Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) · [Appendix: LAN only](#lan-selfhost)
+Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) · [Appendix: LAN only](#lan-selfhost) · [Auth proxy (unofficial)](#auth-proxy)
 
 ## Requirements
 
@@ -100,7 +100,7 @@ The web app is served over https, so browsers block `http://` server addresses (
 3. Add a public hostname, e.g. `drivelens.your-domain`, with the service `http://drivelens-api:8080` (cloudflared in compose) or `http://127.0.0.1:8080` (cloudflared on the host).
 4. Your server address is `https://drivelens.your-domain`.
 
-Don't put a login page such as Cloudflare Access in front of the API: the browser's requests from the web app would be blocked. The API is protected by the token.
+When you use the **official web app** ([https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)), don't put a login page such as Cloudflare Access in front of the API: that app is on a different origin, so the browser would not send the Access cookie with API requests and they would be blocked. The API is protected by the token. **Same-origin self-hosting** (web app and API on one host) is different — see [Behind an auth proxy](#auth-proxy) (unofficial, untested).
 
 <a id="tailscale"></a>
 ### Option B: Tailscale (no domain, private to your devices)
@@ -361,3 +361,68 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 ```
 
 Do not delete the `drivelens-web` folder itself (the container would lose its mount; if you did, run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`). Reload the page to get the new version. A web app older or newer than the server generally still works, and the app tells you when a feature needs a server update.
+
+<a id="auth-proxy"></a>
+### Behind an auth proxy (same-origin, unofficial)
+
+> ⚠️ **Unofficial, unsupported and untested by DriveLens.** The notes below are for people who already self-host the web app and API on the **same origin** (as in this appendix) and want an extra login such as oauth2-proxy or Cloudflare Access in front. DriveLens does not test these setups; use them at your own risk.
+
+The warning in [step 5](#cloudflare-tunnel) ("don't put Cloudflare Access in front of the API") applies to the **official web app**, which lives on a different origin. When the self-hosted web app and `drivelens-api` share one host, the browser sends the proxy's session cookie with page loads **and** with `/api/` requests, so an auth proxy in front of that host can work. DriveLens still checks its own device token (`Authorization: Bearer …`); the proxy is an extra gate, not a replacement.
+
+**Recommended pattern: ForwardAuth (session check only)**
+
+Have the reverse proxy ask oauth2-proxy whether the request is authenticated, then pass the request through unchanged. oauth2-proxy only answers the check (`/oauth2/auth`); it does not rewrite the request body or the `Authorization` header.
+
+- For **`/api/`** (and preferably for every path the app fetches as JSON), an unauthenticated request must get **401**, not a **302** redirect to a login HTML page. In oauth2-proxy terms that is the `/oauth2/auth` endpoint (used by Traefik `forwardAuth` / Caddy `forward_auth`). Redirect browsers to the IdP only for normal page loads if you want a login UX.
+- If the auth backend is down, **fail closed** (return 5xx / deny), do not let the request through.
+- Forward the client's `Authorization: Bearer <DriveLens device token>` **unchanged**. Do **not** enable oauth2-proxy options that set or overwrite `Authorization` (for example `--set-authorization-header`, `--pass-authorization-header`). DriveLens validates its own token.
+- Serve DriveLens at the **root of its own (sub)domain** (e.g. `https://drivelens.example.com/`). Paths such as `/drivelens/` are **not supported**: `manifest.webmanifest`, the service worker (`/sw.js`, scope `/`) and asset URLs are root-absolute.
+- `manifest.webmanifest` is sometimes fetched without cookies — exclude it from auth if the install-as-app flow fails. Excluding `/health` is optional (useful for uptime checks).
+
+**Traefik** (sketch — replace the host and service with yours):
+
+```yaml
+http:
+  middlewares:
+    oauth2-auth:
+      forwardAuth:
+        address: "http://oauth2-proxy:4180/oauth2/auth"
+        trustForwardHeader: true
+        # Do not copy Authorization from the auth response.
+  routers:
+    drivelens:
+      rule: "Host(`drivelens.example.com`)"
+      middlewares: ["oauth2-auth"]
+      service: drivelens
+```
+
+To send browsers to the login page on first visit, catch 401 on non-API paths and redirect to oauth2-proxy's start URL (e.g. `/oauth2/start`); keep `/api/` on a plain 401.
+
+**Caddy** (sketch — same-origin web + API, auth check before either):
+
+```caddyfile
+drivelens.example.com {
+	# /oauth2/auth → 401 when there is no session (good for /api/).
+	# Do not enable oauth2-proxy options that set or overwrite Authorization.
+	forward_auth oauth2-proxy:4180 {
+		uri /oauth2/auth
+	}
+	handle /api/* {
+		reverse_proxy drivelens-api:8080
+	}
+	handle /health {
+		reverse_proxy drivelens-api:8080
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+```
+
+**Cloudflare Access** on the same hostname is the same idea (a session on that host). Prefer an Access policy that answers API clients with 401 rather than an HTML login redirect when the session is missing, and do not strip or replace `Authorization`.
+
+**What the app does when the proxy session expires**
+
+A 401 from the proxy does **not** sign the device out. The app only clears the saved connection when **drivelens-api** itself answers `401` with JSON `{"error":"unauthorized"}` (revoked or expired device token). A proxy 401/5xx or a network error keeps the connection and shows an error; sign in to the IdP again and reload the page.

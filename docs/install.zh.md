@@ -9,7 +9,7 @@ DriveLens 由两部分组成：
 
 > DriveLens **绝不修改 TeslaMate 的表**，它的数据库账号对这些表只有读取权限。DriveLens 自己的数据（地点名称、手动录入的充电费用、旅程、封面、推送订阅、天气缓存、已连接的设备）放在独立的 `drivelens` schema 里。
 
-目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载) · [附录：只在局域网内使用](#lan-selfhost)
+目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载) · [附录：只在局域网内使用](#lan-selfhost) · [认证代理（非官方）](#auth-proxy)
 
 ## 前提条件
 
@@ -100,7 +100,7 @@ compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问�
 3. 添加一个 Public Hostname，例如 `drivelens.你的域名`，服务填 `http://drivelens-api:8080`（cloudflared 在 compose 里）或 `http://127.0.0.1:8080`（cloudflared 在宿主机上）。
 4. 服务器地址就是 `https://drivelens.你的域名`。
 
-不要在 API 前面加 Cloudflare Access 之类的登录页，否则网页版发出的请求会被拦截。API 本身由 Token 保护。
+使用**官方网页版**（[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)）时，不要在 API 前面加 Cloudflare Access 之类的登录页：官方网页版在另一个源上，浏览器不会把 Access 的 Cookie 带给 API，请求会被拦截。API 本身由 Token 保护。**同源自行托管**（网页版和 API 在同一主机）不一样——见[认证代理后面](#auth-proxy)（非官方、未测试）。
 
 <a id="tailscale"></a>
 ### 方式 B：Tailscale（不需要域名，只有自己的设备能访问）
@@ -361,3 +361,68 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 ```
 
 不要删除 `drivelens-web` 文件夹本身（容器的挂载会失效；如果已经删了，执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`）。刷新页面就是新版本。网页版比服务器旧或新时一般也能用，需要更新服务器的功能应用会提示。
+
+<a id="auth-proxy"></a>
+### 认证代理后面（同源，非官方）
+
+> ⚠️ **非官方、不在支持范围内、DriveLens 未测试。** 下面给的是：已经按本附录把网页版和 API 放在**同一源**上，并想在前面再加一层 oauth2-proxy 或 Cloudflare Access 之类登录的人看的。DriveLens 不测试这类配置，风险自负。
+
+[第 5 步](#cloudflare-tunnel)里「不要在 API 前面加 Cloudflare Access」针对的是**官方网页版**（另一个源）。自行托管时网页版和 `drivelens-api` 共用一个主机，浏览器会把代理的会话 Cookie 既带给页面，也带给 `/api/`，所以可以在这台主机前面放认证代理。DriveLens 仍然校验自己的设备令牌（`Authorization: Bearer …`）；代理是额外门槛，不能代替设备令牌。
+
+**推荐做法：ForwardAuth（只做会话检查）**
+
+让反向代理去问 oauth2-proxy「这次请求有没有登录」，通过后再把请求原样转给后端。oauth2-proxy 只负责回答检查（`/oauth2/auth`），不改写请求体，也不改写 `Authorization` 头。
+
+- 对 **`/api/`**（以及应用以 JSON 拉取的路径），未登录时必须返回 **401**，不要 **302** 跳到登录 HTML。在 oauth2-proxy 里就是 `/oauth2/auth`（配合 Traefik `forwardAuth` / Caddy `forward_auth`）。若需要登录页体验，只对普通页面跳转到 IdP。
+- 认证服务挂掉时要**拒绝放行**（返回 5xx / 拒绝），不能放行。
+- 把客户端的 `Authorization: Bearer <DriveLens 设备令牌>` **原样转发**。不要打开会设置或覆盖 `Authorization` 的 oauth2-proxy 选项（例如 `--set-authorization-header`、`--pass-authorization-header`）。DriveLens 会自己校验设备令牌。
+- DriveLens 必须放在**自己（子）域名的根路径**（例如 `https://drivelens.example.com/`）。不支持 `/drivelens/` 这类子路径：`manifest.webmanifest`、Service Worker（`/sw.js`，作用范围 `/`）和静态资源路径都是根路径绝对地址。
+- `manifest.webmanifest` 有时会在没有 Cookie 的情况下被拉取——若「安装为应用」失败，可把它排除在认证之外。`/health` 是否排除可自定（方便做存活检查）。
+
+**Traefik**（示意——主机名和服务名请换成你的）：
+
+```yaml
+http:
+  middlewares:
+    oauth2-auth:
+      forwardAuth:
+        address: "http://oauth2-proxy:4180/oauth2/auth"
+        trustForwardHeader: true
+        # 不要从认证响应里复制 Authorization。
+  routers:
+    drivelens:
+      rule: "Host(`drivelens.example.com`)"
+      middlewares: ["oauth2-auth"]
+      service: drivelens
+```
+
+若希望浏览器首次访问时跳到登录页，可对非 API 路径捕获 401 并重定向到 oauth2-proxy 的起始地址（例如 `/oauth2/start`）；`/api/` 继续直接返回 401。
+
+**Caddy**（示意——同源网页 + API，先做认证检查）：
+
+```caddyfile
+drivelens.example.com {
+	# /oauth2/auth → 无会话时返回 401（适合 /api/）。
+	# 不要打开会设置或覆盖 Authorization 的 oauth2-proxy 选项。
+	forward_auth oauth2-proxy:4180 {
+		uri /oauth2/auth
+	}
+	handle /api/* {
+		reverse_proxy drivelens-api:8080
+	}
+	handle /health {
+		reverse_proxy drivelens-api:8080
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+```
+
+同一主机名上的 **Cloudflare Access** 思路相同（该主机上的会话）。尽量让 Access 在缺少会话时对 API 返回 401，而不是 HTML 登录跳转，并且不要剥掉或替换 `Authorization`。
+
+**代理会话过期时应用的行为**
+
+代理返回的 401 **不会**登出设备。只有 **drivelens-api** 自己返回 `401` 且 JSON 为 `{"error":"unauthorized"}`（设备令牌被吊销或过期）时，应用才会清除已保存的连接。代理的 401/5xx 或网络错误只会提示错误并保留连接；重新登录 IdP 后刷新页面即可。
