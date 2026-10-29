@@ -43,6 +43,17 @@ pub struct Software {
     installed_at: Option<String>,
 }
 
+/// Latest tire pressures (bar) from TeslaMate `positions`. One snapshot = the most recent
+/// row that has any wheel non-null; individual wheels may still be null on that row.
+#[derive(Serialize, FromRow, Debug, PartialEq)]
+pub struct Tpms {
+    date: Option<String>,
+    fl: Option<f64>,
+    fr: Option<f64>,
+    rl: Option<f64>,
+    rr: Option<f64>,
+}
+
 #[derive(Serialize, FromRow, Default)]
 pub struct Stats {
     total_distance_km: Option<f64>,
@@ -85,6 +96,9 @@ pub struct Status {
     state: Option<CarState>,
     position: Option<LatestPosition>,
     software: Option<Software>,
+    /// Latest TPMS snapshot (api_level ≥ 16). Omitted/null when no recent reading.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tpms: Option<Tpms>,
 }
 
 #[derive(Serialize)]
@@ -148,7 +162,24 @@ async fn load_status(db: &PgPool, id: i64) -> Result<Option<Status>, ApiError> {
          WHERE car_id = $1 AND version IS NOT NULL ORDER BY start_date DESC LIMIT 1"
     )).bind(id).fetch_optional(db).await?;
 
-    Ok(Some(Status { car, state, position, software }))
+    // TPMS: one LIMIT-1 over recent positions with any wheel set.
+    // TeslaMate indexes: BRIN(date), (car_id), partial (car_id, date) WHERE ideal_battery_range_km IS NOT NULL
+    // (battery-only — not usable for TPMS). Bound by 90 days so BRIN(date) + car_id prune; avoid a full
+    // history scan on large `positions` tables. No new index / migration (TeslaMate read-only).
+    let tpms = sqlx::query_as::<_, Tpms>(&format!(
+        "SELECT to_char(date, '{TS}') AS date,
+                tpms_pressure_fl::float8 AS fl, tpms_pressure_fr::float8 AS fr,
+                tpms_pressure_rl::float8 AS rl, tpms_pressure_rr::float8 AS rr
+         FROM positions
+         WHERE car_id = $1
+           AND date >= (now() AT TIME ZONE 'UTC') - interval '90 days'
+           AND (tpms_pressure_fl IS NOT NULL OR tpms_pressure_fr IS NOT NULL
+                OR tpms_pressure_rl IS NOT NULL OR tpms_pressure_rr IS NOT NULL)
+         ORDER BY date DESC
+         LIMIT 1"
+    )).bind(id).fetch_optional(db).await?;
+
+    Ok(Some(Status { car, state, position, software, tpms }))
 }
 
 async fn load_activity(s: &AppState, id: i64) -> Result<LastActivity, ApiError> {
@@ -262,4 +293,21 @@ pub async fn car_summary(State(s): State<AppState>, Path(id): Path<i64>, Query(p
 fn currency_param(c: Option<String>) -> String {
     c.map(|c| c.trim().to_ascii_uppercase()).filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()))
         .unwrap_or_else(|| "JPY".into())
+}
+
+#[cfg(test)]
+mod tpms_tests {
+    use super::Tpms;
+    #[test]
+    fn tpms_serializes_wheels_and_skips_none_fields_via_option() {
+        let j = serde_json::to_value(Tpms {
+            date: Some("2026-10-29 04:00:00".into()),
+            fl: Some(2.3), fr: Some(2.8), rl: None, rr: Some(2.7),
+        }).unwrap();
+        assert_eq!(j["fl"], 2.3);
+        assert_eq!(j["fr"], 2.8);
+        assert!(j.get("rl").unwrap().is_null());
+        assert_eq!(j["rr"], 2.7);
+        assert_eq!(j["date"], "2026-10-29 04:00:00");
+    }
 }

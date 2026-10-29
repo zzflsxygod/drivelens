@@ -7,7 +7,7 @@ export const APP_VERSION: string = __APP_VERSION__;
 /** Lowest API level this app works with at all (split home endpoints). */
 export const MIN_API_LEVEL = 3;
 /** Per-feature levels (see API_LEVEL in api/src/main.rs). */
-export const FEATURE_LEVEL = { chargePower: 4, costs: 5, report: 6, journeys: 8, dismiss: 9, paging: 10, journey2: 11, insights: 12, push: 13, tmHealth: 14, devices: 15, driveSearch: 16 } as const;
+export const FEATURE_LEVEL = { chargePower: 4, costs: 5, report: 6, journeys: 8, dismiss: 9, paging: 10, journey2: 11, insights: 12, push: 13, tmHealth: 14, devices: 15, driveSearch: 16, tpms: 16 } as const;
 export type Feature = keyof typeof FEATURE_LEVEL;
 /** Server release that introduced each level (for messages). */
 const LEVEL_VERSION: Record<number, string> = { 3: "0.3.1", 4: "0.3.2", 5: "0.4.0", 6: "0.5.0", 7: "0.5.1", 8: "0.6.0", 9: "0.6.1", 10: "0.6.2", 11: "0.7.0", 12: "0.9.0", 13: "0.12.0", 14: "0.13.0", 15: "0.14.0", 16: "0.15.0" };

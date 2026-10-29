@@ -45,7 +45,7 @@ its own, plus one combined endpoint kept for an old app version (comment: api/sr
 
 | Method | Path | Query | Purpose |
 |--------|------|-------|---------|
-| GET | `/api/cars/{id}/status` | — | Car info, state, latest position, software |
+| GET | `/api/cars/{id}/status` | — | Car info, state, latest position, software, optional `tpms` (api_level ≥ 16) |
 | GET | `/api/cars/{id}/last-activity` | — | Latest drive, latest charge, location |
 | GET | `/api/cars/{id}/stats` | `tz`, `currency` | All-time and this-month totals |
 | GET | `/api/cars/{id}/summary` | `tz`, `currency` | All of the above, flattened into one object |
@@ -54,12 +54,13 @@ its own, plus one combined endpoint kept for an old app version (comment: api/sr
 
 ### 3.1 Status (`GET /api/cars/{id}/status`)
 
-- **SUM-001** When car `id` exists, the system SHALL return `{car, state, position, software}`. (src: api/src/summary.rs:82-88, 235-237)
+- **SUM-001** When car `id` exists, the system SHALL return `{car, state, position, software}` and, at api_level ≥ 16, may include `tpms`. (src: api/src/summary.rs Status / `car_status`)
 - **SUM-002** When car `id` does not exist, the system SHALL respond HTTP 404 with `{"error": "car not found"}`. (src: api/src/summary.rs:117-119, 236)
 - **SUM-003** When returning `car`, the system SHALL include `id`, `name`, `model`, `marketing_name`, `trim_badging`, `exterior_color`, `wheel_type`, `vin`, `efficiency` from TeslaMate's `cars` row. (src: api/src/summary.rs:5-16, 123-126)
 - **SUM-004** When returning `state`, the system SHALL use the car's most recent TeslaMate `states` row (by start time): `{state: <TeslaMate state text, e.g. "online" | "offline" | "asleep">, since: <start time>}`, or `null` if the car has no state rows. (src: api/src/summary.rs:34-38, 128-131; testdata/schema.sql "states_status")
 - **SUM-005** When returning `position`, the system SHALL use the car's most recent `positions` row whose `ideal_battery_range_km` is not null, with `date`, `latitude`, `longitude`, `battery_level`, `usable_battery_level`, `rated_battery_range_km`, `ideal_battery_range_km`, `est_battery_range_km`, `odometer_km`, `outside_temp`, `inside_temp`, `speed`; or `null` if there is none. (src: api/src/summary.rs:18-32, 133-144)
 - **SUM-006** When returning `software`, the system SHALL use the car's most recent `updates` row with a non-null `version`: `{version, installed_at}`, where `installed_at` is the update's end time, or its start time if it has no end; or `null` if there is none. (src: api/src/summary.rs:40-44, 146-149)
+- **SUM-007** When returning `tpms` (api_level ≥ 16), the system SHALL use the car's most recent `positions` row in the last 90 days that has any of `tpms_pressure_fl/fr/rl/rr` non-null, as `{date, fl, fr, rl, rr}` in bar (null wheels allowed on that snapshot). When none exists, `tpms` SHALL be omitted or null. The query SHALL be `ORDER BY date DESC LIMIT 1` with a 90-day lower bound so BRIN(`date`) and `car_id` can prune; it SHALL NOT rely on the battery partial index. (src: `api/src/summary.rs` `Tpms` / `load_status`; issue #24)
 
 ### 3.2 Last activity (`GET /api/cars/{id}/last-activity`)
 
@@ -91,6 +92,7 @@ its own, plus one combined endpoint kept for an old app version (comment: api/sr
 
 - **D-1 Three independent endpoints.** Home data was split into `/status`, `/last-activity` and `/stats` at API level 3 (v0.3.1) so each section can load, fail and be cached separately; `/summary` remains for app v0.3.0. (comment: api/src/main.rs:301; comment: api/src/summary.rs:251; doc: CHANGELOG.md v0.3.0 – v0.3.2 "fast loading with cached data")
 - **D-2 Index-backed status queries.** The latest-position query filters on `ideal_battery_range_km IS NOT NULL` to match TeslaMate's partial index; without it PostgreSQL would scan all positions of the car. (comment: api/src/summary.rs:121, 133-135)
+- **D-3 TPMS without a dedicated index.** TeslaMate has no partial index on TPMS columns. The status handler takes the latest TPMS-bearing row within 90 days (`LIMIT 1`) so BRIN(`date`) plus `car_id` bound the scan; no migration on the read-only TeslaMate DB. (issue #24)
 - **D-3 Aggregates avoid `positions`.** Statistics read only `drives` and `charging_processes`, never `positions`. (comment: api/src/summary.rs:172)
 - **D-4 Costs per currency, never converted.** Effective costs are summed per currency; the single `total_cost` / `charge_cost` numbers remain as the legacy TeslaMate-only totals. (comment: api/src/summary.rs:53, 201; doc: CHANGELOG.md v0.4.0 "per-currency statistics")
 - **D-5 Month boundary in the user's time zone.** TeslaMate stores naive UTC timestamps; the start of the month is computed in `tz` and converted back to UTC. (comment: api/src/summary.rs:183)

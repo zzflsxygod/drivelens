@@ -4,6 +4,8 @@ import { isDemo, DEMO_URL, DEMO_TOKEN } from "./demo";
 export type Theme = "auto" | "light" | "dark";
 export type LabelLang = "ja" | "zh" | "en" | "local";
 export interface Settings { apiUrl: string; token: string; uiLang?: "auto" | "zh" | "en" | "ja"; theme?: Theme; labelLang?: LabelLang; currency?: string; journeyGap?: number; speedColor?: boolean; /** Upper km/h of the speed-color scale (integer 30–250, default 120). */ speedColorMax?: number;
+  /** Tire-pressure warning (api_level ≥ 16). Default on; threshold in bar (1.5–4.0, step 0.1, default 2.5). */
+  tpmsWarn?: boolean; tpmsWarnBar?: number;
   suggestionsOff?: boolean; suggestionsCollapsed?: boolean; dismissedDrives?: number[];
   /** Device auth (server 0.14.0+): "device" = token is a per-device dlt_ token; absent = owner key (unknown). */
   tokenKind?: "owner" | "device"; deviceId?: number;

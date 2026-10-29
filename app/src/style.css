@@ -332,6 +332,17 @@ html.touch .pen::after { content: ""; position: absolute; inset: -10px; border-r
 .ok { background: var(--green-soft); color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 22%, transparent); }
 .warn { background: var(--warn-soft); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 22%, transparent); margin-top: 8px; font-size: 13px; }
 .error .ic, .ok .ic, .warn .ic { margin-right: 6px; }
+.tpms-warn { margin-top: 10px; }
+.tpms-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 10px; font-size: 12px; }
+.tpms-row .tpms-label { margin-right: 2px; }
+.tpms-cell { display: inline-flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+.tpms-cell small { color: var(--muted); font-size: 11px; }
+.tpms-cell b { font-weight: 600; font-size: 12.5px; }
+.tpms-cell.low b { color: var(--warn); }
+.tpms-age { flex: 1 1 100%; font-size: 11px; }
+.set-row.tpms-set { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 10px; }
+.set-row.tpms-set b { font-size: 14px; }
+
 .card-error { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; margin: 8px 0; }
 .card-error > span { flex: 1; min-width: 0; }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 36px 16px; color: var(--muted); font-size: 14px;
