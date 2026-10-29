@@ -116,8 +116,25 @@ fn journey_list_sql(filter: &str) -> String {
 
 pub async fn list(State(s): State<AppState>, Query(q): Query<ListParams>) -> Result<Response, ApiError> {
     need_tables!(s);
-    let rows = sqlx::query_as::<_, JourneyRow>(&format!("{} LIMIT $2 OFFSET $3", journey_list_sql("($1::int8 IS NULL OR j.car_id = $1)")))
-        .bind(q.car_id).bind(q.limit()).bind(q.offset()).fetch_all(&s.db).await?;
+    // Optional `q`: journey name, or any member drive's start/end display name (same expression as drives list).
+    let filter = "($1::int8 IS NULL OR j.car_id = $1) AND ($4::text IS NULL OR
+        j.name ILIKE $4 ESCAPE '!'
+        OR EXISTS (
+          SELECT 1 FROM drivelens.journey_drives jd2
+          JOIN drives d ON d.id = jd2.drive_id
+          LEFT JOIN addresses sa ON sa.id = d.start_address_id
+          LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
+          LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
+          LEFT JOIN addresses ea ON ea.id = d.end_address_id
+          LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
+          LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
+          WHERE jd2.journey_id = j.id AND (
+            COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) ILIKE $4 ESCAPE '!'
+            OR COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) ILIKE $4 ESCAPE '!'
+          )))";
+    let pat = q.search_pattern();
+    let rows = sqlx::query_as::<_, JourneyRow>(&format!("{} LIMIT $2 OFFSET $3", journey_list_sql(filter)))
+        .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(pat).fetch_all(&s.db).await?;
     Ok(Json(rows).into_response())
 }
 
@@ -441,6 +458,7 @@ pub async fn restore_dismissed(State(s): State<AppState>) -> Result<Response, Ap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ilike_pattern, ListParams};
     fn patch(j: &str) -> PatchBody { serde_json::from_str(j).unwrap() }
     /// api-journeys CB-1: an explicit `null` clears the note, an absent field leaves it unchanged.
     #[test]
@@ -455,5 +473,13 @@ mod tests {
         assert_eq!(clean_note(Some(" a ")).unwrap(), Some("a".into()));
         assert!(clean_note(Some(&"x".repeat(2001))).is_err());
         assert_eq!(patch(r#"{"name":null}"#).name, None);
+    }
+    #[test]
+    fn list_sql_supports_place_search_param() {
+        let sql = journey_list_sql("($1::int8 IS NULL OR j.car_id = $1) AND ($4::text IS NULL OR j.name ILIKE $4 ESCAPE '!')");
+        assert!(sql.contains("ILIKE $4 ESCAPE '!'"));
+        assert!(sql.contains("LIMIT") == false); // LIMIT is added by list()
+        let p = ListParams { car_id: None, limit: None, offset: None, id: None, before: None, paged: None, q: Some("箱根".into()) };
+        assert_eq!(p.search_pattern().as_deref(), Some(ilike_pattern("箱根").as_str()));
     }
 }

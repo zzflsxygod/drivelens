@@ -389,6 +389,7 @@ const ja: Record<keyof typeof zh, string> = {
   "j.count": "{n} 件",
   "j.drivesN": "{n} 件",
   "j.emptyList": "まだ旅程がありません。「走行」で「選択」をタップして複数の走行をまとめるか、上の提案からワンタップで作成できます。",
+  "j.noSearch": "一致する旅程がありません",
   "sg.collapsed": "旅程の提案 {n} 件",
   "sg.title": "旅程の提案",
   "sg.rule": "間隔 {gap} 分未満または途中で充電",

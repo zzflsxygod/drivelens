@@ -334,7 +334,23 @@ function journeyRow(j: State["journeys"][0]) {
 }
 function journeyList(q: URLSearchParams) {
   const limit = Math.min(500, Math.max(1, Number(q.get("limit") ?? 50) || 50)), offset = Math.max(0, Number(q.get("offset") ?? 0) || 0);
-  return ok(st.journeys.map(journeyRow).sort((a, b) => b._s0 - a._s0 || b.id - a.id).slice(offset, offset + limit).map(({ _s0, ...r }) => { void _s0; return r; }));
+  const raw = (q.get("q") ?? "").trim().slice(0, 100);
+  let rows = st.journeys.map(journeyRow);
+  if (raw) {
+    const needle = raw.toLowerCase();
+    rows = rows.filter(j => {
+      if (j.name.toLowerCase().includes(needle)) return true;
+      if ((j.start_address ?? "").toLowerCase().includes(needle) || (j.end_address ?? "").toLowerCase().includes(needle)) return true;
+      const orig = st.journeys.find(x => x.id === j.id);
+      return !!orig?.drive_ids.some(id => {
+        const d = driveById(id); if (!d) return false;
+        const s = (place(d.sa, d.sg) ?? "").toLowerCase();
+        const e = (place(d.ea, d.eg) ?? "").toLowerCase();
+        return s.includes(needle) || e.includes(needle);
+      });
+    });
+  }
+  return ok(rows.sort((a, b) => b._s0 - a._s0 || b.id - a.id).slice(offset, offset + limit).map(({ _s0, ...r }) => { void _s0; return r; }));
 }
 function journeyDetail(id: number): Res {
   const j = st.journeys.find(x => x.id === id); if (!j) return err(404, "journey not found");

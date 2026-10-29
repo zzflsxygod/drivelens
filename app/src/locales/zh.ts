@@ -388,6 +388,7 @@ const zh = {
   "j.count": "{n} 个",
   "j.drivesN": "{n} 段",
   "j.emptyList": "还没有旅程。在「行程」里点「选择」，选几段行程合并；或者用上面的建议一键创建。",
+  "j.noSearch": "没有匹配的旅程",
   "sg.collapsed": "{n} 条合并建议",
   "sg.title": "建议合并",
   "sg.rule": "间隔 &lt; {gap} 分钟或中途充电",

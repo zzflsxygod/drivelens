@@ -389,6 +389,7 @@ const en: Record<keyof typeof zh, string> = {
   "j.count": "{n}",
   "j.drivesN": "{n} {n|drive|drives}",
   "j.emptyList": "No journeys yet. In Drives, tap “Select” and merge a few drives — or create one from a suggestion above.",
+  "j.noSearch": "No journeys match this place",
   "sg.collapsed": "{n} journey {n|suggestion|suggestions}",
   "sg.title": "Suggested journeys",
   "sg.rule": "gap &lt; {gap} min or a charging stop",

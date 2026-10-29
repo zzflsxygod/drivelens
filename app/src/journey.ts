@@ -64,7 +64,66 @@ function bindSeg(ctx: Ctx) {
     b.dataset.seg === "journeys" ? showJourneys(ctx) : showDriveList(ctx, false));
 }
 let lastSeg: "drives" | "journeys" = "drives";
+/** Place search shared across drives|journeys; kept when switching the segment. */
+let placeQ = "";
+let placeSearchOpen = false;
 export function showDrivesTab(ctx: Ctx) { lastSeg === "journeys" && ctx.journeysAvailable() ? showJourneys(ctx) : showDriveList(ctx, false); }
+
+function searchBarHTML() {
+  return `<div class="drive-search" id="d-search-bar"${placeSearchOpen ? "" : " hidden"}>
+      <input id="d-q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${t("drives.searchPh")}" maxlength="100" value="">
+    </div>`;
+}
+function bindPlaceSearch(opts: {
+  searchBtn: HTMLElement | null; searchBar: HTMLElement; qIn: HTMLInputElement;
+  onQuery: (q: string) => void; /** called when bar closes after clearing */
+}) {
+  const paint = () => {
+    if (opts.searchBtn) {
+      opts.searchBtn.innerHTML = ICON.search;
+      opts.searchBtn.title = t("drives.search"); opts.searchBtn.setAttribute("aria-label", t("drives.search"));
+      opts.searchBtn.classList.toggle("on", !opts.searchBar.hidden);
+      opts.searchBtn.setAttribute("aria-pressed", String(!opts.searchBar.hidden));
+    }
+  };
+  opts.qIn.value = placeQ;
+  opts.searchBar.hidden = !placeSearchOpen;
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  const apply = (raw: string) => {
+    const next = raw.trim();
+    if (next === placeQ) return;
+    placeQ = next;
+    opts.onQuery(placeQ);
+    paint();
+  };
+  if (opts.searchBtn) {
+    opts.searchBtn.onclick = () => {
+      const open = !!opts.searchBar.hidden;
+      opts.searchBar.hidden = !open;
+      placeSearchOpen = open;
+      if (open) { paint(); focusField(opts.qIn); }
+      else {
+        if (placeQ) { placeQ = ""; opts.qIn.value = ""; opts.onQuery(""); }
+        paint();
+      }
+    };
+  }
+  opts.qIn.oninput = () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => apply(opts.qIn.value), 300);
+  };
+  opts.qIn.addEventListener("search", () => {
+    if (debounce) clearTimeout(debounce);
+    apply(opts.qIn.value);
+  });
+  opts.qIn.onkeydown = e => {
+    if (e.key === "Escape") {
+      if (opts.qIn.value) { opts.qIn.value = ""; apply(""); }
+      else if (opts.searchBtn) opts.searchBtn.click();
+    }
+  };
+  paint();
+}
 
 // ---------------- Drive list (infinite, with multi-select) ----------------
 const sel = new Set<number>();
@@ -78,9 +137,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   const canSearch = !lacks("driveSearch");
   v.innerHTML = `<div class="list-toolbar">${segHTML("drives", ctx) || `<h2 class="tb-title">${t("seg.drives")}</h2>`}
       <div class="tb-right" id="d-tb">${canSearch ? `<button id="d-search" class="tb-btn" type="button" aria-pressed="false"></button>` : ""}${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
-    <div class="drive-search" id="d-search-bar" hidden>
-      <input id="d-q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${t("drives.searchPh")}" maxlength="100">
-    </div>
+    ${canSearch ? searchBarHTML() : ""}
     ${canSelect ? `<div class="sel-tip muted" id="seltip" hidden></div>` : ""}
     <div id="dlist"></div><div id="abar"></div>`;
   bindSeg(ctx);
@@ -114,17 +171,13 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
     };
   };
 
-  let q = "";
   let list: ReturnType<typeof infiniteList> | null = null;
-  let debounce: ReturnType<typeof setTimeout> | null = null;
-  const searchBar = v.querySelector<HTMLElement>("#d-search-bar")!;
-  const qIn = v.querySelector<HTMLInputElement>("#d-q")!;
-  const searchBtn = v.querySelector<HTMLElement>("#d-search");
 
   const mountList = (doRestore: boolean) => {
     list?.leave();
     const box = v.querySelector<HTMLElement>("#dlist")!;
     box.innerHTML = "";
+    const q = placeQ;
     const qParam = q ? `&q=${encodeURIComponent(q)}` : "";
     const key = q ? `drives:${car ?? "all"}:q:${q}` : `drives:${car ?? "all"}`;
     list = infiniteList<Drive>({
@@ -145,52 +198,14 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
     });
   };
 
-  const paintSearch = () => {
-    if (searchBtn) {
-      searchBtn.innerHTML = ICON.search;
-      searchBtn.title = t("drives.search"); searchBtn.setAttribute("aria-label", t("drives.search"));
-      searchBtn.classList.toggle("on", !searchBar.hidden);
-      searchBtn.setAttribute("aria-pressed", String(!searchBar.hidden));
-    }
-  };
-
-  if (searchBtn) {
-    searchBtn.onclick = () => {
-      const open = searchBar.hidden;
-      searchBar.hidden = !open;
-      if (open) { paintSearch(); focusField(qIn); }
-      else {
-        // closing the bar clears the query
-        if (q) { q = ""; qIn.value = ""; mountList(false); }
-        paintSearch();
-      }
-    };
+  const searchBar = v.querySelector<HTMLElement>("#d-search-bar");
+  const qIn = v.querySelector<HTMLInputElement>("#d-q");
+  const searchBtn = v.querySelector<HTMLElement>("#d-search");
+  if (searchBar && qIn) {
+    bindPlaceSearch({ searchBtn, searchBar, qIn, onQuery: () => mountList(false) });
   }
-  const applyQuery = (raw: string) => {
-    const next = raw.trim();
-    if (next === q) return;
-    q = next;
-    mountList(false);
-    paintSearch();
-  };
-  qIn.oninput = () => {
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(() => applyQuery(qIn.value), 300);
-  };
-  // native type=search × clears the field and fires "search" (and usually "input")
-  qIn.addEventListener("search", () => {
-    if (debounce) clearTimeout(debounce);
-    applyQuery(qIn.value);
-  });
-  qIn.onkeydown = e => {
-    if (e.key === "Escape") {
-      if (qIn.value) { qIn.value = ""; applyQuery(""); }
-      else if (searchBtn) searchBtn.click();
-    }
-  };
 
   mountList(restore);
-  paintSearch();
 
   const sm = v.querySelector<HTMLElement>("#selmode");
   if (sm) sm.onclick = () => {
@@ -238,23 +253,31 @@ export async function showJourneys(ctx: Ctx) {
   lastSeg = "journeys"; navRoot(); ctx.setMap(null);
   const v = ctx.view;
   if (!ctx.journeysAvailable()) { v.innerHTML = `<div class="error card-error">${ic("alert")} ${esc(ctx.journeysMessage())}</div>`; return; }
-  v.innerHTML = `<div class="list-toolbar">${segHTML("journeys", ctx)}<div class="tb-right"></div></div><div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
+  const canSearch = !lacks("driveSearch");
+  v.innerHTML = `<div class="list-toolbar">${segHTML("journeys", ctx)}<div class="tb-right" id="j-tb">${canSearch ? `<button id="d-search" class="tb-btn" type="button" aria-pressed="false"></button>` : ""}</div></div>
+    ${canSearch ? searchBarHTML() : ""}
+    <div id="j-sugg"></div><div id="j-list"><div class="muted">${t("common.loading")}</div></div>`; bindSeg(ctx);
   const car = await ctx.carId();
   const gap = loadSettings().journeyGap ?? 60;
-  const loadList = () => api<JourneyRow[]>(`/api/journeys?limit=200${ctx.carQ()}`).then(list => {
+  const loadList = () => {
+    const qParam = placeQ ? `&q=${encodeURIComponent(placeQ)}` : "";
+    return api<JourneyRow[]>(`/api/journeys?limit=200${ctx.carQ()}${qParam}`).then(list => {
     const el = v.querySelector("#j-list"); if (!el) return;
+    const empty = placeQ ? t("j.noSearch") : t("j.emptyList");
     el.innerHTML = `<div class="section-title">${t("j.mine")} <span class="muted">${t("j.count", { n: list.length })}</span></div>` + (list.length ? list.map(j => `
       <div class="card" data-j="${j.id}">
         <div class="row"><b>${ic("compass")} ${esc(j.name)}</b><span class="muted">${t("j.drivesN", { n: j.drive_count })}</span></div>
         <div class="row muted">${fmtDate(j.start_date)} – ${fmtDate(j.end_date)}</div>
         <div class="stats"><span>${ic("pin")} ${esc(j.start_address)} → ${esc(j.end_address)}</span></div>
         <div class="stats"><span>${ic("ruler")} ${n(j.distance_km, 0)} km</span><span>${ic("clock")} ${fmtDur(j.duration_min)}</span><span>${ic("battery")} ${n(j.energy_kwh, 1)} kWh</span></div>
-      </div>`).join("") : `<div class="muted">${t("j.emptyList")}</div>`);
+      </div>`).join("") : `<div class="empty muted">${empty}</div>`);
     el.querySelectorAll<HTMLElement>("[data-j]").forEach(c => c.onclick = () => showJourney(ctx, Number(c.dataset.j)));
   }).catch(e => { const el = v.querySelector<HTMLElement>("#j-list"); if (el) { el.innerHTML = err(e); bindRetry(el, loadList); } });
+  };
   const loadSugg = () => {
     const el = v.querySelector<HTMLElement>("#j-sugg"); if (!el) return Promise.resolve();
-    if (loadSettings().suggestionsOff || !ctx.canWrite()) { el.innerHTML = ""; return Promise.resolve(); }
+    // Hide suggestions while place-searching (saved journeys only).
+    if (placeQ || loadSettings().suggestionsOff || !ctx.canWrite()) { el.innerHTML = ""; return Promise.resolve(); }
     return api<Suggestion[]>(`/api/journeys/suggestions?gap_min=${gap}${car != null ? `&car_id=${car}` : ""}`).then(all => {
       const el = v.querySelector<HTMLElement>("#j-sugg"); if (!el) return;
       const local = new Set(loadSettings().dismissedDrives ?? []);
@@ -295,7 +318,12 @@ export async function showJourneys(ctx: Ctx) {
       });
     }).catch(() => { const el = v.querySelector("#j-sugg"); if (el) el.innerHTML = ""; });
   };
-  loadSugg(); loadList();
+  const refresh = () => { loadSugg(); loadList(); };
+  const searchBar = v.querySelector<HTMLElement>("#d-search-bar");
+  const qIn = v.querySelector<HTMLInputElement>("#d-q");
+  const searchBtn = v.querySelector<HTMLElement>("#d-search");
+  if (searchBar && qIn) bindPlaceSearch({ searchBtn, searchBar, qIn, onQuery: () => refresh() });
+  refresh();
 }
 
 // ---------------- Journey detail ----------------

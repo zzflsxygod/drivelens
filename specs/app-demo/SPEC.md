@@ -173,6 +173,8 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
   - for `/api/drives` only, when `q` is non-empty after trim (max 100 chars), filter to drives whose start or end display name contains the query case-insensitively before paging (issue #18).
 
   (src: app/src/demo/server.ts `list` / `/api/drives`)
+- **DEMO-071b** When `GET /api/journeys` includes a non-empty `q` (trimmed, max 100 chars), the mock SHALL filter to journeys whose name, start/end address, or any member drive's start/end display name contains the query case-insensitively, then apply limit/offset. (src: `app/src/demo/server.ts` `journeyList`; issue #18)
+
 - **DEMO-072** When `tz` is given to stats, months, report, trends or footprint and is not a valid IANA zone, the mock SHALL return `400 {"error":"unknown tz"}`. Without `tz` it SHALL use UTC. (src: app/src/demo/server.ts:45, 151, 173, 208, 242, 258)
 - **DEMO-073** When `month` is given to report, trends or footprint and does not match `YYYY-MM`, the mock SHALL return `400 "month must be YYYY-MM"`. A report for a future month SHALL get `400 "month is in the future"`. (src: app/src/demo/server.ts:209, 212, 243, 259)
 - **DEMO-074** When `currency` is not three letters, the mock SHALL use `JPY` as the default currency. (src: app/src/demo/server.ts:57)
