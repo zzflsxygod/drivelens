@@ -4,6 +4,17 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## v1.3.0 — 2026-10-29
+- **Place search on Drives and Journeys:** a search field above the list filters by place name (or journey name). The same query stays when you switch between the two tabs; suggestions and the month jump hide while you search. Clearing is the × inside the field.
+- **Speed color upper limit is now a number you type** (30–250 km/h, default 120) instead of fixed presets. The drive detail map has the same speed / plain color toggle as journeys (shared setting).
+- **Tire pressure on Home:** when the car reported pressures on a recent drive, the home card shows the four wheels (FL / FR / RL / RR) and how long ago they were measured. Below a threshold you set (default 2.5 bar, 1.5–4.0), that wheel is highlighted and a short warning appears. Toggle and threshold live in Settings. Demo mode includes a low front-left wheel so the warning is visible.
+- **Install guide:** new unofficial appendix for putting the web app and API behind an auth proxy (oauth2-proxy / Cloudflare Access / Traefik ForwardAuth) on the same origin. Root path only; sub-path installs are not supported.
+- The setup screen now recommends server 0.15.0.
+- **Server 0.15.0** (`api_level` 16; recommended, Watchtower updates it automatically; no database changes). Older servers keep working — search and tire pressure stay hidden until you update:
+  - **Place search:** `GET /api/drives?q=` and `GET /api/journeys?q=` (trim, max 100 characters, case-insensitive match on place / journey names).
+  - **Tire pressure:** optional `tpms: {date, fl, fr, rl, rr}` (bar) on `GET /api/cars/{id}/status`, taken from the latest drive that recorded pressures (cached ~5 minutes).
+  - **Monthly report Superchargers:** a DC charge counts as a Supercharger when `fast_charger_brand` is Tesla, or `fast_charger_type` starts with `tesla`, or the place name matches Supercharger / 超充 / スーパーチャージャー / tesla. Non-Tesla DC chargers are no longer counted as Superchargers.
+
 ## v1.2.3 — 2026-10-26
 - **Journey notes can be cleared again:** emptying the note in a journey's edit dialog now removes it. Before, the old note stayed. This works with any server version; server 0.14.1 also accepts `null` to clear the note.
 - **A short server or database hiccup no longer signs devices out:** the app now forgets its saved connection only when the server really rejects the device token (401 `unauthorized`), not on 5xx errors or network failures.
