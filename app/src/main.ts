@@ -675,9 +675,6 @@ function tpmsTileHTML(s: Status) {
   const tp = s.tpms!;
   const hasLow = lowWheels(s).length > 0;
   const age = tp.date ? ago(tp.date) : "";
-  const label = age
-    ? `${esc(t("tpms.row"))} · <span class="tpms-age">${esc(age)}</span>`
-    : esc(t("tpms.row"));
   const cells = TPMS_WHEELS.map(w => {
     const v = tpmsVal(tp, w);
     const low = v != null && v < tpmsWarnBar();
@@ -685,8 +682,9 @@ function tpmsTileHTML(s: Status) {
     const aria = v != null ? t("tpms.wheel", { w: t(`tpms.${w}`), v: text }) : t(`tpms.${w}`);
     return `<span class="tpms-cell${low ? " low" : ""}" aria-label="${esc(aria)}"><b aria-hidden="true">${text}</b></span>`;
   }).join("");
+  // Label: [⚠] 胎压 bar …… age (right). Unit muted after the name; age is separate so it can ellipsize.
   return `<div class="tpms-tile${hasLow ? " is-low" : ""}"${hasLow ? ` title="${esc(t("tpms.warn"))}"` : ""}>
-      <small>${label}${hasLow ? ` ${ic("alert")}` : ""} <i class="unit" aria-hidden="true">${esc(t("set.tpmsUnit"))}</i></small>
+      <small class="tpms-lab">${hasLow ? ic("alert") : ""}<span class="tpms-lab-l">${esc(t("tpms.row"))} <i class="unit" aria-hidden="true">${esc(t("set.tpmsUnit"))}</i></span>${age ? `<span class="tpms-age">${esc(age)}</span>` : ""}</small>
       <div class="tpms-mini" role="group" aria-label="${esc(t("tpms.row"))}">${cells}</div>
     </div>`;
 }
