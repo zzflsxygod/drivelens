@@ -25,7 +25,7 @@ import { initUI, popMenu, closeMenus } from "./ui";
 import { initSheets, focusField } from "./sheets";
 import { mountNotifications, initNotificationClicks } from "./notify";
 import { initOverlayScrollbar } from "./scrollbar";
-import { DriveMap, effectiveTheme } from "./map";
+import { DriveMap, effectiveTheme, speedColorToolsHtml, bindSpeedColorToggle, SPEED_COLOR_MAX_OPTIONS, speedColorMax } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
 import { batteryCardHTML, showBattery, type Battery } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
@@ -193,10 +193,15 @@ async function showDrive(id: number, back: () => void = showDrives) {
   loading();
   try {
     const [d, pts] = await Promise.all([api<Drive>(`/api/drives/${id}`), api<PathPoint[]>(`/api/drives/${id}/path`)]);
+    const speedOn = loadSettings().speedColor ?? true;
+    const lines = pts.length > 1
+      ? [{ coords: pts.map(p => [p.lng, p.lat] as [number, number]), speeds: pts.map(p => p.speed) }]
+      : [];
     view.innerHTML = `
       <button class="back">${t("common.back")}</button>
       <h2>${place(d.start_address, d.start_address_id, d.start_alias)} → ${place(d.end_address, d.end_address_id, d.end_alias)}</h2>
       <div class="muted">${fmtDate(d.start_date)} – ${fmtDate(d.end_date)}${canWrite() ? ` · ${t("common.tapPlace")}` : ""}</div>
+      ${lines.length ? speedColorToolsHtml(speedOn) : ""}
       <div id="map"></div>
       <div class="grid">
         <div><small>${t("f.distance")}</small><b>${n(d.distance_km)} km</b></div>
@@ -208,7 +213,13 @@ async function showDrive(id: number, back: () => void = showDrives) {
       </div>`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
     bindPlaces(() => showDrive(id, back));
-    map = new DriveMap(document.getElementById("map")!, { route: pts.map(p => [p.lng, p.lat] as [number, number]) });
+    const mapEl = document.getElementById("map")!;
+    if (lines.length) {
+      map = new DriveMap(mapEl, { lines, speedColor: speedOn });
+      bindSpeedColorToggle(view, map);
+    } else {
+      mapEl.innerHTML = `<div class="muted" style="padding:20px;text-align:center">${t("j.noTrack")}</div>`;
+    }
   } catch (e) { showError(e); }
 }
 
@@ -423,6 +434,8 @@ function showSettings() {
     </div>
     <div class="section-title"><span>${t("seg.journeys")}</span></div>
     <div class="card set-group">
+    <label>${t("set.speedMax")}<select id="speedmax">${SPEED_COLOR_MAX_OPTIONS.map(m => `<option value="${m}">${t("set.speedMaxOpt", { n: m })}</option>`).join("")}</select></label>
+    <p class="muted">${t("set.speedMaxHint")}</p>
     <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
@@ -451,6 +464,9 @@ function showSettings() {
     location.reload();   // every view re-renders in the new language
   };
   themeSel.onchange = () => { saveSettings({ ...loadSettings(), theme: themeSel.value as Theme }); applyTheme(); };
+  const speedMaxSel = document.getElementById("speedmax") as HTMLSelectElement;
+  speedMaxSel.value = String(speedColorMax());
+  speedMaxSel.onchange = () => saveSettings({ ...loadSettings(), speedColorMax: Number(speedMaxSel.value) as 80 | 100 | 120 | 140 });
   const gapSel = document.getElementById("jgap") as HTMLSelectElement;
   gapSel.value = String(s.journeyGap ?? 60);
   gapSel.onchange = () => saveSettings({ ...loadSettings(), journeyGap: Number(gapSel.value) });

@@ -3,7 +3,7 @@ import * as maplibregl from "maplibre-gl";
 import type { StyleSpecification, ExpressionSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import { loadSettings, defaultLabelLang, type LabelLang } from "./api";
+import { loadSettings, saveSettings, defaultLabelLang, type LabelLang } from "./api";
 import { t } from "./i18n";
 import { ic } from "./icons";
 import { cssVar } from "./palette";
@@ -57,10 +57,45 @@ export interface Stop { p: [number, number]; kind: "stop" | "charge"; title: str
 export interface Overlay { route?: [number, number][]; point?: [number, number];
   lines?: { coords: [number, number][]; speeds: (number | null)[] }[]; stops?: Stop[]; speedColor?: boolean; noPins?: boolean }
 
-/** slow red → fast green (km/h) */
-export const SPEED_STOPS: [number, string][] = [[0, "#e5383b"], [30, "#f48c3a"], [60, "#f2c94c"], [90, "#7bc96f"], [120, "#12a150"]];
-const speedExpr = (): ExpressionSpecification =>
-  ["interpolate", ["linear"], ["coalesce", ["get", "speed"], 0], ...SPEED_STOPS.flat()] as unknown as ExpressionSpecification;
+/** Allowed upper limits for the speed-colour scale (km/h). App is km/h-only (no mph setting). */
+export const SPEED_COLOR_MAX_OPTIONS = [80, 100, 120, 140] as const;
+export type SpeedColorMaxOpt = (typeof SPEED_COLOR_MAX_OPTIONS)[number];
+
+/** Current upper limit from settings; invalid / absent → 120. */
+export function speedColorMax(): SpeedColorMaxOpt {
+  const v = loadSettings().speedColorMax;
+  return (SPEED_COLOR_MAX_OPTIONS as readonly number[]).includes(v as number) ? (v as SpeedColorMaxOpt) : 120;
+}
+
+/** slow red → fast green; stops scale proportionally with the upper limit (default 0/30/60/90/120). */
+export function speedStops(maxKmH: number = speedColorMax()): [number, string][] {
+  const colors = ["#e5383b", "#f48c3a", "#f2c94c", "#7bc96f", "#12a150"] as const;
+  return [0, 0.25, 0.5, 0.75, 1].map((f, i) => [Math.round(maxKmH * f), colors[i]]);
+}
+
+const speedExpr = (maxKmH: number = speedColorMax()): ExpressionSpecification =>
+  ["interpolate", ["linear"], ["coalesce", ["get", "speed"], 0], ...speedStops(maxKmH).flat()] as unknown as ExpressionSpecification;
+
+/** Shared speed-colour / single-colour toggle + legend (journey and drive detail). */
+export function speedColorToolsHtml(speedOn: boolean): string {
+  const max = speedColorMax();
+  const stops = speedStops(max);
+  const grad = `linear-gradient(90deg, ${stops.map(([k, c]) => `${c} ${(k / max) * 100}%`).join(", ")})`;
+  return `<div class="map-tools"><div class="seg" id="speed-color"><span data-v="speed" class="${speedOn ? "on" : ""}">${t("j.speedColor")}</span><span data-v="plain" class="${speedOn ? "" : "on"}">${t("j.plain")}</span></div>
+      <div class="speed-legend" ${speedOn ? "" : "hidden"}><span>${t("j.slow")}</span><i style="background:${grad}"></i><span>${t("j.fast", { max })}</span></div></div>`;
+}
+
+/** Wire the shared toggle: updates settings, legend visibility, and the map. */
+export function bindSpeedColorToggle(root: ParentNode, map: { setSpeedColor(on: boolean): void } | null, getMap?: () => { setSpeedColor(on: boolean): void } | null) {
+  root.querySelectorAll<HTMLElement>("#speed-color span").forEach(sp => sp.onclick = () => {
+    const on = sp.dataset.v === "speed";
+    root.querySelectorAll("#speed-color span").forEach(x => x.classList.toggle("on", x === sp));
+    const leg = root.querySelector<HTMLElement>(".speed-legend");
+    if (leg) leg.hidden = !on;
+    saveSettings({ ...loadSettings(), speedColor: on });
+    (getMap ? getMap() : map)?.setSpeedColor(on);
+  });
+}
 
 export class DriveMap {
   map: maplibregl.Map;
@@ -111,7 +146,7 @@ export class DriveMap {
   /** Journey route: speed gradient or plain colour. */
   setSpeedColor(on: boolean) {
     this.overlay.speedColor = on;
-    if (this.map.getLayer("jroute-line")) this.map.setPaintProperty("jroute-line", "line-color", on ? speedExpr() : this.plainColor());
+    if (this.map.getLayer("jroute-line")) this.map.setPaintProperty("jroute-line", "line-color", on ? speedExpr(speedColorMax()) : this.plainColor());
   }
   private plainColor() { return this.fellBack ? "#006a9e" : cssVar("--accent", "#006a9e"); }
   private casing(dark: boolean) { return dark ? "#07080a" : "#ffffff"; }
@@ -161,7 +196,7 @@ export class DriveMap {
       map.addLayer({ id: "jroute-casing", type: "line", source: "jroute-whole", layout,
         paint: { "line-color": this.casing(dark), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 3, 14, 6] : ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 11] } });
       map.addLayer({ id: "jroute-line", type: "line", source: "jroute", layout,
-        paint: { "line-color": this.overlay.speedColor ? speedExpr() : this.plainColor(), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 1.5, 14, 3.5] : ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
+        paint: { "line-color": this.overlay.speedColor ? speedExpr(speedColorMax()) : this.plainColor(), "line-width": thin ? ["interpolate", ["linear"], ["zoom"], 8, 1.5, 14, 3.5] : ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 7] } });
     }
     this.markers.forEach(m => m.remove());
     const pts: [[number, number], string, string][] = [];
