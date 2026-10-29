@@ -78,7 +78,7 @@ DriveLens は個人で開発しており、無料で使えます。役に立っ�
 
 ## 開発に参加する
 
-不具合や要望は [Issues](https://github.com/zzflsxygod/drivelens/issues) へどうぞ。新しい機能に取りかかる前に Issue で相談してください。小さな修正はそのままプルリクエストで構いません。各コミットには DCO の `Signed-off-by` が必要です。API とアプリをローカルで動かす方法は [CONTRIBUTING.md](CONTRIBUTING.md)（英語）にあります。セキュリティの問題は非公開で報告してください（[SECURITY.md](SECURITY.md)）。
+不具合や要望は [Issues](https://github.com/zzflsxygod/drivelens/issues) へどうぞ。新しい機能に取りかかる前に Issue で相談してください。小さな修正はそのままプルリクエストで構いません。各コミットには DCO の `Signed-off-by` が必要です。API とアプリをローカルで動かす方法は [CONTRIBUTING.md](CONTRIBUTING.md)（英語）にあります。より詳しい開発ガイドは [docs/DEVELOPMENT.ja.md](docs/DEVELOPMENT.ja.md)（[English](docs/DEVELOPMENT.md) · [中文](docs/DEVELOPMENT.zh.md)）です。セキュリティの問題は非公開で報告してください（[SECURITY.md](SECURITY.md)）。
 
 ## ライセンス
 

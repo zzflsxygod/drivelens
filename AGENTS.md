@@ -15,7 +15,7 @@ data only in the `drivelens` schema of the same database.
 | `api/` | drivelens-api: Rust, axum 0.8, sqlx 0.8 (PostgreSQL). Routes, auth, migration and tests mostly in `api/src/main.rs`; modules `auth.rs`, `summary.rs`, `report.rs`, `insights.rs`, `journey.rs`, `phase2.rs`, `push.rs`. `Dockerfile`, `deny.toml` |
 | `app/` | Web app / PWA: Vite + TypeScript + MapLibre GL. `src/locales/{en,ja,zh}.ts` texts, `src/demo/` demo mode, `src-tauri/` Tauri 2 shell (Windows/Android, builds paused) |
 | `deploy/` | `setup.sql` (database role, grants, `drivelens` schema), `docker-compose.drivelens.yml`; `drivelens-*.sql` are legacy upgrade scripts for old installs |
-| `docs/` | Install guide ([en](docs/install.md) · [zh](docs/install.zh.md) · [ja](docs/install.ja.md)), [DEVELOPMENT.zh.md](docs/DEVELOPMENT.zh.md), screenshots |
+| `docs/` | Install guide ([en](docs/install.md) · [zh](docs/install.zh.md) · [ja](docs/install.ja.md)), development guide ([en](docs/DEVELOPMENT.md) · [zh](docs/DEVELOPMENT.zh.md) · [ja](docs/DEVELOPMENT.ja.md)), screenshots |
 | `specs/` | Behavior specs per module — **read these first** (section 2) |
 | `scripts/` | `pr.sh`, `release.sh` (maintainer only), `third-party-licenses.sh` |
 | `testdata/` | TeslaMate-compatible schema subset and fictional sample data, for throwaway databases only |
@@ -133,13 +133,19 @@ CI (`.github/workflows/ci.yml`) runs on every pull request. Required checks:
 Native builds are paused: `NATIVE_BUILDS=0` in `scripts/release.conf` (releases don't wait for Windows/Android
 builds), and the tag triggers in `windows.yml` / `android.yml` are commented out. The web app is the primary target.
 
-## 7. Git and pull requests
+## 7. Git, language and pull requests
 
 - `main` is protected: changes land only through pull requests, merged with **rebase and merge**, after the
   `api`, `app` and `dco` checks pass. Agents open PRs; they do not merge them.
 - **DCO:** every commit needs `Signed-off-by` (`git commit -s`). Keep each commit meaningful (rebase-merge keeps them).
 - Commit subjects follow the log: `api: …`, `app: …`, `docs: …`, `deploy: …`, `ci: …`, `scripts: …`, or
   `fix(<area>): …` / `docs(specs): …`.
+- **Language on GitHub:** commit messages and pull request titles/bodies are **English**. Issues follow the
+  reporter's language (reply in the language they used); issues opened by the maintainer or by agents default
+  to English.
+- **Docs are three-language:** user-facing guides under `docs/` ship as `name.md` (English), `name.zh.md`
+  (Chinese) and `name.ja.md` (Japanese), with language-switch links at the top like the install guide. Keep all
+  three in the same change when you edit one. Specs (`specs/`) and `AGENTS.md` stay English.
 - Keep PRs focused, one topic each. Open an issue before a new feature.
 - **CHANGELOG.md:** add user-visible changes in the existing format (`## vX.Y.Z — YYYY-MM-DD`, bullets, a
   `**Server X.Y.Z**` sub-list for API changes, "No server update needed." when only the app changed).

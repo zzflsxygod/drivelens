@@ -1,4 +1,6 @@
-# DriveLens 开发指南（中文）
+# DriveLens 开发指南
+
+[English](DEVELOPMENT.md) · **中文** · [日本語](DEVELOPMENT.ja.md)
 
 DriveLens 是 [TeslaMate](https://github.com/teslamate-org/teslamate) 的第三方查看器：`drivelens-api`（Rust / Axum）只读访问 TeslaMate 的 PostgreSQL，网页版 / PWA（Vite + TypeScript）通过 HTTPS + Bearer Token 调用它。安装和运行服务器请看安装指南：[English](install.md) · [中文](install.zh.md) · [日本語](install.ja.md)。贡献流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)，安全问题见 [SECURITY.md](../SECURITY.md)。
 
@@ -18,7 +20,7 @@ drivelens/
 │   ├── scripts/          # check-i18n.mjs、demo/fetch-routes.py（生成演示路线）
 │   └── src-tauri/        # Tauri 2 壳（Windows / Android / iOS，目前暂停发布）
 ├── deploy/               # setup.sql（数据库账号 + drivelens schema）、docker-compose.drivelens.yml；drivelens-*.sql 为旧安装的升级脚本
-├── docs/                 # 安装指南（三语）、截图、本文件
+├── docs/                 # 安装指南与开发指南（三语）、截图、本文件
 ├── scripts/              # release.sh（维护者发布用）、third-party-licenses.sh
 ├── testdata/             # TeslaMate 兼容的表结构子集 + 生成示例数据的脚本（仅用于测试）
 └── third_party/          # 第三方声明（TeslaMate NOTICE）

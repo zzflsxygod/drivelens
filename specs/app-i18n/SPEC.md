@@ -7,7 +7,7 @@
 
 ## 1. Goal
 
-DriveLens shows its UI in Chinese (中文), English and Japanese (日本語). This module chooses the UI language for each page load, turns string keys into text in that language, formats dates, durations, numbers and relative times for it, and stops a build when the three string tables disagree. Chinese is the source language. The English and Japanese tables must stay in step with it (doc: README.md "Features"; doc: CHANGELOG.md v0.11.0; doc: docs/DEVELOPMENT.zh.md:58).
+DriveLens shows its UI in Chinese (中文), English and Japanese (日本語). This module chooses the UI language for each page load, turns string keys into text in that language, formats dates, durations, numbers and relative times for it, and stops a build when the three string tables disagree. Chinese is the source language. The English and Japanese tables must stay in step with it (doc: README.md "Features"; doc: CHANGELOG.md v0.11.0; doc: docs/DEVELOPMENT.md "Checks before you commit").
 
 ## 2. Responsibility boundaries
 
@@ -82,7 +82,7 @@ DriveLens shows its UI in Chinese (中文), English and Japanese (日本語). Th
 
 ### 3.3 Dictionaries
 - **I18N-020** When the app is type-checked (`tsc`), the system SHALL reject an `en` or `ja` table that lacks a key of the `zh` table or has a key the `zh` table does not have. Both are typed as `Record<keyof typeof zh, string>`, and `zh` is declared `as const`. (src: app/src/locales/zh.ts:3, 562; app/src/locales/en.ts:2-4; app/src/locales/ja.ts:2-4; comment: app/src/locales/zh.ts:2)
-- **I18N-021** When a new user-facing string is added, contributors SHALL add it to all three tables, with Chinese as the source. (doc: CONTRIBUTING.md:15; doc: docs/DEVELOPMENT.zh.md:58)
+- **I18N-021** When a new user-facing string is added, contributors SHALL add it to all three tables, with Chinese as the source. (doc: CONTRIBUTING.md:15; doc: docs/DEVELOPMENT.md "Checks before you commit")
 - **I18N-022** When a key is looked up, the system SHALL use the dotted form `<area>.<name>`, for example `common.save`, `su.welcome` or `rp.unitTimes`. (src: app/src/locales/zh.ts:4-561)
 
 ### 3.4 Formatting helpers
@@ -98,7 +98,7 @@ DriveLens shows its UI in Chinese (中文), English and Japanese (日本語). Th
 - **I18N-039** When `locale()` is called, the system SHALL return `zh-CN`, `en-US` or `ja-JP` for the current language. (src: app/src/i18n.ts:40-42)
 
 ### 3.5 Build gate (`check-i18n.mjs`)
-- **I18N-040** When `npm run build` or `npm run build:web` runs, the system SHALL run `node scripts/check-i18n.mjs` before `tsc` and `vite build`. A non-zero exit SHALL stop the build. `npm run check:i18n` runs only the check. (src: app/package.json:9-10, 13; doc: CONTRIBUTING.md:77; doc: docs/DEVELOPMENT.zh.md:55)
+- **I18N-040** When `npm run build` or `npm run build:web` runs, the system SHALL run `node scripts/check-i18n.mjs` before `tsc` and `vite build`. A non-zero exit SHALL stop the build. `npm run check:i18n` runs only the check. (src: app/package.json:9-10, 13; doc: CONTRIBUTING.md:77; doc: docs/DEVELOPMENT.md "Checks before you commit")
 - **I18N-041** When `en` or `ja` lacks a `zh` key, or has a key that `zh` does not have, the check SHALL report an error. (src: app/scripts/check-i18n.mjs:30-39; comment: app/scripts/check-i18n.mjs:4)
 - **I18N-042** When a locale file defines the same key twice, the check SHALL report an error. (src: app/scripts/check-i18n.mjs:18)
 - **I18N-043** When the set of placeholder names in an `en` or `ja` string differs from the `zh` string, the check SHALL report an error. Names come from both `{name}` and `{name|…}`. (src: app/scripts/check-i18n.mjs:29, 34; comment: app/scripts/check-i18n.mjs:5)
@@ -115,7 +115,7 @@ DriveLens shows its UI in Chinese (中文), English and Japanese (日本語). Th
 - **I18N-060** When no map label language is saved (`labelLang` is absent), the map label language SHALL default to the current UI language. (src: app/src/api.ts:113-114; app/src/map.ts:39; app/src/locales/en.ts:69)
 
 ## 4. Key design decisions
-- **D-1 Chinese is the source language.** `zh.ts` defines the key set and the `Key` type, and `en` and `ja` are typed against it. `t()` falls back to Chinese. (comment: app/src/i18n.ts:2; comment: app/src/locales/zh.ts:2; doc: docs/DEVELOPMENT.zh.md:58) The rationale is that the app was Chinese-only before v0.11.0: the migration keeps Chinese for those installs (comment: app/src/i18n.ts:25; doc: CHANGELOG.md v0.11.0).
+- **D-1 Chinese is the source language.** `zh.ts` defines the key set and the `Key` type, and `en` and `ja` are typed against it. `t()` falls back to Chinese. (comment: app/src/i18n.ts:2; comment: app/src/locales/zh.ts:2; doc: docs/DEVELOPMENT.md "Checks before you commit") The rationale is that the app was Chinese-only before v0.11.0: the migration keeps Chinese for those installs (comment: app/src/i18n.ts:25; doc: CHANGELOG.md v0.11.0).
 - **D-2 Two layers of key checking.** TypeScript rejects missing and extra keys. The Node script adds checks the type system cannot do: placeholder sets, unknown keys in `t("…")` calls, dynamic prefixes and leftover CJK text. (comment: app/src/locales/zh.ts:2; src: app/scripts/check-i18n.mjs:3-8)
 - **D-3 One language per page load; switching reloads.** `lang` is computed once at module load, and the Settings and wizard selects save and reload. (src: app/src/i18n.ts:36; app/src/main.ts:451; app/src/setup.ts:185; comment: app/src/main.ts:451 "every view re-renders in the new language") Confirmed: the reason is that screens are rendered imperatively as HTML strings, so a reload is the simplest way to re-render everything.
 - **D-4 Old installs keep their implicit defaults.** Installs from before v0.11.0 keep Chinese, `JPY` and Japanese map labels. New installs follow the system. (comment: app/src/i18n.ts:25, 29, 32; doc: CHANGELOG.md v0.11.0)

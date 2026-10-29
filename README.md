@@ -78,7 +78,7 @@ DriveLens is built by one person and is free. If it is useful to you, you can [b
 
 ## Contributing
 
-Bug reports and ideas: [Issues](https://github.com/zzflsxygod/drivelens/issues). Please open an issue before working on a new feature; small fixes can go straight to a pull request. Commits need a DCO `Signed-off-by` line. See [CONTRIBUTING.md](CONTRIBUTING.md) for running the API and the app locally. Security problems: please report them privately ([SECURITY.md](SECURITY.md)).
+Bug reports and ideas: [Issues](https://github.com/zzflsxygod/drivelens/issues). Please open an issue before working on a new feature; small fixes can go straight to a pull request. Commits need a DCO `Signed-off-by` line. See [CONTRIBUTING.md](CONTRIBUTING.md) for running the API and the app locally. Longer development notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) ([中文](docs/DEVELOPMENT.zh.md) · [日本語](docs/DEVELOPMENT.ja.md)). Security problems: please report them privately ([SECURITY.md](SECURITY.md)).
 
 ## License
 
