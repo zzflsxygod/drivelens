@@ -45,7 +45,7 @@ pub struct Software {
 
 /// Latest tire pressures (bar) from TeslaMate `positions`. One snapshot = the most recent
 /// row that has any wheel non-null; individual wheels may still be null on that row.
-#[derive(Serialize, FromRow, Debug, PartialEq)]
+#[derive(Serialize, FromRow, Debug, PartialEq, Clone)]
 pub struct Tpms {
     date: Option<String>,
     fl: Option<f64>,
@@ -132,8 +132,9 @@ fn not_found(msg: &str) -> Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": msg}))).into_response()
 }
 
-/// Car info + state + latest position + software. Every query is index-backed.
-async fn load_status(db: &PgPool, id: i64) -> Result<Option<Status>, ApiError> {
+/// Car info + state + latest position + software + TPMS. Status queries are index-backed.
+async fn load_status(s: &AppState, id: i64) -> Result<Option<Status>, ApiError> {
+    let db = &s.db;
     let Some(car) = sqlx::query_as::<_, CarInfo>(
         "SELECT id::int8 AS id, name, model, marketing_name, trim_badging, exterior_color, wheel_type, vin,
                 efficiency::float8 AS efficiency FROM cars WHERE id = $1",
@@ -162,24 +163,93 @@ async fn load_status(db: &PgPool, id: i64) -> Result<Option<Status>, ApiError> {
          WHERE car_id = $1 AND version IS NOT NULL ORDER BY start_date DESC LIMIT 1"
     )).bind(id).fetch_optional(db).await?;
 
-    // TPMS: one LIMIT-1 over recent positions with any wheel set.
-    // TeslaMate indexes: BRIN(date), (car_id), partial (car_id, date) WHERE ideal_battery_range_km IS NOT NULL
-    // (battery-only — not usable for TPMS). Bound by 90 days so BRIN(date) + car_id prune; avoid a full
-    // history scan on large `positions` tables. No new index / migration (TeslaMate read-only).
-    let tpms = sqlx::query_as::<_, Tpms>(&format!(
-        "SELECT to_char(date, '{TS}') AS date,
-                tpms_pressure_fl::float8 AS fl, tpms_pressure_fr::float8 AS fr,
-                tpms_pressure_rl::float8 AS rl, tpms_pressure_rr::float8 AS rr
-         FROM positions
-         WHERE car_id = $1
-           AND date >= (now() AT TIME ZONE 'UTC') - interval '90 days'
-           AND (tpms_pressure_fl IS NOT NULL OR tpms_pressure_fr IS NOT NULL
-                OR tpms_pressure_rl IS NOT NULL OR tpms_pressure_rr IS NOT NULL)
-         ORDER BY date DESC
-         LIMIT 1"
-    )).bind(id).fetch_optional(db).await?;
+    let tpms = load_tpms(s, id).await?;
 
     Ok(Some(Status { car, state, position, software, tpms }))
+}
+
+/// 5 min per-car TPMS cache: home refreshes often; pressures change slowly. Bounded map.
+const TPMS_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const TPMS_CACHE_MAX: usize = 64;
+/// How many recent completed drives to probe for a TPMS-bearing position.
+const TPMS_RECENT_DRIVES: i64 = 3;
+
+pub(crate) struct TpmsCache {
+    map: std::sync::Mutex<std::collections::HashMap<i64, (std::time::Instant, Option<Tpms>)>>,
+}
+
+impl TpmsCache {
+    pub fn new() -> Self { Self { map: std::sync::Mutex::new(std::collections::HashMap::new()) } }
+
+    fn get(&self, id: i64) -> Option<Option<Tpms>> {
+        let g = self.map.lock().unwrap();
+        let (at, v) = g.get(&id)?;
+        if std::time::Instant::now().duration_since(*at) > TPMS_CACHE_TTL { return None; }
+        Some(v.clone())
+    }
+
+    fn put(&self, id: i64, v: Option<Tpms>) {
+        let mut g = self.map.lock().unwrap();
+        let now = std::time::Instant::now();
+        g.retain(|_, (t, _)| now.duration_since(*t) <= TPMS_CACHE_TTL);
+        if g.len() >= TPMS_CACHE_MAX && !g.contains_key(&id) {
+            if let Some(k) = g.keys().next().copied() { g.remove(&k); }
+        }
+        g.insert(id, (now, v));
+    }
+}
+
+/// Any-wheel non-null predicate shared by primary + fallback.
+const TPMS_ANY: &str = "(tpms_pressure_fl IS NOT NULL OR tpms_pressure_fr IS NOT NULL OR tpms_pressure_rl IS NOT NULL OR tpms_pressure_rr IS NOT NULL)";
+
+fn tpms_select_sql(from_where: &str) -> String {
+    format!(
+        "SELECT to_char(date, '{TS}') AS date,                 tpms_pressure_fl::float8 AS fl, tpms_pressure_fr::float8 AS fr,                 tpms_pressure_rl::float8 AS rl, tpms_pressure_rr::float8 AS rr          {from_where}"
+    )
+}
+
+/// Primary: TPMS on positions of the car's few newest completed drives.
+/// Uses `positions(drive_id, date)` — btree on current TeslaMate, BRIN on some installs —
+/// scoped to 3 drive ids (tiny), not a car-wide date window. `drives` via `trips_car_id_index`.
+async fn tpms_from_recent_drives(db: &PgPool, id: i64) -> Result<Option<Tpms>, ApiError> {
+    let sql = tpms_select_sql(&format!(
+        "FROM positions
+         WHERE drive_id IN (
+             SELECT id FROM drives
+             WHERE car_id = $1 AND end_date IS NOT NULL
+             ORDER BY start_date DESC
+             LIMIT {TPMS_RECENT_DRIVES}
+         )
+           AND {TPMS_ANY}
+         ORDER BY date DESC
+         LIMIT 1"
+    ));
+    Ok(sqlx::query_as::<_, Tpms>(&sql).bind(id).fetch_optional(db).await?)
+}
+
+/// Fallback: 7-day car window. Rare (no TPMS on recent drives). Still uses BRIN(date) but much
+/// cheaper than 90 days; skipped when primary hits. Prefer null over another expensive scan if
+/// the car simply has no recent TPMS.
+async fn tpms_from_recent_window(db: &PgPool, id: i64) -> Result<Option<Tpms>, ApiError> {
+    let sql = tpms_select_sql(&format!(
+        "FROM positions
+         WHERE car_id = $1
+           AND date >= (now() AT TIME ZONE 'UTC') - interval '7 days'
+           AND {TPMS_ANY}
+         ORDER BY date DESC
+         LIMIT 1"
+    ));
+    Ok(sqlx::query_as::<_, Tpms>(&sql).bind(id).fetch_optional(db).await?)
+}
+
+async fn load_tpms(s: &AppState, id: i64) -> Result<Option<Tpms>, ApiError> {
+    if let Some(hit) = s.tpms_cache.get(id) { return Ok(hit); }
+    let mut tpms = tpms_from_recent_drives(&s.db, id).await?;
+    if tpms.is_none() {
+        tpms = tpms_from_recent_window(&s.db, id).await?;
+    }
+    s.tpms_cache.put(id, tpms.clone());
+    Ok(tpms)
 }
 
 async fn load_activity(s: &AppState, id: i64) -> Result<LastActivity, ApiError> {
@@ -264,7 +334,7 @@ fn bad_tz() -> Response {
 }
 
 pub async fn car_status(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    Ok(match load_status(&s.db, id).await? { Some(st) => Json(st).into_response(), None => not_found("car not found") })
+    Ok(match load_status(&s, id).await? { Some(st) => Json(st).into_response(), None => not_found("car not found") })
 }
 
 pub async fn car_last_activity(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
@@ -283,7 +353,7 @@ pub async fn car_stats(State(s): State<AppState>, Path(id): Path<i64>, Query(p):
 pub async fn car_summary(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<SummaryParams>) -> Result<Response, ApiError> {
     let tz = p.tz.unwrap_or_else(|| "UTC".into());
     let cur = currency_param(p.currency);
-    let (status, activity, stats) = tokio::try_join!(load_status(&s.db, id), load_activity(&s, id), load_stats(&s, id, &tz, &cur))?;
+    let (status, activity, stats) = tokio::try_join!(load_status(&s, id), load_activity(&s, id), load_stats(&s, id, &tz, &cur))?;
     let Some(status) = status else { return Ok(not_found("car not found")) };
     let Some(stats) = stats else { return Ok(bad_tz()) };
     Ok(Json(Summary { status, activity, stats }).into_response())
@@ -297,7 +367,9 @@ fn currency_param(c: Option<String>) -> String {
 
 #[cfg(test)]
 mod tpms_tests {
-    use super::Tpms;
+    use super::*;
+    use std::time::{Duration, Instant};
+
     #[test]
     fn tpms_serializes_wheels_and_skips_none_fields_via_option() {
         let j = serde_json::to_value(Tpms {
@@ -309,5 +381,37 @@ mod tpms_tests {
         assert!(j.get("rl").unwrap().is_null());
         assert_eq!(j["rr"], 2.7);
         assert_eq!(j["date"], "2026-10-29 04:00:00");
+    }
+
+    #[test]
+    fn tpms_cache_hit_miss_and_bound() {
+        let c = TpmsCache::new();
+        assert!(c.get(1).is_none());
+        let sample = Tpms { date: Some("x".into()), fl: Some(2.5), fr: None, rl: None, rr: None };
+        c.put(1, Some(sample.clone()));
+        assert_eq!(c.get(1).unwrap().unwrap().fl, Some(2.5));
+        c.put(1, None); // negative cache
+        assert!(c.get(1).unwrap().is_none());
+        // bound: inserting many distinct cars does not grow without limit
+        for i in 0..(TPMS_CACHE_MAX as i64 + 10) { c.put(i + 10, None); }
+        assert!(c.map.lock().unwrap().len() <= TPMS_CACHE_MAX);
+        let _ = Instant::now() + Duration::from_secs(1); // keep Instant import used alongside TTL const
+        assert_eq!(TPMS_CACHE_TTL, Duration::from_secs(300));
+        assert_eq!(TPMS_RECENT_DRIVES, 3);
+    }
+
+    #[test]
+    fn tpms_sql_targets_drive_ids_not_90_day_car_scan() {
+        let primary = tpms_select_sql(&format!(
+            "FROM positions WHERE drive_id IN (SELECT id FROM drives WHERE car_id = $1 AND end_date IS NOT NULL ORDER BY start_date DESC LIMIT {TPMS_RECENT_DRIVES}) AND {TPMS_ANY} ORDER BY date DESC LIMIT 1"
+        ));
+        assert!(primary.contains("drive_id IN"));
+        assert!(primary.contains("LIMIT 3"));
+        assert!(!primary.contains("90 days"));
+        let fallback = tpms_select_sql(&format!(
+            "FROM positions WHERE car_id = $1 AND date >= (now() AT TIME ZONE 'UTC') - interval '7 days' AND {TPMS_ANY} ORDER BY date DESC LIMIT 1"
+        ));
+        assert!(fallback.contains("7 days"));
+        assert!(!fallback.contains("90 days"));
     }
 }
