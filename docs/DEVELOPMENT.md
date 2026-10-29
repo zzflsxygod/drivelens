@@ -1,7 +1,5 @@
 # DriveLens development guide
 
-**English** · [中文](DEVELOPMENT.zh.md) · [日本語](DEVELOPMENT.ja.md)
-
 DriveLens is a third-party viewer for [TeslaMate](https://github.com/teslamate-org/teslamate): `drivelens-api` (Rust / Axum) reads TeslaMate's PostgreSQL read-only, and the web app / PWA (Vite + TypeScript) talks to it over HTTPS + Bearer Token. For installing and running the server, see the install guide: [English](install.md) · [中文](install.zh.md) · [日本語](install.ja.md). Contribution process: [CONTRIBUTING.md](../CONTRIBUTING.md). Security: [SECURITY.md](../SECURITY.md).
 
 ```
@@ -20,7 +18,7 @@ drivelens/
 │   ├── scripts/          # check-i18n.mjs, demo/fetch-routes.py (generates demo routes)
 │   └── src-tauri/        # Tauri 2 shell (Windows / Android / iOS; publishing currently paused)
 ├── deploy/               # setup.sql (DB role + drivelens schema), docker-compose.drivelens.yml; drivelens-*.sql are upgrade scripts for old installs
-├── docs/                 # Install and development guides (three languages), screenshots, this file
+├── docs/                 # Install guide (en/zh/ja), this development guide (English), screenshots
 ├── scripts/              # release.sh (maintainer releases), third-party-licenses.sh
 ├── testdata/             # TeslaMate-compatible schema subset + scripts that generate sample data (tests only)
 └── third_party/          # Third-party notices (TeslaMate NOTICE)
