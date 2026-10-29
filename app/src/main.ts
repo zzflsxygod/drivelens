@@ -436,18 +436,20 @@ function showSettings() {
     <div class="card set-group">
     <label>${t("set.speedMax")}<span class="unit-field"><input id="speedmax" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done" aria-describedby="speedmax-hint" value="${speedColorMax()}"><span class="unit-suf" aria-hidden="true">${t("set.speedMaxUnit")}</span></span></label>
     <p class="muted" id="speedmax-hint">${t("set.speedMaxHint")}</p>
-    ${lacks("tpms") ? "" : `<div class="section-title"><span>${t("set.tpms")}</span></div>
-    <div class="set-row tpms-set">
-      <div><b>${t("set.tpms")}</b><div class="muted">${t("set.tpmsOn")}</div></div>
-      <label class="nt-switch${tpmsWarnOn() ? " on" : ""}" id="tpms-warn-wrap"><input type="checkbox" id="tpms-warn" ${tpmsWarnOn() ? "checked" : ""}><i></i></label>
-    </div>
-    <label id="tpms-bar-label">${t("set.tpmsBar")}<span class="unit-field"><input id="tpmsbar" type="number" inputmode="decimal" min="1.5" max="4" step="0.1" autocomplete="off" enterkeyhint="done" aria-describedby="tpmsbar-hint" value="${tpmsWarnBar()}" ${tpmsWarnOn() ? "" : "disabled"}><span class="unit-suf" aria-hidden="true">${t("set.tpmsUnit")}</span></span></label>
-    <p class="muted" id="tpmsbar-hint">${t("set.tpmsHint")}</p>`}
     <label>${t("set.gap")}<select id="jgap">${[30, 60, 90, 120, 180, 240].map(m => `<option value="${m}">${t("set.minutes", { n: m })}</option>`).join("")}</select></label>
     <p class="muted">${t("set.gapHint")}</p>
     <label class="chk-row"><input type="checkbox" id="sgon"> ${t("set.suggestOn")}</label>
     ${canWrite() ? `<p><button id="sgrestore" class="ghost small">${t("set.suggestRestore")}</button> <span id="sgmsg" class="muted"></span></p>` : ""}
     </div>
+    ${lacks("tpms") ? "" : `<div class="section-title"><span>${t("set.tpms")}</span></div>
+    <div class="card set-group">
+    <div class="set-row tpms-set">
+      <div><b>${t("set.tpmsOn")}</b></div>
+      <label class="nt-switch${tpmsWarnOn() ? " on" : ""}" id="tpms-warn-wrap"><input type="checkbox" id="tpms-warn" ${tpmsWarnOn() ? "checked" : ""}><i></i></label>
+    </div>
+    <label id="tpms-bar-label">${t("set.tpmsBar")}<span class="unit-field"><input id="tpmsbar" type="number" inputmode="decimal" min="1.5" max="4" step="0.1" autocomplete="off" enterkeyhint="done" aria-describedby="tpmsbar-hint" value="${tpmsWarnBar()}" ${tpmsWarnOn() ? "" : "disabled"}><span class="unit-suf" aria-hidden="true">${t("set.tpmsUnit")}</span></span></label>
+    <p class="muted" id="tpmsbar-hint">${t("set.tpmsHint")}</p>
+    </div>`}
     <div id="notify-slot"></div>
     <div id="pwa-slot"></div>
     ${serverSectionHTML(s.apiUrl || "")}
@@ -663,28 +665,30 @@ function lowWheels(s: Status): { w: TpmsWheel; v: number }[] {
   const thr = tpmsWarnBar();
   return TPMS_WHEELS.map(w => ({ w, v: tpmsVal(tp, w) })).filter((x): x is { w: TpmsWheel; v: number } => x.v != null && x.v < thr);
 }
-function tpmsAgeMs(iso: string | null | undefined) {
-  if (!iso) return null;
-  const t = Date.parse(iso.includes("T") || iso.includes("Z") ? iso : iso.replace(" ", "T") + "Z");
-  return Number.isFinite(t) ? Date.now() - t : null;
+/** True when the home hero should show a 4th TPMS tile (api_level ≥ 16, toggle on, data present). */
+function showTpmsTile(s: Status) {
+  if (lacks("tpms") || !tpmsWarnOn() || !s.tpms) return false;
+  return TPMS_WHEELS.some(w => tpmsVal(s.tpms, w) != null);
 }
-function tpmsRowHTML(s: Status) {
-  if (lacks("tpms") || !s.tpms) return "";
-  const tp = s.tpms;
-  const any = TPMS_WHEELS.some(w => tpmsVal(tp, w) != null);
-  if (!any) return "";
-  const age = tpmsAgeMs(tp.date);
-  const stale = age != null && age > 24 * 3600e3;
-  const asleep = (s.state?.state ?? "") === "asleep";
-  const note = (stale || asleep) && tp.date
-    ? `<span class="muted tpms-age">${esc(asleep && !stale ? t("tpms.asleep", { t: ago(tp.date) }) : t("tpms.stale", { t: ago(tp.date) }))}</span>`
-    : "";
+/** Fourth hero tile: four wheel pressures in position (FL FR / RL RR). */
+function tpmsTileHTML(s: Status) {
+  const tp = s.tpms!;
+  const hasLow = lowWheels(s).length > 0;
+  const age = tp.date ? ago(tp.date) : "";
+  const label = age
+    ? `${esc(t("tpms.row"))} · <span class="tpms-age">${esc(age)}</span>`
+    : esc(t("tpms.row"));
   const cells = TPMS_WHEELS.map(w => {
     const v = tpmsVal(tp, w);
-    const low = v != null && tpmsWarnOn() && v < tpmsWarnBar();
-    return `<span class="tpms-cell${low ? " low" : ""}"><small>${t(`tpms.${w}`)}</small><b>${v != null ? n(v, 1) : "—"}</b></span>`;
+    const low = v != null && v < tpmsWarnBar();
+    const text = v != null ? n(v, 1) : "—";
+    const aria = v != null ? t("tpms.wheel", { w: t(`tpms.${w}`), v: text }) : t(`tpms.${w}`);
+    return `<span class="tpms-cell${low ? " low" : ""}" aria-label="${esc(aria)}"><b aria-hidden="true">${text}</b></span>`;
   }).join("");
-  return `<div class="tpms-row" title="${esc(t("tpms.row"))}"><span class="tpms-label muted">${t("tpms.row")}</span>${cells}${note}</div>`;
+  return `<div class="tpms-tile${hasLow ? " is-low" : ""}"${hasLow ? ` title="${esc(t("tpms.warn"))}"` : ""}>
+      <small>${label}${hasLow ? ` ${ic("alert")}` : ""} <i class="unit" aria-hidden="true">${esc(t("set.tpmsUnit"))}</i></small>
+      <div class="tpms-mini" role="group" aria-label="${esc(t("tpms.row"))}">${cells}</div>
+    </div>`;
 }
 function tpmsWarnHTML(s: Status) {
   const lows = lowWheels(s);
@@ -702,6 +706,7 @@ function heroHTML(s: Status) {
   const lvlCls = lvl == null ? "" : lvl < 20 ? "low" : lvl < 50 ? "mid" : "";
   const model = c.marketing_name || (c.model ? `Model ${c.model}` : "");
   const extras = [c.exterior_color ? colorLabel(c.exterior_color) : null, c.wheel_type].filter(Boolean).join(" · ");
+  const withTpms = showTpmsTile(s);
   return `
     <div class="row"><div>
       <div class="car-name">${esc(c.name || `Car ${c.id}`)}</div>
@@ -717,18 +722,18 @@ function heroHTML(s: Status) {
       [t("hero.odo"), p?.odometer_km != null ? `${fmtNum(Math.round(p.odometer_km))} km` : "—"],
       [t("hero.sw"), s.software?.version?.split(" ")[0] || "—"],
       [t("hero.temps"), `${deg(p?.outside_temp)} / ${deg(p?.inside_temp)}`],
-    ])}
-    ${tpmsRowHTML(s)}
+    ], withTpms ? tpmsTileHTML(s) : null)}
     ${tpmsWarnHTML(s)}`;
 }
 /** Whole degrees for the hero tile ("-0" → "0"); the tile is too narrow for decimals on phones. */
 const deg = (v: number | null | undefined) => v == null || !isFinite(v) ? "—" : `${Math.round(v) || 0}°`;
-/** The three hero tiles always stay on one line: --n (longest value, in characters) lets CSS size the
- *  monospace text to the tile width (container query units), so all three shrink together when needed. */
-function heroTiles(items: [string, string][]) {
+/** Hero tiles: 3-col when no TPMS; 2×2 when a TPMS tile is appended. --n sizes mono values to the tile width. */
+function heroTiles(items: [string, string][], tpmsHtml: string | null = null) {
   const len = Math.max(8, ...items.map(([, v]) => [...v].length));
-  return `<div class="kv kv-fit" style="--n:${len}">${items.map(([k, v]) =>
-    `<div><small>${k}</small><b title="${esc(v)}">${esc(v)}</b></div>`).join("")}</div>`;
+  const cols = tpmsHtml ? " kv-2x2" : "";
+  const cells = items.map(([k, v]) =>
+    `<div><small>${k}</small><b title="${esc(v)}">${esc(v)}</b></div>`).join("");
+  return `<div class="kv kv-fit${cols}" style="--n:${len}">${cells}${tpmsHtml ?? ""}</div>`;
 }
 const heroSkeleton = () => `
     <div class="row"><div style="flex:1">${sk("40%", "24px")}<br>${sk("55%")}</div><button class="icon-btn" data-refresh title="${t("common.refresh")}">⟳</button></div>

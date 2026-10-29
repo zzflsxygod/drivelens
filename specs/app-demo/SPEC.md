@@ -163,7 +163,7 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
 - **DEMO-060** When temperatures or weather are produced, they SHALL come from a synthetic Tokyo climatology with an elevation lapse rate. About 27 % of days are rainy, and no weather service is contacted. (src: app/src/demo/gen.ts:37-42, 72, 78, 117; app/src/demo/server.ts:400-405; doc: app/src/demo/README.md:15)
 
 ### 3.7 Mock API behavior
-- **DEMO-069** When `/api/cars/{id}/status` is answered, the mock SHALL include a `tpms` snapshot with four wheel pressures in bar and a `date`, with the front-left wheel at `2.3` (below the default 2.5 warning threshold) so the home warning is visible. (src: `app/src/demo/server.ts` `status`; issue #24)
+- **DEMO-069** When `/api/cars/{id}/status` is answered, the mock SHALL include a `tpms` snapshot with four wheel pressures in bar and a `date`, with the front-left wheel at `2.3` (below the default 2.5 warning threshold) so the home TPMS tile and warning banner are visible. (src: `app/src/demo/server.ts` `status`; issue #24)
 
 - **DEMO-070** When `/api/cars/{id}/…` (status, last-activity, stats, months, report, trends, footprint, battery) is requested with any numeric `id`, the mock SHALL answer for the demo car. Lists ignore `car_id`. (src: app/src/demo/server.ts:432-437, 440; comment: app/src/demo/server.ts:433)
 - **DEMO-071** When `/api/drives` or `/api/charges` is requested, the mock SHALL:
