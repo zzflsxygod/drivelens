@@ -9,7 +9,7 @@ DriveLens は 2 つの部分でできています。
 
 > DriveLens は **TeslaMate のテーブルを変更しません**。データベースアカウントにはこれらのテーブルの読み取り権限しかありません。DriveLens 独自のデータ（場所の名前、手入力した充電料金、旅、カバー写真、プッシュの登録、天気のキャッシュ、接続済みの端末）は別の `drivelens` スキーマに保存します。
 
-目次：[前提条件](#前提条件) · [1. ファイル](#1-ファイルを-2-つダウンロード) · [2. パスワードとトークン](#2-パスワードとトークンを作る) · [3. データベースアカウント](#3-データベースアカウントを作る初回のみ) · [4. 起動](#4-drivelens-api-を起動) · [5. https](#5-サーバーに-https-のアドレスを用意する) · [6. 接続](#6-ウェブ版から接続する) · [端末](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [環境変数](#環境変数) · [トラブルシューティング](#トラブルシューティング) · [アンインストール](#アンインストール) · [付録：LAN 内だけで使う](#lan-selfhost)
+目次：[前提条件](#前提条件) · [1. ファイル](#1-ファイルを-2-つダウンロード) · [2. パスワードとトークン](#2-パスワードとトークンを作る) · [3. データベースアカウント](#3-データベースアカウントを作る初回のみ) · [4. 起動](#4-drivelens-api-を起動) · [5. https](#5-サーバーに-https-のアドレスを用意する) · [6. 接続](#6-ウェブ版から接続する) · [端末](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [環境変数](#環境変数) · [トラブルシューティング](#トラブルシューティング) · [アンインストール](#アンインストール) · [付録：LAN 内だけで使う](#lan-selfhost) · [認証プロキシ（非公式）](#auth-proxy)
 
 ## 前提条件
 
@@ -100,7 +100,7 @@ compose ファイルの初期設定では API を `127.0.0.1:8080` にだけ公�
 3. Public Hostname（例：`drivelens.あなたのドメイン`）を追加し、サービスに `http://drivelens-api:8080`（compose 内の cloudflared）または `http://127.0.0.1:8080`（ホストの cloudflared）を指定します。
 4. サーバーのアドレスは `https://drivelens.あなたのドメイン` です。
 
-API の前に Cloudflare Access などのログインページを置かないでください。ウェブ版からのリクエストがブロックされます。API はトークンで保護されています。
+**公式ウェブ版**（[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)）を使う場合は、API の前に Cloudflare Access などのログインページを置かないでください。公式ウェブ版は別オリジンのため、ブラウザは Access の Cookie を API リクエストに付けず、ブロックされます。API はトークンで保護されています。**同一オリジンのセルフホスト**（ウェブ版と API を同じホストに置く）は別です — [認証プロキシの後ろ](#auth-proxy)（非公式・未検証）を参照してください。
 
 <a id="tailscale"></a>
 ### 方法 B：Tailscale（ドメイン不要、自分の端末からだけ接続）
@@ -361,3 +361,68 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 ```
 
 `drivelens-web` フォルダー自体は削除しないでください（コンテナのマウントが外れます。消してしまった場合は `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`）。ブラウザでページを再読み込みすると新しい版になります。ウェブ版がサーバーより古い・新しい場合も基本的には動き、サーバーの更新が必要な機能はアプリが知らせます。
+
+<a id="auth-proxy"></a>
+### 認証プロキシの後ろ（同一オリジン・非公式）
+
+> ⚠️ **非公式・サポート対象外・DriveLens 未検証の手順です。** 本付録のとおりウェブ版と API を**同一オリジン**でホストしたうえで、oauth2-proxy や Cloudflare Access などのログインを前段に置きたい方向けです。DriveLens はこの構成を検証していません。自己責任でお使いください。
+
+[手順 5](#cloudflare-tunnel)の「API の前に Cloudflare Access を置かない」は、**公式ウェブ版**（別オリジン）向けです。セルフホストでウェブ版と `drivelens-api` が同じホストなら、ブラウザはプロキシのセッション Cookie をページにも `/api/` にも付けるので、そのホストの前に認証プロキシを置けます。DriveLens は引き続き独自の端末トークン（`Authorization: Bearer …`）を検証します。プロキシは追加の門であり、端末トークンの代わりにはなりません。
+
+**推奨：ForwardAuth（セッション確認だけ）**
+
+リバースプロキシが oauth2-proxy に「このリクエストは認証済みか」を問い合わせ、通ったものだけをそのまま転送します。oauth2-proxy は確認（`/oauth2/auth`）に答えるだけで、ボディも `Authorization` ヘッダーも書き換えません。
+
+- **`/api/`**（およびアプリが JSON として取るパス）では、未認証時はログイン HTML への **302** ではなく **401** を返してください。oauth2-proxy では `/oauth2/auth`（Traefik の `forwardAuth` / Caddy の `forward_auth` が使うエンドポイント）です。ログイン画面が必要な場合は、通常のページ読み込みだけ IdP へリダイレクトしてください。
+- 認証バックエンドが落ちているときは**閉じる**（5xx / 拒否）。リクエストを通さないでください。
+- クライアントの `Authorization: Bearer <DriveLens 端末トークン>` は**そのまま転送**してください。`Authorization` を設定・上書きする oauth2-proxy のオプション（例：`--set-authorization-header`、`--pass-authorization-header`）は使わないでください。DriveLens が自前のトークンを検証します。
+- DriveLens は**専用（サブ）ドメインのルート**で配信してください（例：`https://drivelens.example.com/`）。`/drivelens/` のようなサブパスは**非対応**です。`manifest.webmanifest`、Service Worker（`/sw.js`、スコープ `/`）、アセット URL はルート絶対パスです。
+- `manifest.webmanifest` は Cookie なしで取得されることがあります。ホーム画面への追加が失敗するなら認証対象外にしてください。`/health` を外すかは任意（死活監視用）。
+
+**Traefik**（骨格 — ホスト名とサービス名は置き換えてください）：
+
+```yaml
+http:
+  middlewares:
+    oauth2-auth:
+      forwardAuth:
+        address: "http://oauth2-proxy:4180/oauth2/auth"
+        trustForwardHeader: true
+        # 認証応答から Authorization をコピーしない。
+  routers:
+    drivelens:
+      rule: "Host(`drivelens.example.com`)"
+      middlewares: ["oauth2-auth"]
+      service: drivelens
+```
+
+初回アクセスでブラウザをログインへ送りたい場合は、非 API パスの 401 を捕捉して oauth2-proxy の開始 URL（例：`/oauth2/start`）へリダイレクトし、`/api/` はプレーンな 401 のままにしてください。
+
+**Caddy**（骨格 — 同一オリジンのウェブ + API、先に認証確認）：
+
+```caddyfile
+drivelens.example.com {
+	# /oauth2/auth → セッションが無いとき 401（/api/ 向き）。
+	# Authorization を設定・上書きする oauth2-proxy オプションは使わない。
+	forward_auth oauth2-proxy:4180 {
+		uri /oauth2/auth
+	}
+	handle /api/* {
+		reverse_proxy drivelens-api:8080
+	}
+	handle /health {
+		reverse_proxy drivelens-api:8080
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+```
+
+同じホスト名の **Cloudflare Access** も同じ考え方です（そのホスト上のセッション）。セッションが無いとき API クライアントには HTML ログインへのリダイレクトより 401 を返し、`Authorization` を剥がしたり差し替えたりしないでください。
+
+**プロキシのセッションが切れたときのアプリの動き**
+
+プロキシが返す 401 では端末は**サインアウトしません**。保存済みの接続を消すのは、**drivelens-api** 自身が `401` で JSON `{"error":"unauthorized"}` を返したとき（端末トークンが失効・期限切れ）だけです。プロキシの 401/5xx やネットワークエラーはエラー表示のまま接続を残します。IdP に再ログインしてページを再読み込みしてください。
