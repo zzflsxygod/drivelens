@@ -78,7 +78,7 @@ DriveLens 由一个人开发维护，免费使用。如果对你有帮助，可�
 
 ## 参与贡献
 
-问题和建议请提交到 [Issues](https://github.com/zzflsxygod/drivelens/issues)。做新功能之前请先开 Issue 讨论，小修复可以直接提 PR。每个 commit 需要 DCO `Signed-off-by`。本地运行 API 和 App 的方法见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。更完整的开发说明见 [docs/DEVELOPMENT.zh.md](docs/DEVELOPMENT.zh.md)（[English](docs/DEVELOPMENT.md) · [日本語](docs/DEVELOPMENT.ja.md)）。安全问题请私下报告（[SECURITY.md](SECURITY.md)）。
+问题和建议请提交到 [Issues](https://github.com/zzflsxygod/drivelens/issues)。做新功能之前请先开 Issue 讨论，小修复可以直接提 PR。每个 commit 需要 DCO `Signed-off-by`。本地运行 API 和 App 的方法见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。更完整的开发说明见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)（英文）。安全问题请私下报告（[SECURITY.md](SECURITY.md)）。
 
 ## 许可证
 

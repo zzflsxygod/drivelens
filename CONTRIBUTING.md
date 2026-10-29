@@ -38,7 +38,7 @@ Commit messages and pull request titles/bodies are English. Issues follow the re
 
 ## Running DriveLens locally
 
-Longer notes (architecture, API overview, release and preview): [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) · [中文](docs/DEVELOPMENT.zh.md) · [日本語](docs/DEVELOPMENT.ja.md).
+Longer notes (architecture, API overview, release and preview): [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (English).
 
 Requirements: Rust stable (1.85+), Node.js 20+, PostgreSQL 14+ and Python 3 (for the sample data).
 
