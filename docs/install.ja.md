@@ -375,11 +375,12 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 
 - **`/api/`**（およびアプリが JSON として取るパス）では、未認証時はログイン HTML への **302** ではなく **401** を返してください。oauth2-proxy では `/oauth2/auth`（Traefik の `forwardAuth` / Caddy の `forward_auth` が使うエンドポイント）です。ログイン画面が必要な場合は、通常のページ読み込みだけ IdP へリダイレクトしてください。
 - 認証バックエンドが落ちているときは**閉じる**（5xx / 拒否）。リクエストを通さないでください。
-- クライアントの `Authorization: Bearer <DriveLens 端末トークン>` は**そのまま転送**してください。`Authorization` を設定・上書きする oauth2-proxy のオプション（例：`--set-authorization-header`、`--pass-authorization-header`）は使わないでください。DriveLens が自前のトークンを検証します。
+- クライアントの `Authorization: Bearer <DriveLens 端末トークン>` は**そのまま転送**してください。`--set-authorization-header` は使わないでください（Bearer が IdP のトークンに置き換わります）。`--pass-authorization-header` は oauth2-proxy が**自分で**上流へプロキシするときだけ意味があります。ForwardAuth ではアプリのリクエストをプロキシしないので、オフのままで構いません。DriveLens が自前のトークンを検証します。
+- ForwardAuth を使うときは、oauth2-proxy に `--reverse-proxy=true` と upstream `static://202`（または同等）を付け、`/oauth2/auth` に答えるだけにしてアプリの通信はプロキシしないでください。
 - DriveLens は**専用（サブ）ドメインのルート**で配信してください（例：`https://drivelens.example.com/`）。`/drivelens/` のようなサブパスは**非対応**です。`manifest.webmanifest`、Service Worker（`/sw.js`、スコープ `/`）、アセット URL はルート絶対パスです。
 - `manifest.webmanifest` は Cookie なしで取得されることがあります。ホーム画面への追加が失敗するなら認証対象外にしてください。`/health` を外すかは任意（死活監視用）。
 
-**Traefik**（骨格 — ホスト名とサービス名は置き換えてください）：
+**Traefik**（骨格 — ホスト名と URL は置き換えてください）：
 
 ```yaml
 http:
@@ -388,35 +389,63 @@ http:
       forwardAuth:
         address: "http://oauth2-proxy:4180/oauth2/auth"
         trustForwardHeader: true
-        # 認証応答から Authorization をコピーしない。
+        # Authorization を authResponseHeaders に入れない —
+        # DriveLens はクライアント元の Bearer が必要。
   routers:
+    # ログイン/コールバックは認証ミドルウェアなし（優先度高）。
+    oauth2:
+      rule: "Host(`drivelens.example.com`) && PathPrefix(`/oauth2/`)"
+      priority: 100
+      service: oauth2-proxy
     drivelens:
       rule: "Host(`drivelens.example.com`)"
+      priority: 1
       middlewares: ["oauth2-auth"]
       service: drivelens
+  services:
+    oauth2-proxy:
+      loadBalancer:
+        servers:
+          - url: "http://oauth2-proxy:4180"
+    drivelens:
+      loadBalancer:
+        servers:
+          - url: "http://drivelens-web:80"
 ```
 
 初回アクセスでブラウザをログインへ送りたい場合は、非 API パスの 401 を捕捉して oauth2-proxy の開始 URL（例：`/oauth2/start`）へリダイレクトし、`/api/` はプレーンな 401 のままにしてください。
 
-**Caddy**（骨格 — 同一オリジンのウェブ + API、先に認証確認）：
+**Caddy**（骨格 — 同一オリジンのウェブ + API；`/oauth2/*` は `forward_auth` を通さない）：
 
 ```caddyfile
 drivelens.example.com {
-	# /oauth2/auth → セッションが無いとき 401（/api/ 向き）。
-	# Authorization を設定・上書きする oauth2-proxy オプションは使わない。
-	forward_auth oauth2-proxy:4180 {
-		uri /oauth2/auth
+	# ログイン/コールバックは forward_auth を通さず oauth2-proxy へ
+	# （通すとコールバックがループする）。
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
 	}
-	handle /api/* {
-		reverse_proxy drivelens-api:8080
-	}
+
+	# 任意：死活監視用に /health は認証なし。
 	handle /health {
 		reverse_proxy drivelens-api:8080
 	}
+
 	handle {
-		root * /srv
-		try_files {path} /index.html
-		file_server
+		# /oauth2/auth → セッションが無いとき 401（/api/ 向き）。
+		# oauth2-proxy: --reverse-proxy=true --upstream=static://202；
+		# --set-authorization-header は使わない。
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+		}
+
+		handle /api/* {
+			reverse_proxy drivelens-api:8080
+		}
+		handle {
+			root * /srv
+			try_files {path} /index.html
+			file_server
+		}
 	}
 }
 ```
