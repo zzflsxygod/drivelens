@@ -375,11 +375,12 @@ Have the reverse proxy ask oauth2-proxy whether the request is authenticated, th
 
 - For **`/api/`** (and preferably for every path the app fetches as JSON), an unauthenticated request must get **401**, not a **302** redirect to a login HTML page. In oauth2-proxy terms that is the `/oauth2/auth` endpoint (used by Traefik `forwardAuth` / Caddy `forward_auth`). Redirect browsers to the IdP only for normal page loads if you want a login UX.
 - If the auth backend is down, **fail closed** (return 5xx / deny), do not let the request through.
-- Forward the client's `Authorization: Bearer <DriveLens device token>` **unchanged**. Do **not** enable oauth2-proxy options that set or overwrite `Authorization` (for example `--set-authorization-header`, `--pass-authorization-header`). DriveLens validates its own token.
+- Forward the client's `Authorization: Bearer <DriveLens device token>` **unchanged**. Do **not** enable `--set-authorization-header` (it would replace the Bearer token with an IdP token). `--pass-authorization-header` only matters when oauth2-proxy itself proxies to an upstream; with ForwardAuth it does not proxy the app request, so leave it off. DriveLens validates its own token.
+- When using ForwardAuth, run oauth2-proxy with `--reverse-proxy=true` and an upstream of `static://202` (or equivalent) so it only answers `/oauth2/auth` and does not proxy application traffic.
 - Serve DriveLens at the **root of its own (sub)domain** (e.g. `https://drivelens.example.com/`). Paths such as `/drivelens/` are **not supported**: `manifest.webmanifest`, the service worker (`/sw.js`, scope `/`) and asset URLs are root-absolute.
 - `manifest.webmanifest` is sometimes fetched without cookies — exclude it from auth if the install-as-app flow fails. Excluding `/health` is optional (useful for uptime checks).
 
-**Traefik** (sketch — replace the host and service with yours):
+**Traefik** (sketch — replace the host and URLs with yours):
 
 ```yaml
 http:
@@ -388,35 +389,63 @@ http:
       forwardAuth:
         address: "http://oauth2-proxy:4180/oauth2/auth"
         trustForwardHeader: true
-        # Do not copy Authorization from the auth response.
+        # Do not put Authorization in authResponseHeaders —
+        # DriveLens needs the client's Bearer token unchanged.
   routers:
+    # Login/callback without the auth middleware (higher priority).
+    oauth2:
+      rule: "Host(`drivelens.example.com`) && PathPrefix(`/oauth2/`)"
+      priority: 100
+      service: oauth2-proxy
     drivelens:
       rule: "Host(`drivelens.example.com`)"
+      priority: 1
       middlewares: ["oauth2-auth"]
       service: drivelens
+  services:
+    oauth2-proxy:
+      loadBalancer:
+        servers:
+          - url: "http://oauth2-proxy:4180"
+    drivelens:
+      loadBalancer:
+        servers:
+          - url: "http://drivelens-web:80"
 ```
 
 To send browsers to the login page on first visit, catch 401 on non-API paths and redirect to oauth2-proxy's start URL (e.g. `/oauth2/start`); keep `/api/` on a plain 401.
 
-**Caddy** (sketch — same-origin web + API, auth check before either):
+**Caddy** (sketch — same-origin web + API; `/oauth2/*` must bypass `forward_auth`):
 
 ```caddyfile
 drivelens.example.com {
-	# /oauth2/auth → 401 when there is no session (good for /api/).
-	# Do not enable oauth2-proxy options that set or overwrite Authorization.
-	forward_auth oauth2-proxy:4180 {
-		uri /oauth2/auth
+	# Login/callback must reach oauth2-proxy without forward_auth
+	# (otherwise the callback loops).
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
 	}
-	handle /api/* {
-		reverse_proxy drivelens-api:8080
-	}
+
+	# Optional: leave /health unauthenticated for uptime checks.
 	handle /health {
 		reverse_proxy drivelens-api:8080
 	}
+
 	handle {
-		root * /srv
-		try_files {path} /index.html
-		file_server
+		# /oauth2/auth → 401 when there is no session (good for /api/).
+		# oauth2-proxy: --reverse-proxy=true --upstream=static://202;
+		# leave --set-authorization-header off.
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+		}
+
+		handle /api/* {
+			reverse_proxy drivelens-api:8080
+		}
+		handle {
+			root * /srv
+			try_files {path} /index.html
+			file_server
+		}
 	}
 }
 ```

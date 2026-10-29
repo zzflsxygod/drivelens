@@ -375,11 +375,12 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 
 - 对 **`/api/`**（以及应用以 JSON 拉取的路径），未登录时必须返回 **401**，不要 **302** 跳到登录 HTML。在 oauth2-proxy 里就是 `/oauth2/auth`（配合 Traefik `forwardAuth` / Caddy `forward_auth`）。若需要登录页体验，只对普通页面跳转到 IdP。
 - 认证服务挂掉时要**拒绝放行**（返回 5xx / 拒绝），不能放行。
-- 把客户端的 `Authorization: Bearer <DriveLens 设备令牌>` **原样转发**。不要打开会设置或覆盖 `Authorization` 的 oauth2-proxy 选项（例如 `--set-authorization-header`、`--pass-authorization-header`）。DriveLens 会自己校验设备令牌。
+- 把客户端的 `Authorization: Bearer <DriveLens 设备令牌>` **原样转发**。不要打开 `--set-authorization-header`（它会用 IdP 令牌替换 Bearer）。`--pass-authorization-header` 只在 oauth2-proxy **自己**代理上游时才有意义；用 ForwardAuth 时它不代理应用请求，保持关闭即可。DriveLens 会自己校验设备令牌。
+- 使用 ForwardAuth 时，oauth2-proxy 需要 `--reverse-proxy=true`，以及上游 `static://202`（或等价配置），让它只回答 `/oauth2/auth`，不代理应用流量。
 - DriveLens 必须放在**自己（子）域名的根路径**（例如 `https://drivelens.example.com/`）。不支持 `/drivelens/` 这类子路径：`manifest.webmanifest`、Service Worker（`/sw.js`，作用范围 `/`）和静态资源路径都是根路径绝对地址。
 - `manifest.webmanifest` 有时会在没有 Cookie 的情况下被拉取——若「安装为应用」失败，可把它排除在认证之外。`/health` 是否排除可自定（方便做存活检查）。
 
-**Traefik**（示意——主机名和服务名请换成你的）：
+**Traefik**（示意——主机名和 URL 请换成你的）：
 
 ```yaml
 http:
@@ -388,35 +389,63 @@ http:
       forwardAuth:
         address: "http://oauth2-proxy:4180/oauth2/auth"
         trustForwardHeader: true
-        # 不要从认证响应里复制 Authorization。
+        # 不要把 Authorization 放进 authResponseHeaders —
+        # DriveLens 需要客户端原来的 Bearer 令牌。
   routers:
+    # 登录/回调不要挂认证中间件（更高优先级）。
+    oauth2:
+      rule: "Host(`drivelens.example.com`) && PathPrefix(`/oauth2/`)"
+      priority: 100
+      service: oauth2-proxy
     drivelens:
       rule: "Host(`drivelens.example.com`)"
+      priority: 1
       middlewares: ["oauth2-auth"]
       service: drivelens
+  services:
+    oauth2-proxy:
+      loadBalancer:
+        servers:
+          - url: "http://oauth2-proxy:4180"
+    drivelens:
+      loadBalancer:
+        servers:
+          - url: "http://drivelens-web:80"
 ```
 
 若希望浏览器首次访问时跳到登录页，可对非 API 路径捕获 401 并重定向到 oauth2-proxy 的起始地址（例如 `/oauth2/start`）；`/api/` 继续直接返回 401。
 
-**Caddy**（示意——同源网页 + API，先做认证检查）：
+**Caddy**（示意——同源网页 + API；`/oauth2/*` 必须绕过 `forward_auth`）：
 
 ```caddyfile
 drivelens.example.com {
-	# /oauth2/auth → 无会话时返回 401（适合 /api/）。
-	# 不要打开会设置或覆盖 Authorization 的 oauth2-proxy 选项。
-	forward_auth oauth2-proxy:4180 {
-		uri /oauth2/auth
+	# 登录/回调必须直达 oauth2-proxy，不能经过 forward_auth
+	# （否则回调会循环）。
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
 	}
-	handle /api/* {
-		reverse_proxy drivelens-api:8080
-	}
+
+	# 可选：/health 不做认证，方便存活检查。
 	handle /health {
 		reverse_proxy drivelens-api:8080
 	}
+
 	handle {
-		root * /srv
-		try_files {path} /index.html
-		file_server
+		# /oauth2/auth → 无会话时返回 401（适合 /api/）。
+		# oauth2-proxy: --reverse-proxy=true --upstream=static://202；
+		# 不要打开 --set-authorization-header。
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+		}
+
+		handle /api/* {
+			reverse_proxy drivelens-api:8080
+		}
+		handle {
+			root * /srv
+			try_files {path} /index.html
+			file_server
+		}
 	}
 }
 ```
