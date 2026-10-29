@@ -139,7 +139,7 @@ With drivelens-api 0.14.0 or later the app exchanges the server token for a toke
 | The browser blocks http server addresses | Use an https address (step 5) |
 | Can't reach / timed out | Check the address, that the tunnel or Tailscale is running and that the certificate is valid |
 | Isn't a DriveLens API | You entered the TeslaMate or Grafana address; use the drivelens-api address |
-| Server does not allow this site (CORS) | Update drivelens-api; if you set `DRIVELENS_CORS_ORIGINS`, include `https://drivelens-app.oharuru.com` |
+| Server does not allow this site (CORS) | Update drivelens-api; if you set `DRIVELENS_CORS_ORIGINS`, include `https://drivelens-app.oharuru.com`, pass it through the compose `environment:` line, and recreate the container |
 | Server is too old | Update drivelens-api (step 8) |
 | Pairing code is wrong or no longer valid | Codes work once within 10 minutes. Create a new one on a connected device |
 | Update the server to v0.14.0 or later (pairing code) | The server is older than 0.14.0: update drivelens-api (step 8) or connect with the server token |
@@ -160,7 +160,7 @@ With drivelens-api 0.14.0+ and app 1.2.0+ every phone, tablet or browser has its
 - **Lost a phone?** Disconnect it from another device. It is signed out on its next request and its cached data is removed.
 - **Disconnect all other devices** signs out everything except the device you are using.
 - **Change the server token** (if it may have leaked): put a new `DRIVELENS_API_TOKEN` into `.env` and run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`. Devices with a device token stay connected. Only apps older than 1.2.0, which still use the server token, need the new one.
-- Optional hardening: `DRIVELENS_OWNER_KEY_MODE=pair-only` makes the server token usable only for adding and managing devices (see [Environment variables](#environment-variables)).
+- Optional hardening: set `DRIVELENS_OWNER_KEY_MODE=pair-only` in `.env`, uncomment the matching line under `environment:` in `docker-compose.drivelens.yml`, and recreate the container (see [Environment variables](#environment-variables)). That makes the server token usable only for adding and managing devices.
 
 The device list needs `CREATE` on the `drivelens` schema and DriveLens tables owned by `drivelens_ro` (`deploy/setup.sql` sets this up). Without it the API logs `device auth disabled` and everything keeps working with the server token as before; see [Upgrading to 0.14.0](#upgrading-to-0140) for the one-time fix.
 
@@ -213,9 +213,9 @@ Read by drivelens-api:
 | --- | --- | --- |
 | `DATABASE_URL` | ✅ | `postgres://drivelens_ro:…@database:5432/teslamate`; the compose file builds it from `.env` |
 | `API_TOKEN` | ✅ | The server token (owner key): signs in a device for the first time and manages devices (16+ characters, 32+ random characters recommended); the compose file takes it from `DRIVELENS_API_TOKEN` |
-| `DRIVELENS_OWNER_KEY_MODE` | | `full` (default): the server token works for every request, as before. `pair-only`: the server token only works for adding and managing devices (`/api/auth/*`, anything else answers 403 `owner_key_pair_only`), and after too many failures it is not even checked until the 10-minute window ends — guessing it becomes useless while your devices keep working. Needs device auth; otherwise the API falls back to `full` and logs an error |
+| `DRIVELENS_OWNER_KEY_MODE` | | `full` (default): the server token works for every request, as before. `pair-only`: the server token only works for adding and managing devices (`/api/auth/*`, anything else answers 403 `owner_key_pair_only`), and after too many failures it is not even checked until the 10-minute window ends — guessing it becomes useless while your devices keep working. Needs device auth; otherwise the API falls back to `full` and logs an error. With the compose file: set it in `.env` **and** uncomment `- DRIVELENS_OWNER_KEY_MODE=${DRIVELENS_OWNER_KEY_MODE}` under `environment:` |
 | `BIND_ADDR` | | Listen address; `0.0.0.0:8080` in the image |
-| `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser; `*` = any. Default: the official web app only (plus the origins of the paused native apps). The older name `CORS_ORIGINS` also works |
+| `DRIVELENS_CORS_ORIGINS` | | Comma-separated web origins allowed to call the API from a browser; `*` = any. Default: the official web app only (plus the origins of the paused native apps). The older name `CORS_ORIGINS` also works. With the compose file: set it in `.env` **and** uncomment `- DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}` under `environment:` (leaving it commented keeps the default; an empty value would clear it) |
 | `DRIVELENS_VAPID_PRIVATE_KEY` | | Push signing key (base64url P-256). Normally unset: generated on first start and kept in the database |
 | `DRIVELENS_VAPID_SUBJECT` | | Contact sent to push services (`mailto:you@example.com` or an https URL). Default: the DriveLens project page |
 | `DRIVELENS_TRUST_PROXY_HEADERS` | | `true` = for the failed-login limit, take the client address from `CF-Connecting-IP` / `X-Forwarded-For` (only for requests that come from a local/private address, i.e. your tunnel or proxy). Default: off — the connection's own address is used, so behind a tunnel all clients share one limit. Device tokens are always checked, so connected devices are never locked out; in the default mode a correct server token is accepted too |
@@ -223,6 +223,8 @@ Read by drivelens-api:
 | `RUST_LOG` | | Log level, default `info` |
 
 In `.env` (used by `docker-compose.drivelens.yml`): `DRIVELENS_DB_PASS`, `DRIVELENS_API_TOKEN`, optional `DRIVELENS_DB_NAME` (default `teslamate`), `DRIVELENS_IMAGE` (default `ghcr.io/zzflsxygod/drivelens-api:latest`) and `CLOUDFLARE_TUNNEL_TOKEN` (only for the cloudflared service).
+
+Optional variables that the API reads (`DRIVELENS_CORS_ORIGINS`, `DRIVELENS_OWNER_KEY_MODE`, and similarly `DRIVELENS_TRUST_PROXY_HEADERS` / `DRIVELENS_VAPID_*` / `DRIVELENS_PUSH_HOSTS` if you set them) are **not** passed through by default: put the value in `.env`, add or uncomment the matching `- NAME=${NAME}` line under `drivelens-api` → `environment:` in `docker-compose.drivelens.yml`, then run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drivelens-api`. Leave those lines commented when unused — an empty value would clear the API default.
 
 ## Troubleshooting
 
