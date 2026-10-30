@@ -1,6 +1,7 @@
 # api-records — Cars, drives, charges, place aliases and manual charging costs
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.15.0, API level 16).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/main.rs` (records part: `LOC_CURRENCY`, `ListParams`, `Car`, `ChargeSummary`, `ChargePoint`, `fill_power`, `Drive`, `PathPoint`, `charge_select`, `drive_select`, `paged`, `drives_route`, `charges_route`, `car_months`, `list_cars`, `list_charges`, `get_charge`, `list_drives`, `get_drive`, `drive_path`, alias and cost handlers); `testdata/schema.sql` (TeslaMate columns read).
 > In this document, "the system" means the drivelens-api HTTP handlers for cars, drives, charges, drive paths, per-month totals, place aliases and manual charging costs.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

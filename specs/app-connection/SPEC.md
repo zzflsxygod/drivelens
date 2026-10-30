@@ -1,6 +1,7 @@
 # app-connection — Server connection, credentials and device auth (client)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/api.ts`, `app/src/setup.ts`, `app/src/version.ts`, `app/src/urlguard.ts`, `app/src/auth.ts`, `app/src/devices.ts`, and the call sites in `app/src/main.ts` (Settings › Server save handler, sign-out / revocation handling, start-up); visible texts from `app/src/locales/en.ts`; `README.md` "Privacy", `SECURITY.md`, `docs/install.md` "6. Connect the web app" and "Managing devices", `CHANGELOG.md` v1.1.1–v1.2.0.
 > In this document, "the system" means the part of the DriveLens app (web/PWA and Tauri) that stores the server connection, sends API requests, checks the server version, runs the first-run wizard, manages device tokens and the Settings › Server / Devices / Sign-out sections.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

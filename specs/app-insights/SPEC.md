@@ -1,6 +1,7 @@
 # app-insights — Monthly report, trends, footprint and battery health (app)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/report.ts`, `app/src/insights.ts`, and in `app/src/main.ts`: `openReport` (802-823), `openBattery` (799), `carInfo` (798), the home battery card (787-795), the report entry links in the home month card (642-643, 764), the feature gate for report links (859-861) and the `report` / `battery` deep links (945-946). Visible strings: `app/src/locales/en.ts`.
 > In this document, "the system" means the DriveLens app (web / Tauri) screens and helpers for the monthly report, 12-month trends, footprint map, battery health page and home battery card.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

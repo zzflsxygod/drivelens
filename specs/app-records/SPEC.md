@@ -1,6 +1,7 @@
 # app-records — Record lists, drive and charge detail pages, place and cost editing
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/infinite.ts`; `app/src/main.ts` (`esc`, `n`, `carQ`, `place`, `renameDialog`, `costBadge`, `costDialog`, `bindPlaces`, `showDrive`, `showCharges`, `chargeChart`, `showCharge`); `app/src/api.ts` (record types, `setAlias`, `resetAlias`, `setCost`, `resetCost`, `CURRENCIES`, `localeCurrency`, `defaultCurrency`, `fmtMoney`); `app/src/locales/en.ts` (visible strings).
 > In this document, "the system" means the DriveLens app's infinite record list component, the Charges tab, the drive and charge detail pages, and the place-rename and charging-cost dialogs.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

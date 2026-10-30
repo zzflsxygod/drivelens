@@ -1,6 +1,7 @@
 # app-journeys — Drives tab, journeys and share cards (client)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/journey.ts`, `app/src/journey2.ts`, the journey context and Journeys settings in `app/src/main.ts`
 > (`:189`, `:426-429`, `:454-464`, `:826-840`, `:947-948`), visible strings in `app/src/locales/en.ts`, `CHANGELOG.md`.
 > In this document, "the system" means the web/Tauri app's Drives tab (drive list with select mode, Journeys segment),

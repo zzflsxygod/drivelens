@@ -1,6 +1,7 @@
 # app-i18n — UI language, string tables and formatting
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/i18n.ts`, `app/src/locales/zh.ts`, `app/src/locales/en.ts`, `app/src/locales/ja.ts`, `app/scripts/check-i18n.mjs`; call sites in `app/src/main.ts`, `app/src/setup.ts`, `app/src/api.ts`, `app/src/map.ts`, `app/src/report.ts`.
 > In this document, "the system" means the app's localization layer: language resolution and `t()` in `app/src/i18n.ts`, the three locale dictionaries, the formatting helpers, and the `check-i18n` build gate.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

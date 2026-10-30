@@ -1,6 +1,7 @@
 # app-ui-kit — Shared UI components, design tokens and map
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/ui.ts`, `app/src/sheets.ts`, `app/src/toolbar.ts`, `app/src/totop.ts`, `app/src/scrollbar.ts`,
 > `app/src/icons.ts`, `app/src/palette.ts`, `app/src/map.ts`, `app/src/style.css`, `CHANGELOG.md`.
 > In this document, "the system" means the DriveLens app's shared UI layer: the CSS design system, the components that

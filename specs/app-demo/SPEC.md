@@ -1,6 +1,7 @@
 # app-demo — Demo mode (offline fictional car and in-browser mock API)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/demo.ts`, `app/src/demo/gen.ts`, `app/src/demo/server.ts`, `app/src/demo/routes.json`, `app/src/demo/README.md`, `app/scripts/demo/fetch-routes.py`; demo hooks in `app/src/main.ts`, `app/src/api.ts`, `app/src/auth.ts`, `app/src/devices.ts`, `app/src/notify.ts`, `app/src/setup.ts`, `app/vite.config.ts`.
 > In this document, "the system" means Demo Mode: the controller in `app/src/demo.ts`, the generated dataset (`gen.ts` + `routes.json`), the in-browser mock of the DriveLens API (`server.ts`) and the build script for the route data.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

@@ -1,6 +1,7 @@
 # app-platforms — Build targets, PWA and native shells
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources:
 > - Web / PWA: `app/vite.config.ts`, `app/package.json` (scripts), `app/index.html`, `app/web-public/_headers`, `app/src/vite-env.d.ts`, `app/src/pwa.ts`.
 > - Platform glue: `app/src/platform.ts`, except the back-stack logic, which `app-shell` owns.
