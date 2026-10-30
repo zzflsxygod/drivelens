@@ -89,6 +89,7 @@ Tauri (Windows / Android) builds.
   | CSS variable | `--hdr-h` on `<body>` | Real header height |
   | Body class | `demo` | Demo mode chrome |
   | Build env | `VITE_DONATE_URL`, `VITE_DONATE_WEB_ONLY` | Support card |
+  | Build env | `VITE_DRIVELENS_CHANNEL` | Preview strip (SHELL-003, SHELL-153) |
 
 ## 3. External behavior
 

@@ -61,6 +61,7 @@ The DriveLens app is a static client that talks directly to the user's own drive
 | `deviceId`, `deviceScope` | `app-connection` | The device's id and scope (`full`/`read`), cached from the server |
 | `uiLang`, `theme`, `labelLang`, `currency` | `app-shell` / `app-i18n` | Display preferences |
 | `journeyGap`, `speedColor`, `speedColorMax` (integer km/h, 30–250, default 120), `suggestionsOff`, `suggestionsCollapsed`, `dismissedDrives` | `app-journeys` / `app-records` | Feature preferences (speed color shared by drive + journey maps) |
+| `tpmsWarn` (default on), `tpmsWarnBar` (bar, 1.5–4.0, default 2.5) | `app-home` / `app-shell` | Tire-pressure warning (api_level ≥ 16) |
 
 ## 3. External behavior
 
