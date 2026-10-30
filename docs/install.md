@@ -75,7 +75,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivel
 The log should show:
 
 ```
-INFO drivelens_api: all features enabled (API level 15)
+INFO drivelens_api: all features enabled (API level 16)
 INFO drivelens_api: listening on 0.0.0.0:8080
 ```
 
@@ -279,7 +279,7 @@ With git and Docker you can build in the `node:22` image without installing Node
 
 ```bash
 cd teslamate
-TAG=v1.2.0   # replace with the latest release
+TAG=v1.3.1   # replace with the latest release
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
