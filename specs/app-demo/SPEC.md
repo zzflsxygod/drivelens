@@ -123,7 +123,7 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
 - **DEMO-036** When the mock gets a path, it SHALL strip trailing slashes. An unknown path or method SHALL get `404 {"error":"not found"}`. (src: app/src/demo/server.ts:426, 490)
 
 ### 3.5 Reported server
-- **DEMO-040** When `/health` or `/api/health` is requested with any method, the mock SHALL return `{"status":"ok","version":"0.14.0","api_level":15}`. The version is `LATEST_SERVER` and the level is the highest value in `FEATURE_LEVEL`, so every feature the app knows is shown. (src: app/src/demo.ts:26; app/src/demo/server.ts:6-9, 117-119, 430; app/src/setup.ts:14; app/src/version.ts:10; comment: app/src/demo/server.ts:6)
+- **DEMO-040** When `/health` or `/api/health` is requested with any method, the mock SHALL return `{"status":"ok","version":"0.15.0","api_level":16}`. The version is `LATEST_SERVER` and the level is the highest value in `FEATURE_LEVEL`, so every feature the app knows is shown. (src: app/src/demo.ts:26; app/src/demo/server.ts:6-9, 117-119, 430; app/src/setup.ts:14; app/src/version.ts:10; comment: app/src/demo/server.ts:6)
 
 ### 3.6 Dataset
 - **DEMO-050** When the dataset is generated, it SHALL cover 92 Tokyo-local days ending today. Tokyo time is a fixed UTC+9 offset with no DST. (src: app/src/demo/gen.ts:8-9, 64-65; doc: app/src/demo/README.md:7)
