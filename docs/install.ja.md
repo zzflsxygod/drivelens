@@ -75,7 +75,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml logs drivel
 ログに次のように表示されれば成功です。
 
 ```
-INFO drivelens_api: all features enabled (API level 15)
+INFO drivelens_api: all features enabled (API level 16)
 INFO drivelens_api: listening on 0.0.0.0:8080
 ```
 
@@ -279,7 +279,7 @@ git と Docker があれば、Node.js をインストールせずに `node:22` �
 
 ```bash
 cd teslamate
-TAG=v1.2.0   # Releases の最新版に置き換える
+TAG=v1.3.1   # Releases の最新版に置き換える
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"

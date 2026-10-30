@@ -34,6 +34,8 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Battery health:** health %, usable capacity now / new (kWh), degradation and charge cycles, calculated the same way as TeslaMate's Battery Health dashboard
 - **Notifications:** a trip summary when a drive ends and a monthly-report reminder on the 1st (web push, sent by your own server)
 - **Your names and costs:** rename places, enter charging costs manually in any currency
+- **Place search:** filter Drives and Journeys by place or journey name
+- **Tire pressure:** Home shows pressures from a recent drive when the car reported them; a warning appears below a threshold you set
 - English, 中文, 日本語 · light and dark themes · demo mode
 
 ## How it works
