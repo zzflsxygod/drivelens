@@ -126,7 +126,7 @@ DriveLens shows its UI in Chinese (中文), English and Japanese (日本語). Th
 
 ## 5. Constraints
 - Exactly three UI languages. Adding one touches `Lang`, `DICTS`, `BCP`, `systemLang`, the script's `LANGS` and the `<select>` options in `app/src/main.ts:411-412` and `app/src/setup.ts:160`. (src: app/src/i18n.ts:7-10, 13-20, 40; app/scripts/check-i18n.mjs:14)
-- Size at this commit: 558 keys in each table under 44 key prefixes. 115 Chinese strings contain placeholders, and 16 English strings use the plural form. (src: app/src/locales/zh.ts, en.ts, ja.ts, counted with grep)
+- Size at this commit: 580 keys in each table under 46 key prefixes. 117 Chinese strings contain placeholders, and 16 English strings use the plural form. (src: app/src/locales/zh.ts, en.ts, ja.ts, counted with grep)
 - The check's parser expects each entry on its own line in the form `"key": "value",`, with the value a JSON string literal. (src: app/scripts/check-i18n.mjs:17)
 - Hard-coded CJK text is not allowed in top-level `app/src/*.ts` code, apart from `中文`, `日本語` and `（往返）`. (src: app/scripts/check-i18n.mjs:43, 50-55)
 - `monthLabel` and `fmtMonthDay` expect strings that start with `YYYY-MM` / `YYYY-MM-DD`. (src: app/src/i18n.ts:62-68)

@@ -86,7 +86,7 @@ its own, plus one combined endpoint kept for an old app version (comment: api/sr
 
 ### 3.4 Combined summary (`GET /api/cars/{id}/summary`)
 
-- **SUM-030** When the request is valid, the system SHALL return one object whose top-level keys are the union of the `/status`, `/last-activity` and `/stats` responses (`car`, `state`, `position`, `software`, `location`, `last_drive`, `last_charge`, `stats`, `this_month`, `timezone`). (src: api/src/summary.rs:104-112, 252-259)
+- **SUM-030** When the request is valid, the system SHALL return one object whose top-level keys are the union of the `/status`, `/last-activity` and `/stats` responses (`car`, `state`, `position`, `software`, `tpms` (only when present, api_level ≥ 16; see SUM-001), `location`, `last_drive`, `last_charge`, `stats`, `this_month`, `timezone`). (src: api/src/summary.rs:104-112, 252-259)
 - **SUM-031** When car `id` does not exist, the system SHALL respond HTTP 404 `{"error": "car not found"}`; otherwise, when `tz` is invalid, HTTP 400 `{"error": "unknown tz"}`. (src: api/src/summary.rs:256-257)
 
 ## 4. Key design decisions

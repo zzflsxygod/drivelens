@@ -230,7 +230,7 @@ The server reports one integer `api_level` on `/health`. The app turns individua
 | 13 | v0.12.0 | web push | `push` |
 | 14 | v0.13.0 | TeslaMate-identical battery health | `tmHealth` |
 | 15 | v0.14.0 | device auth | `devices` |
-| 16 | v0.15.0 (unreleased batch) | place search (`q`) + car status TPMS | `driveSearch`, `tpms` |
+| 16 | v0.15.0 | place search (`q`) + car status TPMS | `driveSearch`, `tpms` |
 
 `tmHealth` is declared but no app code reads it; the app detects the TeslaMate method from the `tm` field of `/battery` (see app-insights). (src: app/src/version.ts:10)
 

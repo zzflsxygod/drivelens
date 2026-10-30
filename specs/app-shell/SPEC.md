@@ -157,7 +157,7 @@ Tauri (Windows / Android) builds.
 - **SHELL-077** When the shell hands context to the Drives / Journeys screens, the system SHALL expose feature availability as functions evaluated at call time (journeys, suggestion dismissal, paging, journeys phase 2, `canWrite`) together with the server's explanation texts. (src: app/src/main.ts:826-840)
 
 ### 3.8 Settings screen composition
-- **SHELL-080** When the Settings tab is shown, the system SHALL render, in this order: the demo card (demo mode only); Display; Journeys; the Notifications slot; the Install-as-app slot; the Server section (followed by the Try-demo card when demo mode is off); the Devices slot; the Sign-out card; Help & feedback; the Support card. (src: app/src/main.ts:406-437; doc: CHANGELOG.md v0.17.3)
+- **SHELL-080** When the Settings tab is shown, the system SHALL render, in this order: the demo card (demo mode only); Display; Journeys; Tire pressure (api_level ≥ 16 only, see SHELL-098); the Notifications slot; the Install-as-app slot; the Server section (followed by the Try-demo card when demo mode is off); the Devices slot; the Sign-out card; Help & feedback; the Support card. (src: app/src/main.ts:406-437; doc: CHANGELOG.md v0.17.3; src: `app/src/main.ts` settings (`lacks("tpms")` card))
 - **SHELL-081** When the Settings tab is shown, the system SHALL mount the Notifications section (`app-notifications`), the Devices section and the sign-out action (`app-connection`), and SHALL pass `leftServer` as the callback for leaving the server. (src: app/src/main.ts:438-441)
 
 ### 3.9 Display and Journeys preferences
