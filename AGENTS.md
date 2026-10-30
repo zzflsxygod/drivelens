@@ -155,9 +155,10 @@ builds), and the tag triggers in `windows.yml` / `android.yml` are commented out
 
 ## 8. Preview web app (before merge / release)
 
-The official web app is only updated on release. Before merging a user-visible UI change, or before
-asking the maintainer to release, deploy the branch to the **preview** Pages branch and have the
-maintainer check it on a real phone with real data:
+The official web app is only updated on release. **Every PR that is not docs-only** must be deployed to
+the **preview** Pages branch and confirmed by the maintainer before merge (not only UI PRs). Docs-only
+PRs skip preview. Before asking the maintainer to release, also deploy preview when the release
+includes web changes.
 
 ```bash
 gh workflow run web.yml --ref <branch> -f target=preview
@@ -168,6 +169,9 @@ gh workflow run web.yml --ref <branch> -f target=preview
 - Preview builds set `VITE_DRIVELENS_CHANNEL=preview` (visible "Preview" strip + distinct PWA name).
 - Production deploy is unchanged: release tags (and manual `target=production`) deploy to Pages `main`.
   A preview run must never write to production.
+- Preview shares the production API (CORS allows the preview origin). **API-only changes cannot be
+  exercised end-to-end on preview until a release** updates the server; verify those with demo mode or
+  other test data and say in the PR what still needs a post-release check.
 - The maintainer's server must list both origins in `DRIVELENS_CORS_ORIGINS` (official +
   `https://preview.drivelens-app.pages.dev`), pass that variable through the compose `environment:` block
   (uncomment `- DRIVELENS_CORS_ORIGINS=${DRIVELENS_CORS_ORIGINS}`), and recreate the container. A value in
