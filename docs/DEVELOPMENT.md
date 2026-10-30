@@ -117,6 +117,8 @@ Windows / Android packaging has been paused since v0.15.0: `.github/workflows/wi
 
 ### Preview environment (before merge / release)
 
+- **Every PR that is not docs-only** must be deployed to preview and confirmed by the maintainer before merge (see AGENTS.md §8). Docs-only PRs skip preview.
+- Preview shares the production API; API changes are not visible end-to-end on preview until a release.
 - Same Cloudflare Pages project `drivelens-app`. Running `gh workflow run web.yml --ref <branch> -f target=preview` by hand deploys to the Pages `preview` branch; the stable alias is `https://preview.drivelens-app.pages.dev`.
 - Preview builds set `VITE_DRIVELENS_CHANNEL=preview` (header “Preview” strip + distinct PWA name). Production (release tag or `-f target=production`) looks unchanged and still deploys to Pages `main`.
 - To let the preview origin call the API, set both the official and preview origins in `.env`, **and** pass the
