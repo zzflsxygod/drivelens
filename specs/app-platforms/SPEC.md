@@ -59,7 +59,7 @@ This module defines what each build produces and the security headers / CSP of e
 - **Provided interface:**
   - npm scripts: `dev`, `build`, `build:web`, `preview`, `preview:web`, `tauri`, `check:i18n` (src: app/package.json:7-15).
   - Build-time constants: `__APP_VERSION__`, `__WEB_BUILD__`, `__WEB_ORIGIN__` (src: app/vite.config.ts:161; app/src/vite-env.d.ts:2-6).
-  - Build-time environment: `VITE_WEB_ORIGIN`, `VITE_DONATE_URL`, `VITE_DONATE_WEB_ONLY`, `TAURI_DEV_HOST` (src: app/vite.config.ts:6, 9; app/src/vite-env.d.ts:8-11).
+  - Build-time environment: `VITE_WEB_ORIGIN`, `VITE_DONATE_URL`, `VITE_DONATE_WEB_ONLY`, `TAURI_DEV_HOST`, `VITE_DRIVELENS_CHANNEL` (`preview` = preview build; see PLAT-011, PLAT-012) (src: app/vite.config.ts:6, 9; app/src/vite-env.d.ts:8-11).
   - Web output (`app/dist-web/`): `index.html`, hashed `assets/*`, `sw.js`, `manifest.webmanifest`, `third-party-licenses.txt`, and the copied `web-public/*` (`_headers`, `favicon.ico`, `icons/*`).
   - Tauri output: `app/dist/`.
   - JS exports from `platform.ts`: `isTauri`, `isAndroid`, `isTouch`, `syncSystemBars`, `openExternal`, `canNativeShare`, `nativeShareImage`, `canNativeSave`, `nativeSaveImage`, `initPlatform`.
