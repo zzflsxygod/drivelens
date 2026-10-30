@@ -176,7 +176,6 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
   - for `/api/drives` only, when `q` is non-empty after trim (max 100 chars), filter to drives whose start or end display name contains the query case-insensitively before paging (issue #18).
 
   (src: app/src/demo/server.ts `list` / `/api/drives`)
-- **DEMO-071b** When `GET /api/journeys` includes a non-empty `q` (trimmed, max 100 chars), the mock SHALL filter to journeys whose name, start/end address, or any member drive's start/end display name contains the query case-insensitively, then apply limit/offset. (src: `app/src/demo/server.ts` `journeyList`; issue #18)
 
 - **DEMO-072** When `tz` is given to stats, months, report, trends or footprint and is not a valid IANA zone, the mock SHALL return `400 {"error":"unknown tz"}`. Without `tz` it SHALL use UTC. (src: app/src/demo/server.ts:45, 151, 173, 208, 242, 258)
 - **DEMO-073** When `month` is given to report, trends or footprint and does not match `YYYY-MM`, the mock SHALL return `400 "month must be YYYY-MM"`. A report for a future month SHALL get `400 "month is in the future"`. (src: app/src/demo/server.ts:209, 212, 243, 259)
@@ -208,6 +207,7 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
 - **DEMO-083** When a footprint is requested, the mock SHALL thin points with a minimum spacing that starts at 25 m and doubles up to 1,600 m until 8,000 points or fewer remain, then decimate if still above 8,000. (src: app/src/demo/server.ts:257-277)
 - **DEMO-084** When speed bands are requested, the mock SHALL split distance, energy and time into `city` (<40 km/h), `suburb` (40–80) and `highway` (>80), with `method: "power"` when more than half of the distance has measured power and `"distance"` otherwise. A missing or empty journey gets `{bands: [], method: "none"}`. (src: app/src/demo/server.ts:406-421)
 - **DEMO-085** When journey weather is requested, the mock SHALL return synthetic `temp_c` and `precip_mm` per drive. `source` is `"forecast"` for drives within the last 4 days and `"archive"` otherwise, with the attribution `Demo data (synthetic weather, no Open-Meteo request)`. (src: app/src/demo/server.ts:400-405)
+- **DEMO-086** When `GET /api/journeys` includes a non-empty `q` (trimmed, max 100 chars), the mock SHALL filter to journeys whose name, start/end address, or any member drive's start/end display name contains the query case-insensitively, then apply limit/offset. (src: `app/src/demo/server.ts` `journeyList`; issue #18)
 
 ### 3.8 Persisting edits
 - **DEMO-090** When a write succeeds, the mock SHALL save the demo state to `localStorage["drivelens-demo-state"]`. The state holds aliases, costs, journeys (with covers), the next journey id, dismissed drives and the Tokyo day. (src: app/src/demo/server.ts:13-15, 21, 31; doc: app/src/demo/README.md:16)
