@@ -1,6 +1,7 @@
 # ops-delivery — build, CI, packaging, release and deployment
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/Dockerfile`, `api/.dockerignore`, `api/drivelens-api.service`, `deploy/docker-compose.drivelens.yml`, `.github/workflows/{ci,docker,web,android,windows}.yml`, `.github/dependabot.yml`, `.github/ISSUE_TEMPLATE/*`, `.github/FUNDING.yml`, `scripts/pr.sh`, `scripts/pr-lib.sh`, `scripts/release.sh`, `scripts/release.conf`, `scripts/third-party-licenses.sh`, `api/deny.toml`, `api/about.toml`, `api/about.hbs`, `testdata/*`, `.gitignore`, `CONTRIBUTING.md`, `docs/DEVELOPMENT.md`, `docs/install.md`, `SECURITY.md`.
 > In this document, "the system" means the DriveLens delivery tooling: the container image and its build, the compose deployment template, the GitHub Actions workflows, the maintainer scripts, the license checks and the test fixtures.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

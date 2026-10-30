@@ -1,6 +1,7 @@
 # api-auth — Authentication, device tokens and pairing
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/auth.rs`, `api/src/main.rs` (`router`, `main`, `auth_tests`), `api/src/push.rs` (`subscribe`, device link only), `SECURITY.md`, `docs/install.md` ("Managing devices", "Upgrading to 0.14.0", "Environment variables", "Troubleshooting"), `CHANGELOG.md` (v1.1.2 server 0.13.1, v1.2.0 server 0.14.0).
 > In this document, "the system" means the drivelens-api authentication layer: the auth middleware in front of `/api/*`, the `/api/auth/*` endpoints, and the in-memory device index with its failure limits.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

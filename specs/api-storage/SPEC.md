@@ -1,6 +1,7 @@
 # api-storage — database access model, `drivelens` schema and feature degradation
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `deploy/setup.sql`, `deploy/drivelens-init.sql`, `deploy/drivelens-v0.6.0.sql`, `deploy/drivelens-v0.6.1.sql`, `deploy/drivelens-v0.7.0.sql`, `deploy/drivelens-v0.16.0.sql`; `api/src/main.rs` (`costs_ok`, `migrate`, `log_features`, `SETUP_HINT`, `COSTS_MISSING`); the DDL, `try_migrate` / `try_create_tables` and `*_ok` parts of `api/src/journey.rs`, `api/src/phase2.rs`, `api/src/push.rs`, `api/src/auth.rs`; `testdata/schema.sql`; `docs/install.md` ("3. Create the database account", "Upgrading to 0.14.0", "Troubleshooting", "Uninstall"); `docs/DEVELOPMENT.md` ("Database rules"); `CONTRIBUTING.md`; `CHANGELOG.md`.
 > In this document, "the system" means drivelens-api's storage layer: the one-time database setup script, the schema migration that runs at API startup, and the feature-availability checks that decide whether each optional feature works.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

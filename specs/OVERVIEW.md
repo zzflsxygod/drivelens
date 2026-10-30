@@ -1,6 +1,7 @@
 # DriveLens specifications — overview
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > This file lists the 20 module specs, shows how the modules depend on each other, and collects the
 > cross-cutting rules and the issues that span several modules.
 
@@ -20,7 +21,7 @@ Conventions used in every spec:
 
 - **Statement IDs.** Each statement has a module prefix and a number, for example `AUTH-012`. The prefixes are listed in the module table in section 3.
 - **Evidence.** Every statement ends with its source:
-  - `src:` a code location, at this commit, as `path:line` or `path:start-end`
+  - `src:` a code location at 9b1c39c, as `path:line` or `path:start-end`; for code added or rewritten after 9b1c39c, `path` plus a symbol name (for example `app/src/journey.ts` `mountList`)
   - `test:` an automated test that asserts the statement
   - `doc:` README, CHANGELOG, `docs/install*.md`, SECURITY.md or CONTRIBUTING.md
   - `comment:` a code comment that states intent
@@ -273,7 +274,7 @@ These summarize section 7 rows that appear in more than one spec or affect more 
 
 ## 7. Coverage and limits
 
-- **Static reading only.** The specs come from reading the code and docs at commit 9b1c39c. Nothing was built or run to produce them. The review also read dependency sources where behavior depended on them (tower-http 0.7 trace defaults, web-push-native 0.5.0 TTL / VAPID) and the GitHub Actions run history for `docker.yml`.
+- **Static reading only.** The specs come from reading the code and docs at commit 9b1c39c. Nothing was built or run to produce them. The review also read dependency sources where behavior depended on them (tower-http 0.7 trace defaults, web-push-native 0.5.0 TTL / VAPID) and the GitHub Actions run history for `docker.yml`. The specs were later updated for changes through 9bd5dd2.
 - **Tests.**
   - Server: the automated tests cover CORS, the public/protected route table, the auth helpers and the device flow, and push message texts and encryption. The device flow test runs only when `DRIVELENS_TEST_DATABASE_URL` is set.
   - App: no tests, apart from the `check-i18n` build check.
@@ -283,4 +284,4 @@ These summarize section 7 rows that appear in more than one spec or affect more 
   - behavior that depends on TeslaMate, PostgreSQL, browsers or libraries
   - claims of equivalence to TeslaMate's battery-health dashboard
   - CI and platform behavior that was not run
-- **Line references** point to commit 9b1c39c. They go stale as the code changes.
+- **Line references** point to commit 9b1c39c. They go stale as the code changes. Statements added for app v1.2.3 – v1.3.1 cite symbols instead (see section 1).

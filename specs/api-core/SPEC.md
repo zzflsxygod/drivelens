@@ -1,6 +1,7 @@
 # api-core — drivelens-api process, HTTP surface and cross-cutting rules
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/main.rs` (bootstrap, `router`, CORS, `/health`, `/api/health`, `ApiError`, `bad`, `paged`, `API_LEVEL`, `log_features`, test modules `cors_tests` and `auth_tests`), `api/Cargo.toml`, `README.md`, `SECURITY.md`, `docs/install.md`, `docs/DEVELOPMENT.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
 > In this document, "the system" means the drivelens-api process as a whole: its startup sequence, its route table, and the HTTP behavior that applies to every route (CORS, error envelope, health and version reporting).
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

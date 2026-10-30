@@ -1,6 +1,7 @@
 # api-push — Web Push notifications (server side)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/push.rs`; wiring in `api/src/main.rs` (`AppState.vapid` / `AppState.http`, `push::spawn`, routes, `/api/health`); the push-related parts of `api/src/auth.rs` (`PUSH_LINK_DDL`, scope check); `deploy/drivelens-v0.16.0.sql`; `docs/install.md` §7 and "Environment variables"; `SECURITY.md`; `CHANGELOG.md`.
 > In this document, "the system" means the drivelens-api web-push component: its `/api/push/*` endpoints, its background notifier task and its delivery client.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

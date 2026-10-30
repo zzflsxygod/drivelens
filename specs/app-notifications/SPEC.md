@@ -1,6 +1,7 @@
 # app-notifications — Notification settings and push handling (client side)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `app/src/notify.ts`; the `push` and `notificationclick` handlers in the generated service worker (`swSource` in `app/vite.config.ts`); the notification glue in `app/src/main.ts` (`mountNotifications`, `initNotificationClicks`, `openView`, `from=push`); `disable()` callers in `app/src/auth.ts`; `nt.*` strings in `app/src/locales/en.ts`; `docs/install.md` §7; `SECURITY.md`.
 > In this document, "the system" means the web app's notification component: the Settings › Notifications card, the browser push subscription it manages, and the service-worker code that shows pushes and routes taps.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).

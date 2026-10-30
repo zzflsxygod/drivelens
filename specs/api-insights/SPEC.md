@@ -1,6 +1,7 @@
 # api-insights — Monthly report, trends, footprint and battery health (server)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/report.rs`, `api/src/insights.rs`, plus the routes in `api/src/main.rs:882-885`, `third_party/teslamate/NOTICE`, `testdata/gen_battery_health.py`.
 > In this document, "the system" means the drivelens-api handlers for `/api/cars/{id}/report`, `/api/cars/{id}/trends`, `/api/cars/{id}/footprint` and `/api/cars/{id}/battery`.
 > Reviewed against `main` @ 9b1c39c on 2026-10-26: every former `TO CONFIRM` mark is resolved as *Confirmed from code*, *Confirmed (owner decision)*, *Confirmed (current scope / design)* or **[OWNER DECISION NEEDED]**, and every CB row in section 7 ends with a **Review** verdict (see OVERVIEW §1).
