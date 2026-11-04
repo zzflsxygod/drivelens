@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Web Push notifications (api_level 13): trip summary when a TeslaMate drive ends, monthly-report reminder on the 1st.
+//! api_level 17: optional vampire-drain alert when a parked gap loses ≥ threshold SoC points.
 //! Pure-Rust stack (web-push-native: RFC 8291 aes128gcm + RFC 8292 VAPID, RustCrypto) — no OpenSSL in the image.
 //! Only drivelens.push_subscriptions / drivelens.push_state are written; TeslaMate tables are read only (polled).
 use super::*;
@@ -33,6 +34,8 @@ pub const DDL: [&str; 2] = [
         auth text NOT NULL,
         trip_summary boolean NOT NULL DEFAULT true,
         monthly_report boolean NOT NULL DEFAULT true,
+        vampire_drain boolean NOT NULL DEFAULT false,
+        vampire_threshold_pct smallint NOT NULL DEFAULT 5,
         car_ids integer[],
         tz text NOT NULL DEFAULT 'UTC',
         locale text NOT NULL DEFAULT 'en' CHECK (locale IN ('zh', 'en', 'ja')),
@@ -49,11 +52,37 @@ pub const DDL: [&str; 2] = [
         updated_at timestamptz NOT NULL DEFAULT now())",
 ];
 
+pub const VAMPIRE_DDL: [&str; 2] = [
+    "ALTER TABLE drivelens.push_subscriptions ADD COLUMN IF NOT EXISTS vampire_drain boolean NOT NULL DEFAULT false",
+    "ALTER TABLE drivelens.push_subscriptions ADD COLUMN IF NOT EXISTS vampire_threshold_pct smallint NOT NULL DEFAULT 5",
+];
+
 pub async fn try_migrate(db: &PgPool) {
     let done: bool = sqlx::query_scalar("SELECT to_regclass('drivelens.push_subscriptions') IS NOT NULL AND to_regclass('drivelens.push_state') IS NOT NULL")
         .fetch_one(db).await.unwrap_or(false);
-    if done { return; }
-    for q in DDL { if let Err(e) = sqlx::query(q).execute(db).await { tracing::warn!("web push disabled: cannot create tables ({e}); {MISSING}"); return; } }
+    if !done {
+        for q in DDL {
+            if let Err(e) = sqlx::query(q).execute(db).await {
+                tracing::warn!("web push disabled: cannot create tables ({e}); {MISSING}");
+                return;
+            }
+        }
+    }
+    // api_level 17: additive columns on existing installs. Idempotent; never fatal.
+    let has_v: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'drivelens' AND table_name = 'push_subscriptions' AND column_name = 'vampire_drain')")
+        .fetch_one(db).await.unwrap_or(false);
+    if has_v { return; }
+    if !sqlx::query_scalar::<_, bool>("SELECT to_regclass('drivelens.push_subscriptions') IS NOT NULL").fetch_one(db).await.unwrap_or(false) {
+        return;
+    }
+    for q in VAMPIRE_DDL {
+        if let Err(e) = sqlx::query(q).execute(db).await {
+            tracing::warn!("vampire drain push prefs not applied ({e}); trip/monthly notifications keep working; as DB admin run: {}", VAMPIRE_DDL.join("; "));
+            return;
+        }
+    }
 }
 
 pub async fn push_ok(s: &AppState) -> Result<bool, ApiError> {
@@ -231,6 +260,35 @@ pub fn monthly_message(month: &str, l: &str, km: Option<f64>, drives: i64) -> Me
     };
     Message { title, body, tag: format!("report-{month}"), url: format!("/?view=report:{month}"), kind: "report" }
 }
+pub fn vampire_message(soc_lost: i32, hours: f64, range_km: Option<f64>, car_id: i64, l: &str, multi_car: bool, car_name: Option<&str>) -> Message {
+    let car = if multi_car { car_name.map(|n| format!("{n} · ")).unwrap_or_default() } else { String::new() };
+    let hrs = if hours >= 24.0 { format!("{:.0} d", hours / 24.0) } else { format!("{:.0} h", hours) };
+    let (title, body) = match lang(l) {
+        "zh" => (
+            format!("{car}停车耗电偏高 · −{soc_lost}%"),
+            match range_km {
+                Some(r) => format!("停放 {hrs}，续航少了 {r:.0} km。点按查看详情。"),
+                None => format!("停放 {hrs}。点按查看详情。"),
+            },
+        ),
+        "ja" => (
+            format!("{car}駐車中の電力消費が大きい · −{soc_lost}%"),
+            match range_km {
+                Some(r) => format!("駐車 {hrs}、航続が {r:.0} km 減りました。タップして詳細を表示。"),
+                None => format!("駐車 {hrs}。タップして詳細を表示。"),
+            },
+        ),
+        _ => (
+            format!("{car}High parked drain · −{soc_lost}%"),
+            match range_km {
+                Some(r) => format!("Parked {hrs}, {r:.0} km of range lost. Tap for details."),
+                None => format!("Parked {hrs}. Tap for details."),
+            },
+        ),
+    };
+    Message { title, body, tag: format!("vampire-{car_id}"), url: format!("/?view=vampire&car={car_id}"), kind: "vampire" }
+}
+
 fn test_message(l: &str) -> Message {
     let (title, body) = match lang(l) {
         "zh" => ("DriveLens 测试通知", "通知已开启：行程结束时和每月 1 日会在这里提醒你。"),
@@ -295,6 +353,9 @@ async fn trips(s: &AppState, v: &Vapid) -> anyhow::Result<()> {
                     }
                 }
             }
+            if let Err(e) = vampire_alert(s, v, *id).await {
+                tracing::warn!("push: vampire check for drive {id} failed: {e}");
+            }
             sent.push(*id);
         }
     }
@@ -305,6 +366,91 @@ async fn trips(s: &AppState, v: &Vapid) -> anyhow::Result<()> {
     sent.sort_unstable(); sent.dedup();
     if new_wm != wm { set_state(s, "drive_watermark", &new_wm.to_string()).await?; }
     set_state(s, "drive_sent", &sent.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")).await?;
+    Ok(())
+}
+
+
+#[derive(FromRow)]
+struct VampireSub {
+    id: i64, endpoint: String, p256dh: String, auth: String, tz: String, locale: String,
+    car_ids: Option<Vec<i32>>, fail_count: i32, vampire_threshold_pct: i16,
+}
+
+/// When a drive finishes, if the parked gap before it (no charging) lost ≥ the subscriber's threshold, notify.
+async fn vampire_alert(s: &AppState, v: &Vapid, drive_id: i64) -> anyhow::Result<()> {
+    let has_col: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'drivelens' AND table_name = 'push_subscriptions' AND column_name = 'vampire_drain')")
+        .fetch_one(&s.db).await?;
+    if !has_col { return Ok(()); }
+    let vsubs: Vec<VampireSub> = sqlx::query_as(
+        "SELECT id, endpoint, p256dh, auth, tz, locale, car_ids, fail_count, vampire_threshold_pct
+         FROM drivelens.push_subscriptions WHERE vampire_drain").fetch_all(&s.db).await?;
+    if vsubs.is_empty() { return Ok(()); }
+
+    #[derive(FromRow)]
+    struct Edge {
+        id: i64, car_id: i64, car_name: Option<String>,
+        start_date: String, end_date: String,
+        start_soc: Option<i32>, end_soc: Option<i32>,
+        start_rated_km: Option<f64>, end_rated_km: Option<f64>,
+    }
+    let cur: Option<Edge> = sqlx::query_as(&format!(
+        "SELECT d.id::int8 AS id, d.car_id::int8 AS car_id, c.name AS car_name,
+                to_char(d.start_date AT TIME ZONE 'UTC', '{TS}') AS start_date,
+                to_char(d.end_date AT TIME ZONE 'UTC', '{TS}') AS end_date,
+                sp.battery_level::int4 AS start_soc, ep.battery_level::int4 AS end_soc,
+                d.start_rated_range_km::float8 AS start_rated_km, d.end_rated_range_km::float8 AS end_rated_km
+         FROM drives d JOIN cars c ON c.id = d.car_id
+         LEFT JOIN positions sp ON sp.id = d.start_position_id
+         LEFT JOIN positions ep ON ep.id = d.end_position_id
+         WHERE d.id = $1 AND d.end_date IS NOT NULL")).bind(drive_id).fetch_optional(&s.db).await?;
+    let Some(cur) = cur else { return Ok(()) };
+    // Previous completed drive for the same car (by end_date).
+    let prev: Option<Edge> = sqlx::query_as(&format!(
+        "SELECT d.id::int8 AS id, d.car_id::int8 AS car_id, c.name AS car_name,
+                to_char(d.start_date AT TIME ZONE 'UTC', '{TS}') AS start_date,
+                to_char(d.end_date AT TIME ZONE 'UTC', '{TS}') AS end_date,
+                sp.battery_level::int4 AS start_soc, ep.battery_level::int4 AS end_soc,
+                d.start_rated_range_km::float8 AS start_rated_km, d.end_rated_range_km::float8 AS end_rated_km
+         FROM drives d JOIN cars c ON c.id = d.car_id
+         LEFT JOIN positions sp ON sp.id = d.start_position_id
+         LEFT JOIN positions ep ON ep.id = d.end_position_id
+         WHERE d.car_id = $1 AND d.end_date IS NOT NULL AND d.end_date < $2::timestamp AND d.id <> $3
+         ORDER BY d.end_date DESC LIMIT 1"))
+        .bind(cur.car_id as i16)
+        .bind(cur.start_date.replace('T', " ").trim_end_matches('Z'))
+        .bind(drive_id)
+        .fetch_optional(&s.db).await?;
+    let Some(prev) = prev else { return Ok(()) };
+    let drives = [
+        (prev.id, prev.start_date.clone(), prev.end_date.clone(), prev.start_soc, prev.end_soc, prev.start_rated_km, prev.end_rated_km),
+        (cur.id, cur.start_date.clone(), cur.end_date.clone(), cur.start_soc, cur.end_soc, cur.start_rated_km, cur.end_rated_km),
+    ];
+    let charges: Vec<(String, String)> = sqlx::query_as(&format!(
+        "SELECT to_char(start_date AT TIME ZONE 'UTC', '{TS}'),
+                to_char(COALESCE(end_date, now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', '{TS}')
+         FROM charging_processes
+         WHERE car_id = $1
+           AND start_date < replace(replace($3, 'T', ' '), 'Z', '')::timestamp
+           AND COALESCE(end_date, now() AT TIME ZONE 'UTC') > replace(replace($2, 'T', ' '), 'Z', '')::timestamp"))
+        .bind(cur.car_id as i16).bind(&prev.end_date).bind(&cur.start_date).fetch_all(&s.db).await?;
+    let Some(gap) = crate::insights::gap_before_drive(&drives, &charges, drive_id) else { return Ok(()) };
+    let lost = gap.soc_lost.unwrap_or(0);
+    if lost <= 0 { return Ok(()); }
+    // Only alert for gaps that finished recently (same STALE window as trips).
+    let ended_recently: bool = sqlx::query_scalar(
+        "SELECT $1::timestamp > (now() AT TIME ZONE 'UTC') - make_interval(hours => $2)")
+        .bind(cur.start_date.replace('T', " ").trim_end_matches('Z'))
+        .bind(STALE_HOURS).fetch_one(&s.db).await.unwrap_or(false);
+    if !ended_recently { return Ok(()); }
+    let multi: bool = sqlx::query_scalar("SELECT count(*) > 1 FROM cars").fetch_one(&s.db).await.unwrap_or(false);
+    for vs in vsubs {
+        if let Some(c) = &vs.car_ids { if !c.is_empty() && !c.contains(&(cur.car_id as i32)) { continue; } }
+        if lost < vs.vampire_threshold_pct as i32 { continue; }
+        let sub = Sub { id: vs.id, endpoint: vs.endpoint, p256dh: vs.p256dh, auth: vs.auth, tz: vs.tz, locale: vs.locale, car_ids: vs.car_ids, fail_count: vs.fail_count };
+        send(s, v, &sub, &vampire_message(lost, gap.duration_hours, gap.range_lost_km, cur.car_id, &sub.locale, multi, cur.car_name.as_deref()), TTL_TRIP).await;
+    }
     Ok(())
 }
 
@@ -369,16 +515,22 @@ pub async fn key(State(s): State<AppState>) -> Result<Response, ApiError> {
 pub struct Keys { p256dh: String, auth: String }
 #[derive(Deserialize)]
 pub struct SubscribeBody { endpoint: String, keys: Keys, trip_summary: Option<bool>, monthly_report: Option<bool>,
+    vampire_drain: Option<bool>, vampire_threshold_pct: Option<i16>,
     tz: Option<String>, locale: Option<String>, car_ids: Option<Vec<i32>>, user_agent: Option<String> }
 #[derive(Deserialize)]
 pub struct EndpointBody { endpoint: String }
 
 #[derive(Serialize, FromRow)]
-pub struct Prefs { #[sqlx(default)] #[serde(serialize_with = "always_true")] subscribed: bool, trip_summary: bool, monthly_report: bool, tz: String, locale: String, car_ids: Option<Vec<i32>>,
+pub struct Prefs { #[sqlx(default)] #[serde(serialize_with = "always_true")] subscribed: bool, trip_summary: bool, monthly_report: bool,
+    #[sqlx(default)] vampire_drain: bool, #[sqlx(default)] vampire_threshold_pct: i16,
+    tz: String, locale: String, car_ids: Option<Vec<i32>>,
     created_at: Option<String>, last_success_at: Option<String>, last_error: Option<String> }
 fn always_true<S: serde::Serializer>(_: &bool, s: S) -> Result<S::Ok, S::Error> { s.serialize_bool(true) }
 fn prefs_sql() -> String {
-    format!("SELECT trip_summary, monthly_report, tz, locale, car_ids, to_char(created_at AT TIME ZONE 'UTC', '{TS}') AS created_at,
+    // COALESCE keeps older DBs without the columns readable until try_migrate adds them (should already be there).
+    format!("SELECT trip_summary, monthly_report,
+        COALESCE(vampire_drain, false) AS vampire_drain, COALESCE(vampire_threshold_pct, 5)::int2 AS vampire_threshold_pct,
+        tz, locale, car_ids, to_char(created_at AT TIME ZONE 'UTC', '{TS}') AS created_at,
         to_char(last_success_at AT TIME ZONE 'UTC', '{TS}') AS last_success_at, last_error FROM drivelens.push_subscriptions WHERE endpoint = $1")
 }
 
@@ -464,16 +616,20 @@ pub async fn subscribe(State(s): State<AppState>, principal: Option<axum::Extens
     // last_monthly = last month: subscribing on the 1st does not immediately fire a reminder for a month already over
     let device = match principal { Some(axum::Extension(crate::auth::Principal::Device { id, .. })) => Some(id), _ => None };
     let link = s.auth.push_link();
-    let (dcol, dval, dset) = if link { (", device_id", ", $10", ", device_id = EXCLUDED.device_id") } else { ("", "", "") };
+    let (dcol, dval, dset) = if link { (", device_id", ", $12", ", device_id = EXCLUDED.device_id") } else { ("", "", "") };
+    let thr = b.vampire_threshold_pct.map(|v| v.clamp(1, 50));
     let sql = format!(
-        "INSERT INTO drivelens.push_subscriptions (endpoint, p256dh, auth, trip_summary, monthly_report, tz, locale, car_ids, user_agent, last_monthly{dcol})
-         VALUES ($1, $2, $3, COALESCE($4, true), COALESCE($5, true), $6, $7, $8, $9, to_char((now() AT TIME ZONE $6) - interval '1 month', 'YYYY-MM'){dval})
+        "INSERT INTO drivelens.push_subscriptions (endpoint, p256dh, auth, trip_summary, monthly_report, vampire_drain, vampire_threshold_pct, tz, locale, car_ids, user_agent, last_monthly{dcol})
+         VALUES ($1, $2, $3, COALESCE($4, true), COALESCE($5, true), COALESCE($6, false), COALESCE($7, 5), $8, $9, $10, $11, to_char((now() AT TIME ZONE $8) - interval '1 month', 'YYYY-MM'){dval})
          ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth,
            trip_summary = COALESCE($4, push_subscriptions.trip_summary), monthly_report = COALESCE($5, push_subscriptions.monthly_report),
+           vampire_drain = COALESCE($6, push_subscriptions.vampire_drain),
+           vampire_threshold_pct = COALESCE($7, push_subscriptions.vampire_threshold_pct),
            tz = EXCLUDED.tz, locale = EXCLUDED.locale, car_ids = EXCLUDED.car_ids, user_agent = COALESCE(EXCLUDED.user_agent, push_subscriptions.user_agent),
            fail_count = 0, last_error = NULL, updated_at = now(){dset}");
     let q = sqlx::query(&sql)
         .bind(&b.endpoint).bind(b.keys.p256dh.trim()).bind(b.keys.auth.trim()).bind(b.trip_summary).bind(b.monthly_report)
+        .bind(b.vampire_drain).bind(thr)
         .bind(&tz).bind(&locale).bind(&cars).bind(&ua);
     if link { q.bind(device) } else { q }.execute(&s.db).await?;
     let p: Prefs = sqlx::query_as(&prefs_sql()).bind(&b.endpoint).fetch_one(&s.db).await?;
@@ -521,6 +677,16 @@ mod tests {
         assert_eq!(trip_message(&trip(), "zh", true).title, "Model Y · 行程结束 · 23.4 km");
         assert!(trip_message(&trip(), "ja", false).body.contains("1時間23分"));
         assert_eq!(trip_message(&trip(), "xx", false).title, "Trip finished · 23.4 km");
+    }
+    #[test]
+    fn vampire_texts() {
+        let m = vampire_message(12, 18.0, Some(42.0), 1, "en", false, None);
+        assert_eq!(m.title, "High parked drain · −12%");
+        assert!(m.body.contains("42"));
+        assert_eq!(m.url, "/?view=vampire&car=1");
+        assert_eq!(m.kind, "vampire");
+        assert!(vampire_message(5, 6.0, None, 2, "zh", true, Some("Demo")).title.contains("停车耗电"));
+        assert!(vampire_message(5, 30.0, Some(10.0), 2, "ja", false, None).body.contains("航続"));
     }
     #[test]
     fn monthly_texts() {
