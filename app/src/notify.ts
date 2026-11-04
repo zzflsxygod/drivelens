@@ -11,7 +11,7 @@ import { isIOS, isStandalone } from "./pwa";
 import { lacks, featureText, serverReady, onServerInfo } from "./version";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-interface Prefs { subscribed: boolean; trip_summary?: boolean; monthly_report?: boolean; tz?: string; locale?: string; last_success_at?: string | null; last_error?: string | null }
+interface Prefs { subscribed: boolean; trip_summary?: boolean; monthly_report?: boolean; vampire_drain?: boolean; vampire_threshold_pct?: number; tz?: string; locale?: string; last_success_at?: string | null; last_error?: string | null }
 type State =
   | { k: "loading" } | { k: "app" } | { k: "unsupported" } | { k: "ios" } | { k: "insecure" } | { k: "old" } | { k: "missing" }
   | { k: "denied" } | { k: "off" } | { k: "on"; p: Prefs } | { k: "error"; msg: string };
@@ -66,7 +66,7 @@ async function detect(): Promise<State> {
 
 /** Must run inside the click handler: Safari only shows the permission prompt for a direct user gesture. */
 async function enable(): Promise<State> {
-  if (isDemo()) { const p = { subscribed: true, trip_summary: true, monthly_report: true }; saveDemo(p); return { k: "on", p }; }
+  if (isDemo()) { const p = { subscribed: true, trip_summary: true, monthly_report: true, vampire_drain: false, vampire_threshold_pct: 5 }; saveDemo(p); return { k: "on", p }; }
   const perm = await Notification.requestPermission();
   if (perm === "denied") return { k: "denied" };
   if (perm !== "granted") return { k: "off" };
@@ -87,10 +87,16 @@ export async function disable(): Promise<State> {
   if (s) { await api("/api/push/unsubscribe", "POST", { endpoint: s.endpoint }).catch(() => {}); await s.unsubscribe().catch(() => {}); }
   return { k: "off" };
 }
-async function setPref(field: "trip_summary" | "monthly_report", on: boolean): Promise<Prefs> {
+async function setPref(field: "trip_summary" | "monthly_report" | "vampire_drain", on: boolean): Promise<Prefs> {
   if (isDemo()) { const p = { ...demoPrefs(), [field]: on }; saveDemo(p); return p; }
   const s = await browserSub(); if (!s) throw new Error(t("nt.lost"));
   return api<Prefs>("/api/push/subscription", "POST", body(s, { [field]: on }));
+}
+async function setVampireThreshold(pct: number): Promise<Prefs> {
+  const v = Math.min(50, Math.max(1, Math.round(pct)));
+  if (isDemo()) { const p = { ...demoPrefs(), vampire_threshold_pct: v }; saveDemo(p); return p; }
+  const s = await browserSub(); if (!s) throw new Error(t("nt.lost"));
+  return api<Prefs>("/api/push/subscription", "POST", body(s, { vampire_threshold_pct: v }));
 }
 async function sendTest(): Promise<void> {
   if (isDemo()) { demoPreview(); return; }
@@ -144,6 +150,12 @@ export function mountNotifications(slot: HTMLElement) {
         <div class="nt-sub${on ? " open" : ""}" ${on ? "" : "inert"}><div>
           ${row("nt-trip", ic("car"), "nt.trip", "nt.tripSub", !!p?.trip_summary, busy || !on)}
           ${row("nt-month", ic("chart"), "nt.month", "nt.monthSub", !!p?.monthly_report, busy || !on)}
+          ${row("nt-vamp", ic("battery"), "nt.vamp", "nt.vampSub", !!p?.vampire_drain, busy || !on)}
+          <label class="nt-thr${(!on || !p?.vampire_drain) ? " dis" : ""}" id="nt-vamp-thr-wrap">
+            <span>${t("nt.vampThr")}</span>
+            <span class="unit-field"><input id="nt-vamp-thr" type="number" inputmode="numeric" min="1" max="50" step="1" value="${p?.vampire_threshold_pct ?? 5}" ${(!on || !p?.vampire_drain || busy) ? "disabled" : ""}><span class="unit-suf">${t("nt.vampUnit")}</span></span>
+          </label>
+          <p class="muted tiny nt-vamp-hint">${t("nt.vampHint")}</p>
           <div class="nt-actions"><button class="ghost small" id="nt-test"${busy || !on ? " disabled" : ""}>${t("nt.test")}</button>
             <span class="muted small nt-msg" aria-live="polite">${esc(msg)}</span></div>
           ${isDemo() ? `<p class="muted tiny">${t("nt.demo")}</p>` : `<p class="muted tiny">${t("nt.where")}</p>`}
@@ -165,12 +177,25 @@ export function mountNotifications(slot: HTMLElement) {
       // enable(): requestPermission is the first await in the gesture
       void run(() => want ? enable() : disable());
     };
-    for (const [id, field] of [["nt-trip", "trip_summary"], ["nt-month", "monthly_report"]] as const) {
+    for (const [id, field] of [["nt-trip", "trip_summary"], ["nt-month", "monthly_report"], ["nt-vamp", "vampire_drain"]] as const) {
       const c = slot.querySelector<HTMLInputElement>(`#${id}`);
       if (c) c.onchange = () => {
         c.closest(".nt-switch")?.classList.toggle("on", c.checked);
         void run(async () => { const p = await setPref(field, c.checked); return { k: "on", p: { ...p, subscribed: true } }; });
       };
+    }
+    const thr = slot.querySelector<HTMLInputElement>("#nt-vamp-thr");
+    if (thr) {
+      const cur = st.k === "on" ? (st as { p: Prefs }).p : null;
+      const commit = () => {
+        const v = Number(thr.value);
+        if (!Number.isFinite(v)) { thr.value = String(cur?.vampire_threshold_pct ?? 5); return; }
+        const next = Math.min(50, Math.max(1, Math.round(v)));
+        thr.value = String(next);
+        if (next === (cur?.vampire_threshold_pct ?? 5)) return;
+        void run(async () => { const np = await setVampireThreshold(next); return { k: "on", p: { ...np, subscribed: true } }; });
+      };
+      thr.onchange = commit; thr.onblur = commit;
     }
     const tb = slot.querySelector<HTMLButtonElement>("#nt-test");
     if (tb) tb.onclick = () => void run(async () => { await sendTest(); }, isDemo() ? "" : t("nt.testSent"));
