@@ -869,3 +869,13 @@ html.touch * { -webkit-tap-highlight-color: transparent; }
   .kv b { font-size: 13px; letter-spacing: -.04em; }
   .ov b { font-size: 21px; }
 }
+
+/* Vampire drain alert threshold (Settings → Notifications) */
+.nt-thr { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 12px 8px 48px; font-size: 13px; }
+.nt-thr.dis { opacity: 0.45; }
+.nt-thr .unit-field { display: inline-flex; align-items: center; gap: 4px; }
+.nt-thr input { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.nt-vamp-hint { padding: 0 12px 8px 48px; margin: 0; }
+.vamp-card .bat-ring b small { font-size: 11px; }
+.vamp-period { margin-bottom: 8px; }
+.vamp-period .vamp-lost { margin-left: auto; color: var(--amber); font-variant-numeric: tabular-nums; }

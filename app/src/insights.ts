@@ -5,8 +5,9 @@
 import { skey } from "./demo";
 import { ic } from "./icons";
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
+import { featureText, lacks, serverReady } from "./version";
 import { DriveMap } from "./map";
-import { t, monthLabel, fmtNum } from "./i18n";
+import { t, monthLabel, fmtNum, fmtDateTime } from "./i18n";
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const n = (v: number | null | undefined, d = 0) => fmtNum(v, d);
@@ -328,4 +329,101 @@ export async function loadReportExtras(box: HTMLElement, carId: number, month: s
   api<{ months: TM[] }>(`/api/cars/${carId}/trends?month=${month}&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(r => {
     if (!alive()) return; trendWin = { car: carId, months: r.months }; trends.style.opacity = ""; trends.innerHTML = trendsHTML(r.months, month);
   }).catch(e => { if (alive()) { trends.style.opacity = ""; trends.innerHTML = `<div class="error">${esc(t("tr.err", { e: (e as Error).message }))}</div>`; } });
+}
+
+
+// ---------------- Vampire drain (api_level ≥ 17) ----------------
+export type Vampire = {
+  days: number;
+  timezone: string;
+  from: string;
+  summary: {
+    parked_hours: number;
+    soc_lost_pct: number | null;
+    range_lost_km: number | null;
+    avg_soc_per_day: number | null;
+    avg_range_km_per_day: number | null;
+    period_count: number;
+  };
+  periods: {
+    start: string; end: string; duration_hours: number;
+    start_soc: number | null; end_soc: number | null; soc_lost: number | null;
+    start_rated_km: number | null; end_rated_km: number | null; range_lost_km: number | null;
+    ongoing: boolean;
+  }[];
+};
+
+function fmtHours(h: number) {
+  if (h >= 48) return `${n(h / 24, 1)} d`;
+  if (h >= 24) return `${n(h / 24, 1)} d`;
+  return `${n(h, 1)} h`;
+}
+
+export function vampireCardHTML(v: Vampire) {
+  const s = v.summary;
+  const avg = s.avg_soc_per_day;
+  const ring = avg == null ? 0 : Math.min(100, Math.round(avg * 10)); // visual only
+  return `<div class="section-title">${t("vamp.title")} <a class="link" data-vampire>${t("vamp.open")}</a></div>
+    <div class="card bat-card vamp-card" data-vampire>
+      <div class="bat-ring" style="--p:${Math.max(8, 100 - ring)}"><b>${avg == null ? "—" : n(avg, 1)}<small>%/d</small></b></div>
+      <div class="bat-info tm">
+        <div class="bat-kv">
+          <div><small>${t("vamp.avgDay")}</small><b>${avg == null ? "—" : `${n(avg, 1)}%`}</b></div>
+          <div><small>${t("vamp.lost")}</small><b>${s.soc_lost_pct == null ? "—" : `−${s.soc_lost_pct}%`}</b></div>
+          <div><small>${t("vamp.parked")}</small><b>${fmtHours(s.parked_hours)}</b></div>
+          <div><small>${t("vamp.days", { n: v.days })}</small><b>${t("vamp.periods", { n: s.period_count })}</b></div>
+        </div>
+        <div class="muted small-note">${t("vamp.hint")}</div>
+      </div>
+    </div>`;
+}
+
+export async function showVampire(view: HTMLElement, carId: number, back: () => void) {
+  view.innerHTML = `<button class="back" data-title="${t("vamp.pageTitle")}">${t("common.back")}</button><div class="muted">${t("common.loading")}</div>`;
+  (view.querySelector(".back") as HTMLElement).onclick = back;
+  await serverReady();
+  if (lacks("vampire")) {
+    view.insertAdjacentHTML("beforeend", `<div class="error card-error">${ic("alert")} ${esc(featureText("vampire"))}</div><div class="muted">${t("vamp.needServer")}</div>`);
+    return;
+  }
+  let v: Vampire;
+  try {
+    v = await api<Vampire>(`/api/cars/${carId}/vampire?days=30&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}`);
+  } catch (e) {
+    view.insertAdjacentHTML("beforeend", `<div class="error">${ic("alert")} ${esc(t("vamp.err", { e: (e as Error).message }))}</div>`);
+    return;
+  }
+  const s = v.summary;
+  const rows = v.periods.length === 0
+    ? `<div class="empty"><span>${t("vamp.empty")}</span></div>`
+    : v.periods.map(p => {
+      const soc = p.soc_lost == null ? "—" : `−${p.soc_lost}%`;
+      const range = p.range_lost_km == null ? "" : ` · −${n(p.range_lost_km, 1)} km`;
+      const socLine = (p.start_soc != null && p.end_soc != null)
+        ? `${p.start_soc}% → ${p.end_soc}%`
+        : "—";
+      return `<div class="card vamp-period">
+        <div class="row"><b>${fmtHours(p.duration_hours)}</b><span class="muted">${p.ongoing ? t("vamp.ongoing") : ""}</span>
+          <b class="vamp-lost">${soc}${range}</b></div>
+        <div class="row muted">${fmtDateTime(p.start)} → ${fmtDateTime(p.end)}</div>
+        <div class="stats"><span>${ic("battery")} ${t("vamp.soc")} ${socLine}</span>
+          ${p.start_rated_km != null && p.end_rated_km != null ? `<span>${ic("route")} ${t("vamp.range")} ${n(p.start_rated_km, 1)} → ${n(p.end_rated_km, 1)} km</span>` : ""}</div>
+      </div>`;
+    }).join("");
+  view.innerHTML = `<button class="back" data-title="${t("vamp.pageTitle")}">${t("common.back")}</button>
+    <div class="pane" style="margin-top:12px">
+      <div class="card bat-card vamp-card">
+        <div class="bat-ring" style="--p:${s.avg_soc_per_day == null ? 90 : Math.max(8, 100 - Math.min(100, Math.round(s.avg_soc_per_day * 10)))}">
+          <b>${s.avg_soc_per_day == null ? "—" : n(s.avg_soc_per_day, 1)}<small>%/d</small></b></div>
+        <div class="bat-info tm"><div class="bat-kv">
+          <div><small>${t("vamp.avgDay")}</small><b>${s.avg_soc_per_day == null ? "—" : `${n(s.avg_soc_per_day, 1)}%`}</b></div>
+          <div><small>${t("vamp.lost")}</small><b>${s.soc_lost_pct == null ? "—" : `−${s.soc_lost_pct}%`}</b></div>
+          <div><small>${t("vamp.parked")}</small><b>${fmtHours(s.parked_hours)}</b></div>
+          <div><small>${t("vamp.range")}</small><b>${s.range_lost_km == null ? "—" : `−${n(s.range_lost_km, 1)} km`}</b></div>
+        </div><div class="muted small-note">${t("vamp.days", { n: v.days })} · ${t("vamp.periods", { n: s.period_count })}<br>${t("vamp.hint")}</div></div>
+      </div>
+      <div class="section-title" style="margin-top:16px"><span>${t("vamp.periods", { n: s.period_count })}</span></div>
+      ${rows}
+    </div>`;
+  (view.querySelector(".back") as HTMLElement).onclick = back;
 }
