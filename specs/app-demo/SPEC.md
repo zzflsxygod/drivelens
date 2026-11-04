@@ -248,6 +248,9 @@ Mock endpoints (`app/src/demo/server.ts:424-491`, `508-532`). Every request is a
 - **DEMO-131** When leg names are passed as arguments, the script SHALL re-fetch only those legs, keep the others from the committed file, and stop with `unknown pair(s): …` for names that are not in `PAIRS`. (src: app/scripts/demo/fetch-routes.py:86-91; doc: app/src/demo/README.md:10)
 - **DEMO-132** When a request fails, the script SHALL retry up to 5 times, waiting 2, 4, 6… s, and then stop with `failed <url>`. It sends `User-Agent: DriveLens-demo-builder` and pauses 0.4 s between elevation batches and 1.1 s between legs. (src: app/scripts/demo/fetch-routes.py:32-39, 113, 124)
 
+### Vampire drain mock (api_level ≥ 17)
+- **DEMO-140** When `/api/cars/{id}/vampire` is requested, the mock SHALL return a summary and parked periods derived from the demo drives (excluding gaps that contain a demo charge), with fictional SoC loss. (src: app/src/demo/server.ts `vampire`)
+
 ## 4. Key design decisions
 - **D-1 Mock at the `fetch` layer.** The demo uses its own API address, so `api()`, the version check and every screen run their normal code. (comment: app/src/demo.ts:2-5; comment: app/src/demo/server.ts:2-3) Confirmed: The `.invalid` top-level domain was chosen because it is reserved (RFC 2606 / RFC 6761) and never resolves, so a request that bypassed the wrapper could not reach anyone.
 - **D-2 Lazy-loaded chunk.** The main bundle carries only the small controller. The mock, the generator and `routes.json` (about 77 KB raw / 32 KB gzip) load on the first demo request. (comment: app/src/demo.ts:2-3; doc: app/src/demo/README.md:4)

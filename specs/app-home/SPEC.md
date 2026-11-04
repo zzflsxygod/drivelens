@@ -117,6 +117,10 @@ temperatures, location on a map, this month at a glance, the latest drive and ch
 - **HOME-080** When the user on a touch device pulls down at least 60 px from the top of the Home tab and releases, the system SHALL reload Home. While pulling, it SHALL show "Pull to refresh", which changes to "Release to refresh" past 60 px; the hint height is capped at 70 px. (src: app/src/main.ts:888-904; doc: app/src/locales/en.ts:118-119)
 - **HOME-081** When the selected car changes, the system SHALL store it as the last-shown car and re-render the active tab. (src: app/src/main.ts:931)
 
+### Vampire drain card (api_level ≥ 17)
+- **HOME-090** When the server supports `vampire` and Home is shown, the system SHALL request `GET /api/cars/{id}/vampire?days=30&tz=` and render a home card (no new bottom tab) summarizing average daily SoC loss; tapping it SHALL open the vampire detail page. On older servers the card SHALL be omitted. (src: app/src/main.ts `showHome` / `openVampire`; app/src/insights.ts `vampireCardHTML` / `showVampire`)
+- **HOME-091** When `?view=vampire` (or a push tap with that view) is opened, the system SHALL show the vampire detail page for the current car. (src: app/src/main.ts `openView`)
+
 ## 4. Key design decisions
 
 - **D-1 Cache first, then three independent requests.** Home paints the last snapshot at once. It then loads status, activity and statistics in parallel, so one slow or failing section does not block the others. (comment: app/src/main.ts:769, 772; doc: CHANGELOG.md v0.3.0 – v0.3.2) This is why the server splits these endpoints (`api-summary` D-1).

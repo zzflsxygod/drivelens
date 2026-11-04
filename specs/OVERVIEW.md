@@ -1,6 +1,6 @@
 # DriveLens specifications — overview
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 17).
 > `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > This file lists the 20 module specs, shows how the modules depend on each other, and collects the
 > cross-cutting rules and the issues that span several modules.
@@ -76,22 +76,22 @@ flowchart LR
 | 3 | [api-auth](api-auth/SPEC.md) | AUTH | Owner key, `dlt_` device tokens, pairing codes, full/read scopes, owner-key mode, failure limits, client-IP keys, auth middleware, `/api/auth/*` | `api/src/auth.rs` | 69 | 5 | 3 |
 | 4 | [api-records](api-records/SPEC.md) | REC | Cars, drives, charges (cursor paging, charging-power fallback, currency guess), drive paths, month totals, place aliases, manual costs | `api/src/main.rs` | 56 | 10 | 5 |
 | 5 | [api-summary](api-summary/SPEC.md) | SUM | Home data: car status, last activity, stats | `api/src/summary.rs` | 24 | 7 | 3 |
-| 6 | [api-insights](api-insights/SPEC.md) | INS | Monthly report, 12-month trends, footprint, battery health | `api/src/report.rs`, `api/src/insights.rs` | 75 | 14 | 8 |
+| 6 | [api-insights](api-insights/SPEC.md) | INS | Monthly report, 12-month trends, footprint, battery health, vampire drain | `api/src/report.rs`, `api/src/insights.rs` | 82 | 14 | 8 |
 | 7 | [api-journeys](api-journeys/SPEC.md) | JRN | Journeys and their drives, suggestions and dismissal, path, cover, weather, speed bands | `api/src/journey.rs`, `api/src/phase2.rs` | 81 | 16 | 7 |
-| 8 | [api-push](api-push/SPEC.md) | PUSH | VAPID keys, subscriptions, trip and monthly notifications, delivery limits | `api/src/push.rs` | 57 | 6 | 3 |
+| 8 | [api-push](api-push/SPEC.md) | PUSH | VAPID keys, subscriptions, trip / monthly / vampire notifications, delivery limits | `api/src/push.rs` | 60 | 6 | 3 |
 | 9 | [app-shell](app-shell/SPEC.md) | SHELL | Startup order, tabs, car selection, theme, back stack, Settings screen layout, banners, feature gating, deep links | `app/src/main.ts`, `nav.ts`, `links.ts`, part of `platform.ts` | 87 | 5 | 4 |
 | 10 | [app-ui-kit](app-ui-kit/SPEC.md) | UI | Popovers, sheets, toolbar, back-to-top, overlay scrollbar, icons, design tokens, `DriveMap` | `ui.ts`, `sheets.ts`, `toolbar.ts`, `totop.ts`, `scrollbar.ts`, `icons.ts`, `palette.ts`, `map.ts`, `style.css` | 81 | 3 | 2 |
 | 11 | [app-connection](app-connection/SPEC.md) | CONN | Settings storage, `api()` request layer, setup wizard, server version and feature levels, URL privacy guard, device auth client, Settings › Devices, sign-out | `api.ts`, `setup.ts`, `version.ts`, `urlguard.ts`, `auth.ts`, `devices.ts` | 86 | 7 | 4 |
-| 12 | [app-home](app-home/SPEC.md) | HOME | Home screen and its snapshot cache | `app/src/main.ts` (`showHome`) | 40 | 6 | 4 |
+| 12 | [app-home](app-home/SPEC.md) | HOME | Home screen and its snapshot cache | `app/src/main.ts` (`showHome`) | 41 | 6 | 4 |
 | 13 | [app-records](app-records/SPEC.md) | AREC | Infinite list, drive detail, Charges tab and charge detail, rename and cost dialogs | `infinite.ts`, `app/src/main.ts` | 55 | 8 | 4 |
 | 14 | [app-journeys](app-journeys/SPEC.md) | AJRN | Drives tab (drive list, select mode), journeys, suggestions, cover, share card, weather, speed bands | `journey.ts`, `journey2.ts` | 77 | 9 | 4 |
-| 15 | [app-insights](app-insights/SPEC.md) | AINS | Report page, footprint, trends, battery page, Home battery card | `report.ts`, `insights.ts`, part of `main.ts` | 59 | 11 | 5 |
-| 16 | [app-notifications](app-notifications/SPEC.md) | NOTIF | Notification settings and the service worker's push and click handling | `notify.ts`, `swSource` in `vite.config.ts` | 40 | 6 | 3 |
+| 15 | [app-insights](app-insights/SPEC.md) | AINS | Report page, footprint, trends, battery page, Home battery / vampire cards | `report.ts`, `insights.ts`, part of `main.ts` | 60 | 11 | 5 |
+| 16 | [app-notifications](app-notifications/SPEC.md) | NOTIF | Notification settings and the service worker's push and click handling | `notify.ts`, `swSource` in `vite.config.ts` | 41 | 6 | 3 |
 | 17 | [app-i18n](app-i18n/SPEC.md) | I18N | zh/en/ja strings, formatting, language choice, `check-i18n` build check | `i18n.ts`, `locales/*.ts`, `scripts/check-i18n.mjs` | 40 | 8 | 2 |
-| 18 | [app-demo](app-demo/SPEC.md) | DEMO | Demo mode: fixed fictional dataset, in-browser mock API, request interception, separate storage keys | `demo.ts`, `demo/*` | 72 | 10 | 5 |
+| 18 | [app-demo](app-demo/SPEC.md) | DEMO | Demo mode: fixed fictional dataset, in-browser mock API, request interception, separate storage keys | `demo.ts`, `demo/*` | 74 | 10 | 5 |
 | 19 | [app-platforms](app-platforms/SPEC.md) | PLAT | PWA (service worker, manifest, install, update) and Tauri shells (CSP, Android bridge) | `pwa.ts`, `platform.ts`, `vite.config.ts`, `src-tauri/**` | 52 | 5 | 2 |
 | 20 | [ops-delivery](ops-delivery/SPEC.md) | OPS | Docker image, compose, systemd unit, CI, release scripts, license checks, test fixtures | `api/Dockerfile`, `deploy/`, `.github/`, `scripts/`, `testdata/` | 58 | 9 (1 owner question open) | 5 |
-| | **Total** | | | | **1194** | **161 (2 owner questions open)** | **83** |
+| | **Total** | | | | **1210** | **161 (2 owner questions open)** | **83** |
 
 Module boundaries on the app side are **logical, not file boundaries**. `app/src/main.ts` holds code for `app-shell`, `app-home`, `app-records`, `app-insights` and `app-notifications`. Each spec names the functions it covers.
 

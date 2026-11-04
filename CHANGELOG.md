@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## Unreleased
+- **Vampire drain (parking drain):** Home shows a card with average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes realistic sample periods.
+- The setup screen recommends server 0.16.0 once that release ships.
+- **Server (unreleased, `api_level` 17):** `GET /api/cars/{id}/vampire?days=&tz=`; push subscription fields `vampire_drain` / `vampire_threshold_pct` (additive columns on `drivelens.push_subscriptions`, applied on API start when the role can ALTER).
+
 ## v1.3.1 — 2026-10-29
 - **Home tire pressure layout:** the four wheels are now the fourth tile in the 2×2 home grid (front axle on top, rear below), matching the other status tiles. A low wheel uses the warning color and a warning icon on the tile title; turning the feature off restores the previous three-tile row.
 - **Settings:** tire-pressure options moved out of the Journeys card into their own Tire pressure card.

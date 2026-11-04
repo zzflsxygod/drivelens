@@ -61,7 +61,7 @@ cd app && npm run build && npm run build:web            # both run npm run check
 
 ## API
 
-Everything except `/health` and `POST /api/auth/pair` needs `Authorization: Bearer <token>`: the server token (owner key, `API_TOKEN`) or a device token (`dlt_…`, since 0.14.0). `GET /health` returns `{"status","version","api_level"}` (current `api_level` 16); `GET /api/health` also checks the database and whether each feature is available.
+Everything except `/health` and `POST /api/auth/pair` needs `Authorization: Bearer <token>`: the server token (owner key, `API_TOKEN`) or a device token (`dlt_…`, since 0.14.0). `GET /health` returns `{"status","version","api_level"}` (current `api_level` 17); `GET /api/health` also checks the database and whether each feature is available.
 
 | Endpoint | Description |
 |---|---|
@@ -71,7 +71,7 @@ Everything except `/health` and `POST /api/auth/pair` needs `Authorization: Bear
 | `GET /api/drives/:id`, `/api/drives/:id/path`, `/api/charges/:id` | Detail, GPS path, charging curve |
 | `GET /api/cars/:id/months?tz=` | Monthly totals (list month headers / jump) |
 | `GET /api/cars/:id/report?month=YYYY-MM&tz=&currency=`, `/trends` | Monthly report |
-| `GET /api/cars/:id/footprint?month=&tz=`, `/battery?summary=&tz=&new_kwh=` | Footprint, battery health (`tm` matches TeslaMate “Battery Health”) |
+| `GET /api/cars/:id/footprint?month=&tz=`, `/battery?summary=&tz=&new_kwh=`, `/vampire?days=&tz=` (api_level ≥ 17) | Footprint, battery health (`tm` matches TeslaMate “Battery Health”), vampire drain (parked SoC/range loss) |
 | `PUT/DELETE /api/charges/:id/cost` | Manual charging cost |
 | `GET/PUT/DELETE /api/addresses/...` | Custom place names |
 | `/api/journeys…` | Journeys (merged drives), suggestions, dismiss, cover, weather, speed bands |
