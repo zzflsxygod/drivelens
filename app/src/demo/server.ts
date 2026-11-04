@@ -449,65 +449,30 @@ function vampire(q: URLSearchParams) {
   const days = Math.min(90, Math.max(1, Number(q.get("days") || 30) || 30));
   const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
   const from = db.now - days * 864e5;
-  // Demo dataset charges overnight, so real no-charge gaps are rare. Always return a
-  // fixed set of obviously fictional parked drains (plus any real no-charge gaps).
-  const periods: {
-    start: string; end: string; duration_hours: number;
-    start_soc: number | null; end_soc: number | null; soc_lost: number | null;
-    start_rated_km: number | null; end_rated_km: number | null; range_lost_km: number | null;
-    ongoing: boolean; after_drive_id: number | null; before_drive_id: number | null;
-  }[] = [];
-  const ds = [...db.drives].sort((a, b) => a.end - b.end);
-  const socOf = (d: DDrive, atEnd: boolean) => (d.pos[atEnd ? d.pos.length - 1 : 0]?.battery_level ?? null);
-  for (let i = 0; i + 1 < ds.length; i++) {
-    const a = ds[i], b = ds[i + 1];
-    if (b.start <= a.end || (b.start < from && a.end < from)) continue;
-    if (db.charges.some(c => c.start < b.start && c.end > a.end)) continue;
-    const hours = (b.start - a.end) / 3600e3;
-    if (hours < 0.25) continue;
-    let lost = Math.max(0, Math.min(25, Math.round(hours * 0.12 + ((a.id % 3 === 0) ? 4 : 1))));
-    if (hours < 6) lost = Math.min(lost, 1);
-    const startSoc = socOf(a, true) ?? 60, endSoc = Math.max(1, startSoc - lost);
-    const startRated = a.err, endRated = r1(startRated * endSoc / Math.max(1, startSoc));
-    periods.push({ start: TS(a.end), end: TS(b.start), duration_hours: r1(hours), start_soc: startSoc, end_soc: endSoc, soc_lost: lost,
-      start_rated_km: r1(startRated), end_rated_km: endRated, range_lost_km: r1(startRated - endRated),
-      ongoing: false, after_drive_id: a.id, before_drive_id: b.id });
-  }
-  const seeds: { hAgo: number; hours: number; lost: number; soc: number }[] = [
-    { hAgo: 6, hours: 14, lost: 3, soc: 74 },
-    { hAgo: 40, hours: 22, lost: 5, soc: 66 },
-    { hAgo: 90, hours: 48, lost: 11, soc: 71 },
-    { hAgo: 160, hours: 16, lost: 2, soc: 58 },
-    { hAgo: 250, hours: 70, lost: 15, soc: 82 },
+  // Demo cars charge overnight, so real no-charge gaps are rare and noisy. Serve a small
+  // fixed set of obviously fictional parked drains for the Home card / detail page.
+  const seeds: { hAgo: number; hours: number; lost: number; soc: number; ongoing?: boolean }[] = [
+    { hAgo: 0, hours: 7.5, lost: 2, soc: 71, ongoing: true },
+    { hAgo: 28, hours: 14, lost: 3, soc: 74 },
+    { hAgo: 76, hours: 38, lost: 9, soc: 68 },
+    { hAgo: 130, hours: 11, lost: 2, soc: 60 },
+    { hAgo: 200, hours: 52, lost: 12, soc: 79 },
+    { hAgo: 290, hours: 16, lost: 3, soc: 55 },
   ];
+  const periods = [];
   for (const s of seeds) {
     const endMs = db.now - s.hAgo * 3600e3;
     const startMs = endMs - s.hours * 3600e3;
     if (endMs < from) continue;
     const endSoc = Math.max(1, s.soc - s.lost);
     const startRated = r1(s.soc / 100 * 440), endRated = r1(endSoc / 100 * 440);
-    periods.push({ start: TS(startMs), end: TS(endMs), duration_hours: r1(s.hours),
+    periods.push({
+      start: TS(startMs), end: TS(endMs), duration_hours: r1(s.hours),
       start_soc: s.soc, end_soc: endSoc, soc_lost: s.lost,
       start_rated_km: startRated, end_rated_km: endRated, range_lost_km: r1(startRated - endRated),
-      ongoing: false, after_drive_id: null, before_drive_id: null });
+      ongoing: !!s.ongoing, after_drive_id: null, before_drive_id: null,
+    });
   }
-  // Ongoing park card if the car is not currently charging
-  if (ds.length) {
-    const last = ds[ds.length - 1];
-    if (db.now > last.end && !db.charges.some(c => c.start < db.now && c.end > last.end)) {
-      const hours = (db.now - last.end) / 3600e3;
-      if (hours >= 0.25) {
-        const lost = Math.max(1, Math.min(6, Math.round(hours * 0.08 + 1)));
-        const startSoc = socOf(last, true) ?? 55, endSoc = Math.max(1, startSoc - lost);
-        periods.push({ start: TS(last.end), end: TS(db.now), duration_hours: r1(hours),
-          start_soc: startSoc, end_soc: endSoc, soc_lost: lost,
-          start_rated_km: r1(last.err), end_rated_km: r1(last.err * endSoc / Math.max(1, startSoc)),
-          range_lost_km: r1(last.err - last.err * endSoc / Math.max(1, startSoc)),
-          ongoing: true, after_drive_id: last.id, before_drive_id: null });
-      }
-    }
-  }
-  periods.sort((a, b) => b.start.localeCompare(a.start));
   const parked = periods.reduce((s, x) => s + x.duration_hours, 0);
   const soc = periods.reduce((s, x) => s + (x.soc_lost ?? 0), 0);
   const range = periods.reduce((s, x) => s + (x.range_lost_km ?? 0), 0);
@@ -521,7 +486,7 @@ function vampire(q: URLSearchParams) {
       avg_range_km_per_day: periods.length ? r1(range / days) : null,
       period_count: periods.length,
     },
-    periods: periods.slice(0, 60),
+    periods,
   });
 }
 
