@@ -271,7 +271,7 @@ const zh = {
 
   "vamp.title": "停车耗电",
   "vamp.open": "查看详情",
-  "vamp.avgDay": "日均",
+  "vamp.avgDay": "停车日均",
   "vamp.lost": "合计损耗",
   "vamp.parked": "停放",
   "vamp.periods": "{n} 段停车",
@@ -282,6 +282,8 @@ const zh = {
   "vamp.ongoing": "仍在停车",
   "vamp.soc": "电量",
   "vamp.range": "续航",
+  "vamp.lostSummary": "合计损耗 {pct}% · {km} km（{n} 段）",
+  "vamp.now": "现在",
   "vamp.hint": "统计两次行程之间停车时损失的电量。中间充过电的时段会排除。",
   "vamp.err": "无法加载停车耗电：{e}",
   "nt.vamp": "停车耗电提醒",

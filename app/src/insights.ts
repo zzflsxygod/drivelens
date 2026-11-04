@@ -7,7 +7,7 @@ import { ic } from "./icons";
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
 import { featureText, lacks, serverReady } from "./version";
 import { DriveMap } from "./map";
-import { t, monthLabel, fmtNum, fmtDateTime } from "./i18n";
+import { t, monthLabel, fmtNum, fmtDateTime, fmtTime } from "./i18n";
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const n = (v: number | null | undefined, d = 0) => fmtNum(v, d);
@@ -354,25 +354,49 @@ export type Vampire = {
 };
 
 function fmtHours(h: number) {
-  if (h >= 48) return `${n(h / 24, 1)} d`;
   if (h >= 24) return `${n(h / 24, 1)} d`;
   return `${n(h, 1)} h`;
+}
+
+/** Same calendar day → "11/4 12:12 → 19:42"; ongoing → "… → now"; else full short datetimes. */
+export function fmtParkSpan(start: string, end: string, ongoing: boolean) {
+  const a = new Date(start), b = new Date(end);
+  if (Number.isNaN(a.getTime())) return "—";
+  const left = fmtDateTime(start);
+  if (ongoing) return `${left} → ${t("vamp.now")}`;
+  if (Number.isNaN(b.getTime())) return left;
+  const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return sameDay ? `${left} → ${fmtTime(end)}` : `${left} → ${fmtDateTime(end)}`;
+}
+
+function lostSummary(s: Vampire["summary"]) {
+  if (s.soc_lost_pct == null && s.range_lost_km == null) return "";
+  const pct = s.soc_lost_pct == null ? "—" : String(s.soc_lost_pct);
+  const km = s.range_lost_km == null ? "—" : n(s.range_lost_km, 1);
+  return t("vamp.lostSummary", { pct, km, n: s.period_count });
+}
+
+function ringPct(avg: number | null) {
+  // Map ~0–5 %/d into the ring fill (higher drain → less fill left).
+  if (avg == null) return 90;
+  return Math.max(8, 100 - Math.min(100, Math.round(avg * 20)));
 }
 
 export function vampireCardHTML(v: Vampire) {
   const s = v.summary;
   const avg = s.avg_soc_per_day;
-  const ring = avg == null ? 0 : Math.min(100, Math.round(avg * 10)); // visual only
+  const lost = lostSummary(s);
   return `<div class="section-title">${t("vamp.title")} <a class="link" data-vampire>${t("vamp.open")}</a></div>
     <div class="card bat-card vamp-card" data-vampire>
-      <div class="bat-ring" style="--p:${Math.max(8, 100 - ring)}"><b>${avg == null ? "—" : n(avg, 1)}<small>%/d</small></b></div>
+      <div class="bat-ring" style="--p:${ringPct(avg)}"><b>${avg == null ? "—" : n(avg, 1)}<small>%/d</small></b></div>
       <div class="bat-info tm">
         <div class="bat-kv">
           <div><small>${t("vamp.avgDay")}</small><b>${avg == null ? "—" : `${n(avg, 1)}%`}</b></div>
-          <div><small>${t("vamp.lost")}</small><b>${s.soc_lost_pct == null ? "—" : `−${s.soc_lost_pct}%`}</b></div>
           <div><small>${t("vamp.parked")}</small><b>${fmtHours(s.parked_hours)}</b></div>
           <div><small>${t("vamp.days", { n: v.days })}</small><b>${t("vamp.periods", { n: s.period_count })}</b></div>
+          <div><small>${t("vamp.range")}</small><b>${s.range_lost_km == null ? "—" : `−${n(s.range_lost_km, 1)} km`}</b></div>
         </div>
+        ${lost ? `<div class="vamp-lost-sum">${esc(lost)}</div>` : ""}
         <div class="muted small-note">${t("vamp.hint")}</div>
       </div>
     </div>`;
@@ -394,6 +418,7 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
     return;
   }
   const s = v.summary;
+  const lost = lostSummary(s);
   const rows = v.periods.length === 0
     ? `<div class="empty"><span>${t("vamp.empty")}</span></div>`
     : v.periods.map(p => {
@@ -403,9 +428,9 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
         ? `${p.start_soc}% → ${p.end_soc}%`
         : "—";
       return `<div class="card vamp-period">
-        <div class="row"><b>${fmtHours(p.duration_hours)}</b><span class="muted">${p.ongoing ? t("vamp.ongoing") : ""}</span>
+        <div class="row"><b>${fmtHours(p.duration_hours)}</b>${p.ongoing ? `<span class="muted">${t("vamp.ongoing")}</span>` : ""}
           <b class="vamp-lost">${soc}${range}</b></div>
-        <div class="row muted">${fmtDateTime(p.start)} → ${fmtDateTime(p.end)}</div>
+        <div class="row muted">${esc(fmtParkSpan(p.start, p.end, p.ongoing))}</div>
         <div class="stats"><span>${ic("battery")} ${t("vamp.soc")} ${socLine}</span>
           ${p.start_rated_km != null && p.end_rated_km != null ? `<span>${ic("route")} ${t("vamp.range")} ${n(p.start_rated_km, 1)} → ${n(p.end_rated_km, 1)} km</span>` : ""}</div>
       </div>`;
@@ -413,14 +438,16 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
   view.innerHTML = `<button class="back" data-title="${t("vamp.pageTitle")}">${t("common.back")}</button>
     <div class="pane" style="margin-top:12px">
       <div class="card bat-card vamp-card">
-        <div class="bat-ring" style="--p:${s.avg_soc_per_day == null ? 90 : Math.max(8, 100 - Math.min(100, Math.round(s.avg_soc_per_day * 10)))}">
+        <div class="bat-ring" style="--p:${ringPct(s.avg_soc_per_day)}">
           <b>${s.avg_soc_per_day == null ? "—" : n(s.avg_soc_per_day, 1)}<small>%/d</small></b></div>
         <div class="bat-info tm"><div class="bat-kv">
           <div><small>${t("vamp.avgDay")}</small><b>${s.avg_soc_per_day == null ? "—" : `${n(s.avg_soc_per_day, 1)}%`}</b></div>
-          <div><small>${t("vamp.lost")}</small><b>${s.soc_lost_pct == null ? "—" : `−${s.soc_lost_pct}%`}</b></div>
           <div><small>${t("vamp.parked")}</small><b>${fmtHours(s.parked_hours)}</b></div>
+          <div><small>${t("vamp.days", { n: v.days })}</small><b>${t("vamp.periods", { n: s.period_count })}</b></div>
           <div><small>${t("vamp.range")}</small><b>${s.range_lost_km == null ? "—" : `−${n(s.range_lost_km, 1)} km`}</b></div>
-        </div><div class="muted small-note">${t("vamp.days", { n: v.days })} · ${t("vamp.periods", { n: s.period_count })}<br>${t("vamp.hint")}</div></div>
+        </div>
+        ${lost ? `<div class="vamp-lost-sum">${esc(lost)}</div>` : ""}
+        <div class="muted small-note">${t("vamp.hint")}</div></div>
       </div>
       <div class="section-title" style="margin-top:16px"><span>${t("vamp.periods", { n: s.period_count })}</span></div>
       ${rows}

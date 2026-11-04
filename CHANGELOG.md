@@ -7,6 +7,7 @@ The API upgrades its own `drivelens` schema on start; no manual SQL is needed af
 ## Unreleased
 - **Vampire drain (parking drain):** Home shows a card with average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes realistic sample periods.
 - The setup screen recommends server 0.16.0 once that release ships.
+- **Vampire drain review fixes:** period times use local short `fmtDateTime`/`fmtTime` (ongoing → now); `avg_soc_per_day` = total SoC lost ÷ (parked_hours/24) in API + demo (unit test `averages_use_parked_days_not_window_days`); total lost labeled as pct · km · period count (zh/en/ja); gauge shows one decimal.
 - **Server (unreleased, `api_level` 17):** `GET /api/cars/{id}/vampire?days=&tz=`; push subscription fields `vampire_drain` / `vampire_threshold_pct` (additive columns on `drivelens.push_subscriptions`, applied on API start when the role can ALTER).
 
 ## v1.3.1 — 2026-10-29
