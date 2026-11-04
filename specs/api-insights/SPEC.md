@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Turn the raw TeslaMate tables into per-month and long-term summaries for one car: a monthly report (totals, comparison with the previous month, home / Supercharger / other charging split, daily breakdown, records), 12-month trends, a map of all routes driven in a month (footprint), and battery health. Battery health uses the same method as TeslaMate's Grafana "Battery Health" dashboard, plus an older range-based estimate. The output is consumed by the app's report and battery screens (`app-insights`). (doc: README.md "Features"; doc: CHANGELOG.md v0.5.0, v0.9.0, v1.1.0)
+Turn the raw TeslaMate tables into per-month and long-term summaries for one car: a monthly report (totals, comparison with the previous month, home / Supercharger / other charging split, daily breakdown, records), 12-month trends, a map of all routes driven in a month (footprint), battery health, and vampire drain (battery lost while parked). Battery health uses the same method as TeslaMate's Grafana "Battery Health" dashboard, plus an older range-based estimate. The output is consumed by the app's report and battery screens (`app-insights`). (doc: README.md "Features"; doc: CHANGELOG.md v0.5.0, v0.9.0, v1.1.0)
 
 ## 2. Responsibility boundaries
 
@@ -17,6 +17,7 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 - `GET /api/cars/{id}/trends` — 12 monthly rows ending with a given month.
 - `GET /api/cars/{id}/footprint` — thinned route polylines of all drives in a month.
 - `GET /api/cars/{id}/battery` — range-based battery estimate plus the TeslaMate-method `tm` object.
+- `GET /api/cars/{id}/vampire` — parked SoC / rated-range loss between drives (api_level ≥ 17).
 - The charge-type classification (home / supercharger / other) used by the report and trends.
 - Aggregation of charging costs per currency for the report and trends.
 
@@ -46,6 +47,7 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 | GET | `/api/cars/{id}/trends` | yes | `month`, `tz`, `currency` (same as report) | 12-month trends | 12 |
 | GET | `/api/cars/{id}/footprint` | yes | `month`, `tz` | Route lines of a month | 12 |
 | GET | `/api/cars/{id}/battery` | yes | `summary` (bool), `tz`, `new_kwh` (number) | Battery estimate + `tm` health | 12 (`tm`: 14) |
+| GET | `/api/cars/{id}/vampire` | yes | `days` (1–90, default 30), `tz` | Vampire drain between drives | 17 |
 
 (src: api/src/main.rs:882-885; comment: api/src/main.rs:302; comment: api/src/insights.rs:2-3)
 
@@ -147,6 +149,15 @@ The formulas below are a port of TeslaMate's `grafana/dashboards/battery-health.
 - **INS-103** When `battery` receives a `tz` that is not in `pg_timezone_names`, the system SHALL group `points` and `half_months` in UTC instead of failing. (src: api/src/insights.rs:186-188)
 - **INS-104** When `capacity_now_kwh`, `capacity_max_kwh` and `capacity_new_kwh` are returned, the system SHALL round them to 0.01. (src: api/src/insights.rs:206-207)
 - **INS-105** When the data contains no sample outside 20–150 kWh and no tie in the rated-consumption mode, the `tm` values SHALL equal those of TeslaMate's "Battery Health" dashboard on the same database. This was checked by hand on the fixture `testdata/gen_battery_health.py`; no automated test asserts it. (comment: api/src/insights.rs:122-123; comment: testdata/gen_battery_health.py:2-5; doc: CHANGELOG.md v1.1.0)
+
+### 3.10 Vampire drain (api_level ≥ 17)
+- **INS-110** When `GET /api/cars/{id}/vampire` is called without valid credentials, the system SHALL respond `401`. (test: api/src/main.rs auth_tests::only_pair_is_public)
+- **INS-111** When `days` is omitted the system SHALL use 30; when present it SHALL clamp to 1..=90. (src: api/src/insights.rs `vampire`)
+- **INS-112** When `tz` is unknown to PostgreSQL, the system SHALL respond `400 {"error":"unknown tz"}`. (src: api/src/insights.rs `vampire`)
+- **INS-113** When no car has the requested id, the system SHALL respond `404 {"error":"car not found"}`. (src: api/src/insights.rs `vampire`)
+- **INS-114** When building periods, the system SHALL take consecutive completed drives ordered by `end_date`, form the parked gap from drive *i*'s end to drive *i+1*'s start (and an ongoing park after the latest drive to now), and SHALL exclude any gap that overlaps a `charging_processes` row. Gaps shorter than 15 minutes SHALL be omitted. (src: api/src/insights.rs `build_vampire_periods`; test: insights::vampire_tests::excludes_charged_gaps_and_sums_drain)
+- **INS-115** When SoC / rated range are available from drive start/end positions (and the latest position for an ongoing park), the system SHALL report non-negative `soc_lost` / `range_lost_km`; summary averages SHALL divide totals by the requested `days` window. (src: api/src/insights.rs `vampire`; test: insights::vampire_tests::ongoing_park_after_last_drive)
+- **INS-116** When querying drives and charges, the system SHALL bound by time and join `positions` by primary key id (no unbounded position scans). (src: api/src/insights.rs `vampire`)
 
 ## 4. Key design decisions
 

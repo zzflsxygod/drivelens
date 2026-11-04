@@ -199,6 +199,11 @@ drivelens-api sends Web Push notifications to the browsers where the user turned
 - **PUSH-101** When it processes such a subscription, the system SHALL first set `last_monthly` to the previous month. It SHALL then count the finished drives that started in that month in the subscription's time zone, limited to the subscription's cars when `car_ids` is non-empty, and send the monthly reminder with their total distance. (src: api/src/push.rs:326-337; comment: api/src/push.rs:329)
 - **PUSH-102** When that month has no finished drives, the system SHALL send no reminder, and the month SHALL stay marked as handled. (src: api/src/push.rs:330, 336; comment: api/src/push.rs:336)
 
+### Vampire drain alert (api_level ≥ 17)
+- **PUSH-110** When `try_migrate` runs and `drivelens.push_subscriptions` exists without `vampire_drain`, the system SHALL attempt `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for `vampire_drain boolean NOT NULL DEFAULT false` and `vampire_threshold_pct smallint NOT NULL DEFAULT 5`. Failure SHALL be logged and SHALL NOT disable trip/monthly push. (src: api/src/push.rs `VAMPIRE_DDL` / `try_migrate`)
+- **PUSH-111** When `POST /api/push/subscription` includes `vampire_drain` and/or `vampire_threshold_pct`, the system SHALL upsert those fields (`vampire_drain` default false for new rows; threshold clamped to 1..=50). Omitted fields keep their previous values. (src: api/src/push.rs `subscribe`)
+- **PUSH-112** When a finished drive is handled and a subscriber has `vampire_drain`, if the parked gap before that drive (no overlapping charge) lost at least `vampire_threshold_pct` SoC points and ended recently, the system SHALL send a Web Push (`kind: "vampire"`, url `/?view=vampire&car={id}`). (src: api/src/push.rs `vampire_alert`; test: push::tests::vampire_texts)
+
 ## 4. Key design decisions
 
 - **D-1 The user's own server detects events and sends the pushes.** No DriveLens backend relays notifications, and the app does not need to be open. The server polls TeslaMate read-only (comment: api/src/push.rs:2-4; doc: docs/install.md "7. Notifications"; doc: SECURITY.md "Privacy promise"). Trade-off: the container needs outbound https access to the push services (doc: docs/install.md "7. Notifications").

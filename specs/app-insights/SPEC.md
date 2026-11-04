@@ -206,6 +206,9 @@ In demo mode each key is renamed by `skey()` to `drivelens-demo~battery-…`. (s
 - **AINS-132** When the "converted" flag is set and a kWh override exists, the new-capacity box SHALL show "Your earlier full-range baseline was converted to kWh.". An explicit save or reset SHALL clear the flag. (src: app/src/insights.ts:34, app/src/insights.ts:51, app/src/insights.ts:217; src: app/src/locales/en.ts:268)
 - **AINS-133** When the app is in demo mode, the overrides SHALL be stored under demo-only keys, so real and demo values never mix. (comment: app/src/demo.ts:18-21; doc: CHANGELOG.md v0.13.1)
 
+### Vampire drain detail (api_level ≥ 17)
+- **AINS-140** When the vampire detail page opens and the server supports `vampire`, the system SHALL load `GET /api/cars/{id}/vampire?days=30&tz=` and show the summary plus recent parked periods; on older servers it SHALL show the too-old message. (src: app/src/insights.ts `showVampire`)
+
 ## 4. Key design decisions
 
 - **D-1 One persistent report shell.** The header, month pill and a sliding content area stay in place. A month change swaps only the content, with one directional slide. Seen months render from memory and refresh silently. (comment: app/src/report.ts:166-170; doc: CHANGELOG.md v0.12.0)

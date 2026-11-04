@@ -133,6 +133,9 @@ The user can turn on push notifications for the current device and choose which 
 
   (src: app/src/main.ts:937-951; api/src/push.rs:203, 215, 223)
 
+### Vampire drain alert prefs (api_level ≥ 17)
+- **NOTIF-090** When notifications are on, the system SHALL show a Vampire drain alert toggle (default off) and a threshold input (1–50 % SoC, default 5), posting `vampire_drain` / `vampire_threshold_pct` to `POST /api/push/subscription`. Demo mode SHALL keep the prefs in local demo storage. (src: app/src/notify.ts; locales `nt.vamp*`)
+
 ## 4. Key design decisions
 
 - **D-1 The server does the work.** The client only manages the subscription and the switches. Detection and sending happen on the user's own server (comment: app/src/notify.ts:2-4; doc: docs/install.md "7. Notifications").
