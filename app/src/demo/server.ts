@@ -449,15 +449,15 @@ function vampire(q: URLSearchParams) {
   const days = Math.min(90, Math.max(1, Number(q.get("days") || 30) || 30));
   const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
   const from = db.now - days * 864e5;
-  // Demo cars charge overnight, so real no-charge gaps are rare and noisy. Serve a small
-  // fixed set of obviously fictional parked drains for the Home card / detail page.
+  // Realistic Tesla-ish parked drain (~1 %/parked-day), with one higher weekend outlier.
+  // Totals: 8% SoC / 144 h parked → 1.3 %/d; range ≈ SoC% × 4.4 km.
   const seeds: { hAgo: number; hours: number; lost: number; soc: number; ongoing?: boolean }[] = [
-    { hAgo: 0, hours: 7.5, lost: 2, soc: 71, ongoing: true },
-    { hAgo: 28, hours: 14, lost: 3, soc: 74 },
-    { hAgo: 76, hours: 38, lost: 9, soc: 68 },
-    { hAgo: 130, hours: 11, lost: 2, soc: 60 },
-    { hAgo: 200, hours: 52, lost: 12, soc: 79 },
-    { hAgo: 290, hours: 16, lost: 3, soc: 55 },
+    { hAgo: 0, hours: 12, lost: 1, soc: 70, ongoing: true },
+    { hAgo: 30, hours: 18, lost: 1, soc: 72 },
+    { hAgo: 72, hours: 24, lost: 1, soc: 66 },
+    { hAgo: 120, hours: 16, lost: 1, soc: 60 },
+    { hAgo: 190, hours: 54, lost: 3, soc: 78 }, // outlier (~1.3 %/d for that gap; still mild)
+    { hAgo: 270, hours: 20, lost: 1, soc: 55 },
   ];
   const periods = [];
   for (const s of seeds) {
@@ -476,14 +476,15 @@ function vampire(q: URLSearchParams) {
   const parked = periods.reduce((s, x) => s + x.duration_hours, 0);
   const soc = periods.reduce((s, x) => s + (x.soc_lost ?? 0), 0);
   const range = periods.reduce((s, x) => s + (x.range_lost_km ?? 0), 0);
+  const parkedDays = parked > 0 ? parked / 24 : 0;
   return ok({
     days, timezone: tz, from: TS(from),
     summary: {
       parked_hours: r1(parked),
       soc_lost_pct: periods.length ? soc : null,
       range_lost_km: periods.length ? r1(range) : null,
-      avg_soc_per_day: periods.length ? r1(soc / days) : null,
-      avg_range_km_per_day: periods.length ? r1(range / days) : null,
+      avg_soc_per_day: parkedDays > 0 ? r1(soc / parkedDays) : null,
+      avg_range_km_per_day: parkedDays > 0 ? r1(range / parkedDays) : null,
       period_count: periods.length,
     },
     periods,

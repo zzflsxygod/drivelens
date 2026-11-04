@@ -302,6 +302,17 @@ fn overlaps(a0: &str, a1: &str, b0: &str, b1: &str) -> bool {
 
 fn r1(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
 
+/// Average drain per parked day: total loss ÷ (parked_hours / 24).
+/// Returns (avg_soc_per_day, avg_range_km_per_day); None when there is no parked time / no samples.
+pub fn vampire_averages(soc_lost: Option<i32>, range_lost_km: Option<f64>, parked_hours: f64) -> (Option<f64>, Option<f64>) {
+    if !(parked_hours > 0.0) { return (None, None); }
+    let days = parked_hours / 24.0;
+    (
+        soc_lost.map(|s| r1(s as f64 / days)),
+        range_lost_km.map(|r| r1(r / days)),
+    )
+}
+
 /// Build parked periods between consecutive completed drives, dropping any gap that overlaps a charge.
 /// `now_ts` / `now_soc` / `now_rated` fill an ongoing park after the latest drive when present.
 pub fn build_vampire_periods(
@@ -452,13 +463,15 @@ pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Q
         if let Some(s) = p.soc_lost { soc_lost += s; soc_n += 1; }
         if let Some(r) = p.range_lost_km { range_lost += r; range_n += 1; }
     }
-    let day_f = days as f64;
+    let soc_opt = if soc_n > 0 { Some(soc_lost) } else { None };
+    let range_opt = if range_n > 0 { Some(r1(range_lost)) } else { None };
+    let (avg_soc, avg_range) = vampire_averages(soc_opt, range_opt, parked_hours);
     let summary = serde_json::json!({
         "parked_hours": r1(parked_hours),
-        "soc_lost_pct": if soc_n > 0 { serde_json::json!(soc_lost) } else { serde_json::Value::Null },
-        "range_lost_km": if range_n > 0 { serde_json::json!(r1(range_lost)) } else { serde_json::Value::Null },
-        "avg_soc_per_day": if soc_n > 0 { serde_json::json!(r1(soc_lost as f64 / day_f)) } else { serde_json::Value::Null },
-        "avg_range_km_per_day": if range_n > 0 { serde_json::json!(r1(range_lost / day_f)) } else { serde_json::Value::Null },
+        "soc_lost_pct": soc_opt,
+        "range_lost_km": range_opt,
+        "avg_soc_per_day": avg_soc,
+        "avg_range_km_per_day": avg_range,
         "period_count": periods.len(),
     });
     let period_json: Vec<_> = periods.iter().take(60).map(|p| serde_json::json!({
@@ -511,6 +524,18 @@ mod vampire_tests {
         assert!(periods[0].ongoing);
         assert_eq!(periods[0].soc_lost, Some(3));
         assert_eq!(periods[0].range_lost_km, Some(12.0));
+    }
+
+    #[test]
+    fn averages_use_parked_days_not_window_days() {
+        // 31% over 138.5 h ≈ 5.775 parked days → ~5.4 %/d (not 31/30 ≈ 1.0)
+        let (avg_soc, avg_range) = vampire_averages(Some(31), Some(136.4), 138.5);
+        assert_eq!(avg_soc, Some(5.4));
+        assert_eq!(avg_range, Some(23.6));
+        // no parked time → no average
+        assert_eq!(vampire_averages(Some(5), Some(10.0), 0.0), (None, None));
+        // 6% over 120 h = 5 parked days → 1.2 %/d
+        assert_eq!(vampire_averages(Some(6), Some(26.4), 120.0), (Some(1.2), Some(5.3)));
     }
 
     #[test]

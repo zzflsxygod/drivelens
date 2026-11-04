@@ -272,7 +272,7 @@ const ja: Record<keyof typeof zh, string> = {
 
   "vamp.title": "駐車中の電力消費",
   "vamp.open": "詳細",
-  "vamp.avgDay": "1日あたり",
+  "vamp.avgDay": "駐車日平均",
   "vamp.lost": "合計損失",
   "vamp.parked": "駐車",
   "vamp.periods": "駐車 {n} 回",
@@ -283,6 +283,8 @@ const ja: Record<keyof typeof zh, string> = {
   "vamp.ongoing": "駐車中",
   "vamp.soc": "SoC",
   "vamp.range": "航続",
+  "vamp.lostSummary": "合計損失 {pct}% · {km} km（{n} 回）",
+  "vamp.now": "現在",
   "vamp.hint": "走行と走行のあいだの駐車で失った電力です。充電を含む間隔は除外します。",
   "vamp.err": "駐車消費を読み込めませんでした: {e}",
   "nt.vamp": "駐車消費アラート",
