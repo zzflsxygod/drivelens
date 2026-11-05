@@ -1,6 +1,6 @@
 # DriveLens specifications — overview
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 17).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 18).
 > `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > This file lists the 20 module specs, shows how the modules depend on each other, and collects the
 > cross-cutting rules and the issues that span several modules.
@@ -76,7 +76,7 @@ flowchart LR
 | 3 | [api-auth](api-auth/SPEC.md) | AUTH | Owner key, `dlt_` device tokens, pairing codes, full/read scopes, owner-key mode, failure limits, client-IP keys, auth middleware, `/api/auth/*` | `api/src/auth.rs` | 69 | 5 | 3 |
 | 4 | [api-records](api-records/SPEC.md) | REC | Cars, drives, charges (cursor paging, charging-power fallback, currency guess), drive paths, month totals, place aliases, manual costs | `api/src/main.rs` | 56 | 10 | 5 |
 | 5 | [api-summary](api-summary/SPEC.md) | SUM | Home data: car status, last activity, stats | `api/src/summary.rs` | 24 | 7 | 3 |
-| 6 | [api-insights](api-insights/SPEC.md) | INS | Monthly report, 12-month trends, footprint, battery health, vampire drain | `api/src/report.rs`, `api/src/insights.rs` | 82 | 14 | 8 |
+| 6 | [api-insights](api-insights/SPEC.md) | INS | Monthly report, 12-month trends, footprint, battery health, vampire drain, charging costs | `api/src/report.rs`, `api/src/insights.rs` | 90 | 14 | 8 |
 | 7 | [api-journeys](api-journeys/SPEC.md) | JRN | Journeys and their drives, suggestions and dismissal, path, cover, weather, speed bands | `api/src/journey.rs`, `api/src/phase2.rs` | 81 | 16 | 7 |
 | 8 | [api-push](api-push/SPEC.md) | PUSH | VAPID keys, subscriptions, trip / monthly / vampire notifications, delivery limits | `api/src/push.rs` | 60 | 6 | 3 |
 | 9 | [app-shell](app-shell/SPEC.md) | SHELL | Startup order, tabs, car selection, theme, back stack, Settings screen layout, banners, feature gating, deep links | `app/src/main.ts`, `nav.ts`, `links.ts`, part of `platform.ts` | 87 | 5 | 4 |
@@ -85,7 +85,7 @@ flowchart LR
 | 12 | [app-home](app-home/SPEC.md) | HOME | Home screen and its snapshot cache | `app/src/main.ts` (`showHome`) | 41 | 6 | 4 |
 | 13 | [app-records](app-records/SPEC.md) | AREC | Infinite list, drive detail, Charges tab and charge detail, rename and cost dialogs | `infinite.ts`, `app/src/main.ts` | 55 | 8 | 4 |
 | 14 | [app-journeys](app-journeys/SPEC.md) | AJRN | Drives tab (drive list, select mode), journeys, suggestions, cover, share card, weather, speed bands | `journey.ts`, `journey2.ts` | 77 | 9 | 4 |
-| 15 | [app-insights](app-insights/SPEC.md) | AINS | Report page, footprint, trends, battery page, Home battery / vampire cards | `report.ts`, `insights.ts`, part of `main.ts` | 60 | 11 | 5 |
+| 15 | [app-insights](app-insights/SPEC.md) | AINS | Report page, footprint, trends, battery page, Home battery / vampire / charging-cost cards | `report.ts`, `insights.ts`, part of `main.ts` | 65 | 11 | 5 |
 | 16 | [app-notifications](app-notifications/SPEC.md) | NOTIF | Notification settings and the service worker's push and click handling | `notify.ts`, `swSource` in `vite.config.ts` | 41 | 6 | 3 |
 | 17 | [app-i18n](app-i18n/SPEC.md) | I18N | zh/en/ja strings, formatting, language choice, `check-i18n` build check | `i18n.ts`, `locales/*.ts`, `scripts/check-i18n.mjs` | 40 | 8 | 2 |
 | 18 | [app-demo](app-demo/SPEC.md) | DEMO | Demo mode: fixed fictional dataset, in-browser mock API, request interception, separate storage keys | `demo.ts`, `demo/*` | 74 | 10 | 5 |
@@ -231,6 +231,8 @@ The server reports one integer `api_level` on `/health`. The app turns individua
 | 14 | v0.13.0 | TeslaMate-identical battery health | `tmHealth` |
 | 15 | v0.14.0 | device auth | `devices` |
 | 16 | v0.15.0 | place search (`q`) + car status TPMS | `driveSearch`, `tpms` |
+| 17 | v0.16.0 (unreleased) | vampire drain + optional push alert | `vampire` |
+| 18 | v0.16.0 (unreleased) | charging cost stats (cross-month) | `chargingCost` |
 
 `tmHealth` is declared but no app code reads it; the app detects the TeslaMate method from the `tm` field of `/battery` (see app-insights). (src: app/src/version.ts:10)
 

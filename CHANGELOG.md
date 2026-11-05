@@ -5,6 +5,8 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
 ## Unreleased
+- **Charging cost stats:** Home shows a card with cost per 100 km over the last 12 months, total spent, average ¥/kWh and cost coverage; a detail page adds home / Supercharger / other unit prices and monthly spend / ¥/100 km charts. Uses manual costs when set, otherwise TeslaMate. Does not replace the monthly report (still the place for one-month MoM deltas).
+- **Server (unreleased, `api_level` 18):** `GET /api/cars/{id}/charging-costs?months=&tz=&currency=` (no database migration).
 - **Vampire drain (parking drain):** Home shows a card with average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes realistic sample periods.
 - The setup screen recommends server 0.16.0 once that release ships.
 - **Vampire drain review fixes:** period times use local short `fmtDateTime`/`fmtTime` (ongoing → now); `avg_soc_per_day` = total SoC lost ÷ (parked_hours/24) in API + demo (unit test `averages_use_parked_days_not_window_days`); total lost labeled as pct · km · period count (zh/en/ja); gauge shows one decimal.

@@ -1,6 +1,6 @@
 # api-insights — Monthly report, trends, footprint and battery health (server)
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 16).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 18).
 > `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/report.rs`, `api/src/insights.rs`, plus the routes in `api/src/main.rs:882-885`, `third_party/teslamate/NOTICE`, `testdata/gen_battery_health.py`.
 > In this document, "the system" means the drivelens-api handlers for `/api/cars/{id}/report`, `/api/cars/{id}/trends`, `/api/cars/{id}/footprint` and `/api/cars/{id}/battery`.
@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Turn the raw TeslaMate tables into per-month and long-term summaries for one car: a monthly report (totals, comparison with the previous month, home / Supercharger / other charging split, daily breakdown, records), 12-month trends, a map of all routes driven in a month (footprint), battery health, and vampire drain (battery lost while parked). Battery health uses the same method as TeslaMate's Grafana "Battery Health" dashboard, plus an older range-based estimate. The output is consumed by the app's report and battery screens (`app-insights`). (doc: README.md "Features"; doc: CHANGELOG.md v0.5.0, v0.9.0, v1.1.0)
+Turn the raw TeslaMate tables into per-month and long-term summaries for one car: a monthly report (totals, comparison with the previous month, home / Supercharger / other charging split, daily breakdown, records), 12-month trends, a map of all routes driven in a month (footprint), battery health, vampire drain (battery lost while parked), and cross-month charging cost stats. Battery health uses the same method as TeslaMate's Grafana "Battery Health" dashboard, plus an older range-based estimate. The output is consumed by the app's report and battery screens (`app-insights`). (doc: README.md "Features"; doc: CHANGELOG.md v0.5.0, v0.9.0, v1.1.0)
 
 ## 2. Responsibility boundaries
 
@@ -18,8 +18,9 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 - `GET /api/cars/{id}/footprint` — thinned route polylines of all drives in a month.
 - `GET /api/cars/{id}/battery` — range-based battery estimate plus the TeslaMate-method `tm` object.
 - `GET /api/cars/{id}/vampire` — parked SoC / rated-range loss between drives (api_level ≥ 17).
-- The charge-type classification (home / supercharger / other) used by the report and trends.
-- Aggregation of charging costs per currency for the report and trends.
+- `GET /api/cars/{id}/charging-costs` — cross-month spend, ¥/kWh, ¥/100 km, home/SuC/other unit prices (api_level ≥ 18).
+- The charge-type classification (home / supercharger / other) used by the report, trends and charging-costs.
+- Aggregation of charging costs per currency for the report, trends and charging-costs.
 
 ### 2.2 Out of scope
 - Authentication, device scopes and failure limits → `api-auth`.
@@ -48,6 +49,7 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 | GET | `/api/cars/{id}/footprint` | yes | `month`, `tz` | Route lines of a month | 12 |
 | GET | `/api/cars/{id}/battery` | yes | `summary` (bool), `tz`, `new_kwh` (number) | Battery estimate + `tm` health | 12 (`tm`: 14) |
 | GET | `/api/cars/{id}/vampire` | yes | `days` (1–90, default 30), `tz` | Vampire drain between drives | 17 |
+| GET | `/api/cars/{id}/charging-costs` | yes | `months` (1–24, default 12), `tz`, `currency` | Cross-month charging cost stats | 18 |
 
 (src: api/src/main.rs:882-885; comment: api/src/main.rs:302; comment: api/src/insights.rs:2-3)
 
@@ -158,6 +160,15 @@ The formulas below are a port of TeslaMate's `grafana/dashboards/battery-health.
 - **INS-114** When building periods, the system SHALL take consecutive completed drives ordered by `end_date`, form the parked gap from drive *i*'s end to drive *i+1*'s start (and an ongoing park after the latest drive to now), and SHALL exclude any gap that overlaps a `charging_processes` row. Gaps shorter than 15 minutes SHALL be omitted. (src: api/src/insights.rs `build_vampire_periods`; test: insights::vampire_tests::excludes_charged_gaps_and_sums_drain)
 - **INS-115** When SoC / rated range are available from drive start/end positions (and the latest position for an ongoing park), the system SHALL report non-negative `soc_lost` / `range_lost_km`; summary averages SHALL divide totals by the requested `days` window. (src: api/src/insights.rs `vampire`; test: insights::vampire_tests::ongoing_park_after_last_drive)
 - **INS-116** When querying drives and charges, the system SHALL bound by time and join `positions` by primary key id (no unbounded position scans). (src: api/src/insights.rs `vampire`)
+
+
+### 3.11 Charging cost stats (api_level ≥ 18)
+- **INS-120** When `GET /api/cars/{id}/charging-costs` is called without valid credentials, the system SHALL respond `401`. (test: api/src/main.rs auth_tests::only_pair_is_public)
+- **INS-121** When `months` is omitted the system SHALL use 12; when present it SHALL clamp to 1..=24. The window SHALL be that many local calendar months ending with the current month in `tz`. (src: api/src/report.rs `charging_costs`)
+- **INS-122** When `tz` is unknown to PostgreSQL, the system SHALL respond `400 {"error":"unknown tz"}`. When no car has the id, it SHALL respond `404 {"error":"car not found"}`. (src: api/src/report.rs `charging_costs`)
+- **INS-123** When aggregating, the system SHALL reuse the report charge-type classification and effective-cost rule (manual `drivelens.charge_costs` when present, else TeslaMate `cost`), and SHALL NOT write any row. (src: api/src/report.rs `charging_costs`; test: report::tests::charges_sql_classifies_tesla_fc_before_name_fallback)
+- **INS-124** When building the summary, `cost_per_kwh` SHALL divide each currency's total by priced kWh only (sessions with a cost); `cost_per_100km` SHALL divide by all driven distance in the window; `coverage_pct` SHALL be priced kWh ÷ energy added × 100. Sessions without a cost still count in `charge_count` / `energy_added_kwh`. (src: api/src/report.rs `build_charging_costs`; test: report::charging_cost_tests::aggregates_split_and_monthly_without_misleading_sums)
+- **INS-125** When the response is built, it SHALL include `summary`, `split` (home / supercharger / other with per-bucket unit prices) and `monthly` rows for every month in the window (including empty months). (src: api/src/report.rs `build_charging_costs`)
 
 ## 4. Key design decisions
 
