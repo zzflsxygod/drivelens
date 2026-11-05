@@ -942,5 +942,11 @@ html.touch * { -webkit-tap-highlight-color: transparent; }
 .tpms-hist-page { padding-bottom: 72px; }
 .tpms-hist-page .tpms-legend { margin-bottom: 6px; }
 .tpms-hist-page .small-note { margin-bottom: 8px; }
+.tpms-readout { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; margin: 8px 0 2px; font-size: 12px; color: var(--muted); min-height: 18px; }
+.tpms-readout[hidden] { display: none; }
+.tpms-ro-t { font-variant-numeric: tabular-nums; font-family: var(--mono); margin-right: 4px; color: var(--text); }
+.tpms-ro-w { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.tpms-ro-w i { width: 8px; height: 8px; border-radius: 2px; flex: none; display: inline-block; }
+.tpms-ro-w b { font-variant-numeric: tabular-nums; font-family: var(--mono); font-weight: 600; color: var(--text); }
 .tpms-tile.tpms-link { cursor: pointer; }
 .tpms-tile.tpms-link:active { opacity: .92; }
