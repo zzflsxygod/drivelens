@@ -1,6 +1,6 @@
 # api-core — drivelens-api process, HTTP surface and cross-cutting rules
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 18).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through app v1.4.0 / drivelens-api 0.16.0 (API level 21).
 > `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > Sources: `api/src/main.rs` (bootstrap, `router`, CORS, `/health`, `/api/health`, `ApiError`, `bad`, `paged`, `API_LEVEL`, `log_features`, test modules `cors_tests` and `auth_tests`), `api/Cargo.toml`, `README.md`, `SECURITY.md`, `docs/install.md`, `docs/DEVELOPMENT.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
 > In this document, "the system" means the drivelens-api process as a whole: its startup sequence, its route table, and the HTTP behavior that applies to every route (CORS, error envelope, health and version reporting).
@@ -103,7 +103,7 @@ drivelens-api is a small HTTP server that runs next to a user's TeslaMate instal
 - **CORE-011** When serving requests, the system SHALL attach the TCP peer address of each connection to the request so that `api-auth` can key its failure limits by client address. (src: api/src/main.rs:952-953; comment: api/src/main.rs:952)
 
 ### 3.2 Startup feature log
-- **CORE-020** When startup reaches the feature log and every feature is available, the system SHALL log at INFO level `all features enabled (API level 18)`. (src: api/src/main.rs:608-609; doc: docs/install.md "4. Start drivelens-api")
+- **CORE-020** When startup reaches the feature log and every feature is available, the system SHALL log at INFO level `all features enabled (API level 21)`. (src: api/src/main.rs:608-609; doc: docs/install.md "4. Start drivelens-api")
 - **CORE-021** When startup reaches the feature log and one or more features are unavailable, the system SHALL log at WARN level one line `disabled features: <comma-separated names> — <setup hint>`, where the names come from the set `teslamate read`, `place aliases`, `manual costs`, `journeys`, `suggestion dismissal`, `journey cover`, `weather cache`, `web push`, `device auth`. (src: api/src/main.rs:603-610; doc: docs/install.md "Troubleshooting")
 - **CORE-022** When the API role cannot read `public.drives`, the system SHALL additionally log at ERROR level `cannot read TeslaMate tables (public.drives); <setup hint>` and continue starting. (src: api/src/main.rs:598-600; doc: docs/install.md "Troubleshooting")
 - **CORE-023** When a feature probe fails with an error during the feature log, the system SHALL treat that feature as unavailable instead of aborting startup. (src: api/src/main.rs:598-607)
@@ -119,7 +119,7 @@ drivelens-api is a small HTTP server that runs next to a user's TeslaMate instal
 - **CORE-041** When `GET /api/health` is requested with valid credentials and `SELECT 1` succeeds, the system SHALL answer 200 with `status` `"ok"`, `version`, `api_level`, `database: true` and the booleans `manual_costs`, `journeys`, `suggestion_dismissal`, `journey_cover`, `weather`, `web_push` taken from the `api-storage` probes. (src: api/src/main.rs:352-362)
 - **CORE-042** When `GET /api/health` is requested with valid credentials and `SELECT 1` fails, the system SHALL answer 503 with `status` `"db_error"` and `database: false`. (src: api/src/main.rs:354-356)
 - **CORE-043** When a feature probe returns an error during `GET /api/health`, the system SHALL report that feature as `false` instead of failing the request. (src: api/src/main.rs:357-361)
-- **CORE-044** When either health endpoint reports `version`, the value SHALL be the `version` of `api/Cargo.toml` (`0.15.0` at this commit), and `api_level` SHALL be the constant `API_LEVEL` (21 at this commit). (src: api/src/main.rs:303, 349; src: api/Cargo.toml:3; test: api/src/main.rs auth_tests::only_pair_is_public)
+- **CORE-044** When either health endpoint reports `version`, the value SHALL be the `version` of `api/Cargo.toml` (`0.16.0` at this commit), and `api_level` SHALL be the constant `API_LEVEL` (21 at this commit). (src: api/src/main.rs:303, 349; src: api/Cargo.toml:3; test: api/src/main.rs auth_tests::only_pair_is_public)
 
 ### 3.5 List envelope
 - **CORE-050** When a list endpoint that uses `paged()` (`GET /api/drives`, `GET /api/charges`) is called with `paged=true`, the system SHALL answer `{"items": [...], "next_cursor": <string or null>}`; `next_cursor` SHALL be the cursor key of the last item when the number of items equals the effective limit, and `null` otherwise. The cursor key format is specified in `api-records`. (src: api/src/main.rs:307-321; doc: docs/DEVELOPMENT.md "API")

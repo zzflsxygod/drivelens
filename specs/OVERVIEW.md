@@ -1,6 +1,6 @@
 # DriveLens specifications — overview
 
-> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through `main` @ 9bd5dd2 (app v1.3.1, drivelens-api 0.15.0, API level 18).
+> Reverse-engineered from `main` @ 9b1c39c (app v1.2.2, drivelens-api 0.14.0, API level 15); updated for changes through app v1.4.0 / drivelens-api 0.16.0 (API level 21).
 > `src:` line numbers refer to 9b1c39c. Code added or rewritten after 9b1c39c is cited as `path` plus a symbol name. "At this commit" means 9bd5dd2.
 > This file lists the 20 module specs, shows how the modules depend on each other, and collects the
 > cross-cutting rules and the issues that span several modules.
@@ -231,11 +231,11 @@ The server reports one integer `api_level` on `/health`. The app turns individua
 | 14 | v0.13.0 | TeslaMate-identical battery health | `tmHealth` |
 | 15 | v0.14.0 | device auth | `devices` |
 | 16 | v0.15.0 | place search (`q`) + car status TPMS | `driveSearch`, `tpms` |
-| 17 | v0.16.0 (unreleased) | vampire drain + optional push alert | `vampire` |
-| 18 | v0.16.0 (unreleased) | charging cost stats (cross-month) | `chargingCost` |
-| 19 | unreleased | battery trend rates / projections / home sparkline | `batteryTrend` |
-| 20 | unreleased | year in review (annual totals, highlights, YoY) | `yearReview` |
-| 21 | unreleased | TPMS history chart (bucketed pressures) | `tpmsHistory` |
+| 17 | v0.16.0 | vampire drain + optional push alert | `vampire` |
+| 18 | v0.16.0 | charging cost stats (cross-month) | `chargingCost` |
+| 19 | v0.16.0 | battery trend rates / projections / home sparkline | `batteryTrend` |
+| 20 | v0.16.0 | year in review (annual totals, highlights, YoY) | `yearReview` |
+| 21 | v0.16.0 | TPMS history chart (bucketed pressures) | `tpmsHistory` |
 
 `tmHealth` is declared but no app code reads it; the app detects the TeslaMate method from the `tm` field of `/battery` (see app-insights). (src: app/src/version.ts:10)
 
