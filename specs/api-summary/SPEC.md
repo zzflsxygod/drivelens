@@ -47,6 +47,7 @@ its own, plus one combined endpoint kept for an old app version (comment: api/sr
 | Method | Path | Query | Purpose |
 |--------|------|-------|---------|
 | GET | `/api/cars/{id}/status` | — | Car info, state, latest position, software, optional `tpms` (api_level ≥ 16) |
+| GET | `/api/cars/{id}/tpms-history` | yes | `days` (7\|30\|90), `tz` | Bucketed TPMS history + current snapshot (api_level ≥ 21) |
 | GET | `/api/cars/{id}/last-activity` | — | Latest drive, latest charge, location |
 | GET | `/api/cars/{id}/stats` | `tz`, `currency` | All-time and this-month totals |
 | GET | `/api/cars/{id}/summary` | `tz`, `currency` | All of the above, flattened into one object |
@@ -64,6 +65,9 @@ its own, plus one combined endpoint kept for an old app version (comment: api/sr
 - **SUM-007** When returning `tpms` (api_level ≥ 16), the system SHALL (1) load the car's **3 most recent completed drives** (`id`, `start_date`, `end_date`), then (2) for each drive newest-first query `positions` with **`date BETWEEN start_date AND end_date` AND `drive_id = id`** and any `tpms_pressure_fl/fr/rl/rr` non-null, `ORDER BY date DESC LIMIT 1`, stopping at the first hit — returning `{date, fl, fr, rl, rr}` in bar. If none, it SHALL fall back over the last **7 days** for that `car_id`. If still none, `tpms` SHALL be omitted or null. Results SHALL be served from a per-`car_id` in-memory cache with a **5 minute** TTL (bounded map). No DB migration. (src: `api/src/summary.rs` `load_tpms` / `TpmsCache`; issue #24; test: api/src/summary.rs tpms_tests::tpms_cache_hit_miss_and_bound, tpms_tests::tpms_sql_uses_date_bounds_not_drive_id_in_or_90_day_scan)
 
 ### 3.2 Last activity (`GET /api/cars/{id}/last-activity`)
+
+
+- **SUM-008** When `GET /api/cars/{id}/tpms-history` is called (api_level ≥ 21), the system SHALL return `{days, timezone, from, to, bucket, unit, current, series}` where `days` is clamped to 7, 30 or 90 (default 30), `bucket` is `hour` for 7 days and `day` otherwise, `unit` is `bar`, `current` is the same latest snapshot as `/status.tpms` (or null), and each `series` row is a date-truncated aggregate of `positions` with avg/min per wheel plus optional `outside_temp_avg`. The query SHALL bound `positions.date` to `[from, to)` so BRIN(date) can prune (same lesson as SUM-007 / PR #34). No TeslaMate DDL. (src: `api/src/summary.rs` `tpms_history`, `bucket_tpms_samples`; test: `summary::tpms_tests::clamp_and_bucket_kind`, `bucket_tpms_samples_hourly_avg_and_min`; issue #55)
 
 - **SUM-010** When car `id` does not exist, the system SHALL respond HTTP 404 with `{"error": "car not found"}`. (src: api/src/summary.rs:239-241)
 - **SUM-011** When car `id` exists, the system SHALL return `{location, last_drive, last_charge}`, where `last_drive` is the car's newest completed drive in the `GET /api/drives` item shape and `last_charge` is its newest completed charging session in the `GET /api/charges` item shape (each `null` if none). (src: api/src/summary.rs:90-95, 154-160, 169)
