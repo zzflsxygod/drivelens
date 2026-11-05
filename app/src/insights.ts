@@ -173,7 +173,7 @@ function trendBlock(tr: BatTrend | null | undefined, kind: "page" | "card", newK
   if (!hasRate) {
     body = `<div class="muted">${t("bat.trendNeed")} · ${t("bat.trendShort")}</div>`;
   } else if (tr.no_measurable_degradation) {
-    body = `<div class="bat-kv"><div><small>${t("bat.trend")}</small><b>${t("bat.noDegrade")}</b></div></div>`;
+    body = `<div class="muted"><b>${t("bat.noDegrade")}</b></div>`;
   } else {
     body = `<div class="bat-kv">
       <div><small>${t("bat.rate10k")}</small><b>${tr.pct_per_10k_km == null ? "—" : fmtRatePct(tr.pct_per_10k_km)}</b></div>
