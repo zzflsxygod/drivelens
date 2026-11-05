@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## [Unreleased]
+
+### Fixed
+- **Vampire drain % precision:** pack-% (segment loss, 合计损耗, 停车日均 / ring, push threshold) is derived from rated-range loss ÷ full rated range (same ratio as battery health), at 0.1% steps. Flat integer SoC with a real km drop no longer shows "−0%"; values that round to 0.0 with range evidence show "<0.1%". Falls back to SoC delta only when range is missing. `api_level` unchanged (21).
+
 ## v1.4.1 — 2026-11-05
 - **Vampire drain on real TeslaMate data:** parked periods are split around charging sessions instead of dropping any gap that touched a charge (home overnight charging no longer zeroes the Home card). Stale open `charging_processes` rows (`end_date IS NULL` older than 48 hours) are ignored so they cannot extend to "now" and blank every park. Timestamps are formatted as naive UTC like the rest of the API.
 - The setup screen now recommends server 0.16.1.
