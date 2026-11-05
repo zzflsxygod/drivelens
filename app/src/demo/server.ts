@@ -396,8 +396,8 @@ function yearReview(q: URLSearchParams) {
   const { drives, charges } = reportRows(t0, t1, t0, tz);
 
   type MT = { distance_km: number; drive_count: number; drive_duration_min: number; energy_used_kwh: number;
-    energy_added_kwh: number; charge_count: number; costs: Money[]; home_kwh: number; supercharger_kwh: number; other_kwh: number };
-  const empty = (): MT => ({ distance_km: 0, drive_count: 0, drive_duration_min: 0, energy_used_kwh: 0, energy_added_kwh: 0, charge_count: 0, costs: [], home_kwh: 0, supercharger_kwh: 0, other_kwh: 0 });
+    energy_added_kwh: number; charge_count: number; priced_kwh: number; costs: Money[]; home_kwh: number; supercharger_kwh: number; other_kwh: number };
+  const empty = (): MT => ({ distance_km: 0, drive_count: 0, drive_duration_min: 0, energy_used_kwh: 0, energy_added_kwh: 0, charge_count: 0, priced_kwh: 0, costs: [], home_kwh: 0, supercharger_kwh: 0, other_kwh: 0 });
   const by = new Map(monthKeys.map(m => [m, empty()]));
   let longest: typeof drives[0] | null = null;
   const places = new Map<string, number>();
@@ -425,13 +425,14 @@ function yearReview(q: URLSearchParams) {
       const nm = place(x.c.addr, x.c.geo);
       if (nm) scPlaces.add(nm);
     } else m.other_kwh += e;
-    if (x.k.cost != null) addMoney(m.costs, x.k.currency ?? defCur, x.k.cost);
+    if (x.k.cost != null) { m.priced_kwh += e; addMoney(m.costs, x.k.currency ?? defCur, x.k.cost); }
   }
 
   const sum = empty();
   for (const m of by.values()) {
     sum.distance_km += m.distance_km; sum.drive_count += m.drive_count; sum.drive_duration_min += m.drive_duration_min;
     sum.energy_used_kwh += m.energy_used_kwh; sum.energy_added_kwh += m.energy_added_kwh; sum.charge_count += m.charge_count;
+    sum.priced_kwh += m.priced_kwh;
     sum.home_kwh += m.home_kwh; sum.supercharger_kwh += m.supercharger_kwh; sum.other_kwh += m.other_kwh;
     for (const c of m.costs) addMoney(sum.costs, c.currency, c.amount);
   }
@@ -453,7 +454,9 @@ function yearReview(q: URLSearchParams) {
     energy_used_kwh: r1(sum.energy_used_kwh),
     efficiency_wh_km: sum.distance_km > 1 ? r1(sum.energy_used_kwh * 1000 / sum.distance_km) : null,
     charge_count: sum.charge_count, energy_added_kwh: r1(sum.energy_added_kwh),
+    priced_kwh: r1(sum.priced_kwh),
     costs: sum.costs,
+    cost_per_kwh: sum.priced_kwh > 0 ? sum.costs.map(c => ({ currency: c.currency, amount: r2(c.amount / sum.priced_kwh) })) : [],
     cost_per_100km: sum.costs.map(c => ({ currency: c.currency, amount: r2(c.amount / Math.max(sum.distance_km, 1e-9) * 100) })).filter(c => sum.distance_km > 0),
     home_kwh: r1(sum.home_kwh), supercharger_kwh: r1(sum.supercharger_kwh), other_kwh: r1(sum.other_kwh),
   };

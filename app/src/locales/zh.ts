@@ -658,6 +658,7 @@ const zh = {
   "yr.avgEff": "平均能耗",
   "yr.cost": "充电费用",
   "yr.per100": "每百公里费用",
+  "yr.perKwh": "平均单价",
   "yr.byMonth": "各月行驶里程",
   "yr.monthAria": "各月里程柱状图",
   "yr.chargeMix": "充电构成",

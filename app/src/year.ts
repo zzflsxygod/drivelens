@@ -9,8 +9,8 @@ interface Money { currency: string; amount: number }
 interface Totals {
   distance_km: number; drive_count: number; drive_duration_min: number;
   energy_used_kwh: number; efficiency_wh_km: number | null;
-  charge_count: number; energy_added_kwh: number;
-  costs: Money[]; cost_per_100km: Money[];
+  charge_count: number; energy_added_kwh: number; priced_kwh?: number;
+  costs: Money[]; cost_per_kwh: Money[]; cost_per_100km: Money[];
   home_kwh: number; supercharger_kwh: number; other_kwh: number;
 }
 interface MonthRow {
@@ -110,6 +110,10 @@ function yearHTML(r: YearReview) {
   const o = r.totals, yoy = r.yoy, h = r.highlights;
   const empty = o.drive_count === 0 && o.charge_count === 0;
   const per100 = o.cost_per_100km;
+  const perKwh = o.cost_per_kwh ?? [];
+  const perKwhTxt = perKwh.length
+    ? perKwh.map(m => `${fmtMoney(m.amount, m.currency, true)}`).join(" + ")
+    : "—";
   const split = h.charge_split;
   const splitTot = split.home_kwh + split.supercharger_kwh + split.other_kwh;
   const splitRow = (k: "home" | "supercharger" | "other", kwh: number) => {
@@ -139,7 +143,8 @@ function yearHTML(r: YearReview) {
     <div class="ov">
       <div><small>${t("yr.avgEff")}</small><b>${o.efficiency_wh_km != null ? num(o.efficiency_wh_km, 1) : "—"}<i>Wh/km</i></b></div>
       <div><small>${t("yr.cost")}</small><b class="${o.costs.length > 1 ? "multi" : ""}">${costTxt(o.costs)}</b></div>
-      <div><small>${t("yr.per100")}</small><b>${per100.length ? per100.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—"}<i>/100 km</i></b></div>
+      <div><small>${t("yr.perKwh")}</small><b class="${perKwh.length > 1 ? "multi" : ""}">${perKwh.length ? `${perKwhTxt}<i>/kWh</i>` : "—"}</b></div>
+      <div><small>${t("yr.per100")}</small><b class="${per100.length > 1 ? "multi" : ""}">${per100.length ? per100.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—"}<i>/100 km</i></b></div>
     </div>
     <div class="section-title">${t("yr.byMonth")}</div>
     <div class="pane">${monthBars(r)}</div>
