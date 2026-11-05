@@ -89,6 +89,12 @@ html:not(.touch)::-webkit-scrollbar, html:not(.touch) body::-webkit-scrollbar, h
 html.touch .osb { display: none !important; }
 html.standalone, html.standalone body { overscroll-behavior-y: none; }
 
+/* While nav.settleScroll re-applies an anchor, stop the browser from shifting scroll as Home sections grow. */
+html.scroll-restoring, html.scroll-restoring body, html.scroll-restoring #home, html.scroll-restoring #view {
+  overflow-anchor: none;
+}
+
+
 /* ---------- chrome: header / banners / nav ---------- */
 header { --hpad: 16px; position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; gap: 10px;
   padding: calc(10px + var(--sat)) var(--hpad) 10px; background: var(--bg); border-bottom: 1px solid var(--line); }

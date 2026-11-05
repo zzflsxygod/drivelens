@@ -36,7 +36,8 @@ export function installDemoFetch() {
     let body: unknown;
     if (typeof init?.body === "string") { try { body = JSON.parse(init.body); } catch { body = undefined; } }
     const m = await load();
-    await new Promise(r => setTimeout(r, 25 + Math.random() * 45));   // feels like a (fast) network
+    const slow = Number(sessionStorage.getItem("drivelens-demo-delay-ms") || 0);
+    await new Promise(r => setTimeout(r, 25 + Math.random() * 45 + (Number.isFinite(slow) && slow > 0 ? slow : 0)));   // feels like a network; tests may raise delay
     if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const r = m.handle(method, url.slice(DEMO_URL.length) || "/", body);
     return r.status === 204 ? new Response(null, { status: 204 })
