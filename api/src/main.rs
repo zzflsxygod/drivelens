@@ -351,8 +351,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = place search (drives/journeys q) + car status TPMS (v0.15.0) · 17 = vampire drain parked SoC/range stats + optional push alert (unreleased) · 18 = charging cost stats: cross-month ¥/kWh, ¥/100 km, home/SuC/other (unreleased) · 19 = battery health trend rates/projections/spark on /battery `tm.trend` (unreleased) · 20 = year in review annual totals/highlights/YoY (unreleased)
-pub(crate) const API_LEVEL: u32 = 20;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = place search (drives/journeys q) + car status TPMS (v0.15.0) · 17 = vampire drain parked SoC/range stats + optional push alert (unreleased) · 18 = charging cost stats: cross-month ¥/kWh, ¥/100 km, home/SuC/other (unreleased) · 19 = battery health trend rates/projections/spark on /battery `tm.trend` (unreleased) · 20 = year in review annual totals/highlights/YoY (unreleased) · 21 = TPMS history chart over positions (unreleased)
+pub(crate) const API_LEVEL: u32 = 21;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -877,7 +877,7 @@ mod auth_tests {
         use tower::ServiceExt;
         let routes = [("GET", "/api/health"), ("GET", "/api/cars"), ("GET", "/api/cars/1/summary"), ("GET", "/api/cars/1/status"),
             ("GET", "/api/cars/1/last-activity"), ("GET", "/api/cars/1/stats"), ("GET", "/api/cars/1/report"), ("GET", "/api/cars/1/trends"),
-            ("GET", "/api/cars/1/footprint"), ("GET", "/api/cars/1/battery"), ("GET", "/api/cars/1/vampire"), ("GET", "/api/cars/1/charging-costs"), ("GET", "/api/cars/1/year-review"), ("GET", "/api/charges"), ("GET", "/api/charges/1"),
+            ("GET", "/api/cars/1/footprint"), ("GET", "/api/cars/1/battery"), ("GET", "/api/cars/1/vampire"), ("GET", "/api/cars/1/charging-costs"), ("GET", "/api/cars/1/year-review"), ("GET", "/api/cars/1/tpms-history"), ("GET", "/api/charges"), ("GET", "/api/charges/1"),
             ("PUT", "/api/charges/1/cost"), ("DELETE", "/api/charges/1/cost"), ("GET", "/api/drives"), ("GET", "/api/cars/1/months"),
             ("GET", "/api/journeys"), ("POST", "/api/journeys"), ("GET", "/api/journeys/suggestions"), ("POST", "/api/journeys/suggestions/dismiss"),
             ("DELETE", "/api/journeys/suggestions/dismissed"), ("GET", "/api/journeys/1"), ("PATCH", "/api/journeys/1"), ("DELETE", "/api/journeys/1"),
@@ -909,7 +909,7 @@ mod auth_tests {
         let res = app.oneshot(axum::http::Request::builder().uri("/health").body(axum::body::Body::empty()).unwrap()).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":20"));
+        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":21"));
     }
 
     /// GET /api/auth/me without device auth: owner, device_auth false, mode full.
@@ -987,6 +987,7 @@ fn router(state: AppState) -> Router {
         .route("/cars/{id}/vampire", get(insights::vampire))
         .route("/cars/{id}/charging-costs", get(report::charging_costs))
         .route("/cars/{id}/year-review", get(report::year_review))
+        .route("/cars/{id}/tpms-history", get(summary::tpms_history))
         .route("/charges", get(charges_route))
         .route("/charges/{id}", get(get_charge))
         .route("/charges/{id}/cost", put(put_cost).delete(delete_cost))

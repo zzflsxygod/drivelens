@@ -388,6 +388,183 @@ fn currency_param(c: Option<String>) -> String {
         .unwrap_or_else(|| "JPY".into())
 }
 
+
+fn r1(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
+
+// ---------------- TPMS history (api_level ≥ 21) ----------------
+/// Allowed windows for GET /tpms-history. Anything else falls back to 30.
+pub fn clamp_tpms_days(days: i64) -> i64 {
+    match days { 7 | 30 | 90 => days, _ => 30 }
+}
+
+/// Hourly buckets for ≤7 days (enough resolution without raw noise); daily for longer.
+pub fn tpms_bucket_kind(days: i64) -> &'static str {
+    if days <= 7 { "hour" } else { "day" }
+}
+
+/// One raw sample used by the pure bucketer (unit-tested; DB path aggregates in SQL).
+#[derive(Clone, Debug)]
+pub struct TpmsSample {
+    pub ts_ms: i64,
+    pub fl: Option<f64>,
+    pub fr: Option<f64>,
+    pub rl: Option<f64>,
+    pub rr: Option<f64>,
+    pub outside_temp: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TpmsBucket {
+    pub t_ms: i64,
+    pub fl_avg: Option<f64>,
+    pub fr_avg: Option<f64>,
+    pub rl_avg: Option<f64>,
+    pub rr_avg: Option<f64>,
+    pub fl_min: Option<f64>,
+    pub fr_min: Option<f64>,
+    pub rl_min: Option<f64>,
+    pub rr_min: Option<f64>,
+    pub outside_temp_avg: Option<f64>,
+    pub n: i64,
+}
+
+fn opt_avg(sum: f64, n: i64) -> Option<f64> {
+    if n > 0 { Some(r1(sum / n as f64)) } else { None }
+}
+fn opt_min(cur: Option<f64>, v: Option<f64>) -> Option<f64> {
+    match (cur, v) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (None, Some(b)) => Some(b),
+        (x, _) => x,
+    }
+}
+
+/// Bucket samples by `bucket_ms` (e.g. 3600_000 hour, 86_400_000 day). Pure; used by unit tests.
+/// Production path uses SQL `date_trunc` with the same hour/day rule so shapes stay aligned.
+pub fn bucket_tpms_samples(samples: &[TpmsSample], bucket_ms: i64) -> Vec<TpmsBucket> {
+    if bucket_ms <= 0 { return vec![]; }
+    use std::collections::BTreeMap;
+    struct Acc {
+        fl_s: f64, fr_s: f64, rl_s: f64, rr_s: f64, ot_s: f64,
+        fl_n: i64, fr_n: i64, rl_n: i64, rr_n: i64, ot_n: i64,
+        fl_min: Option<f64>, fr_min: Option<f64>, rl_min: Option<f64>, rr_min: Option<f64>,
+        n: i64,
+    }
+    let mut map: BTreeMap<i64, Acc> = BTreeMap::new();
+    for s in samples {
+        let key = s.ts_ms.div_euclid(bucket_ms) * bucket_ms;
+        let a = map.entry(key).or_insert(Acc {
+            fl_s: 0.0, fr_s: 0.0, rl_s: 0.0, rr_s: 0.0, ot_s: 0.0,
+            fl_n: 0, fr_n: 0, rl_n: 0, rr_n: 0, ot_n: 0,
+            fl_min: None, fr_min: None, rl_min: None, rr_min: None, n: 0,
+        });
+        a.n += 1;
+        if let Some(v) = s.fl { a.fl_s += v; a.fl_n += 1; a.fl_min = opt_min(a.fl_min, Some(v)); }
+        if let Some(v) = s.fr { a.fr_s += v; a.fr_n += 1; a.fr_min = opt_min(a.fr_min, Some(v)); }
+        if let Some(v) = s.rl { a.rl_s += v; a.rl_n += 1; a.rl_min = opt_min(a.rl_min, Some(v)); }
+        if let Some(v) = s.rr { a.rr_s += v; a.rr_n += 1; a.rr_min = opt_min(a.rr_min, Some(v)); }
+        if let Some(v) = s.outside_temp { a.ot_s += v; a.ot_n += 1; }
+    }
+    map.into_iter().map(|(t_ms, a)| TpmsBucket {
+        t_ms,
+        fl_avg: opt_avg(a.fl_s, a.fl_n), fr_avg: opt_avg(a.fr_s, a.fr_n),
+        rl_avg: opt_avg(a.rl_s, a.rl_n), rr_avg: opt_avg(a.rr_s, a.rr_n),
+        fl_min: a.fl_min.map(r1), fr_min: a.fr_min.map(r1),
+        rl_min: a.rl_min.map(r1), rr_min: a.rr_min.map(r1),
+        outside_temp_avg: opt_avg(a.ot_s, a.ot_n),
+        n: a.n,
+    }).collect()
+}
+
+#[derive(Deserialize)]
+pub struct TpmsHistoryParams { days: Option<i64>, tz: Option<String> }
+
+#[derive(FromRow)]
+struct TpmsHistRow {
+    bucket: String,
+    fl_avg: Option<f64>, fr_avg: Option<f64>, rl_avg: Option<f64>, rr_avg: Option<f64>,
+    fl_min: Option<f64>, fr_min: Option<f64>, rl_min: Option<f64>, rr_min: Option<f64>,
+    outside_temp_avg: Option<f64>,
+    n: i64,
+}
+
+/// GET /api/cars/:id/tpms-history?days=7|30|90&tz=
+///
+/// Performance: `positions` is huge. Always bound `date` to `[from, to)` so BRIN(date)
+/// (TeslaMate minmax_multi) can prune — same lesson as the home TPMS tile (PR #34 / SUM-007).
+/// Aggregate in SQL (hourly ≤7d, daily otherwise) so we never ship raw samples. No new
+/// TeslaMate indexes; no `drivelens` DDL. Expected plan: Bitmap Index Scan on BRIN(date)
+/// → filter `car_id` + any-wheel non-null → HashAggregate. Prefer this over per-drive
+/// loops for multi-week windows (many drives) and over an unbounded `car_id` scan.
+pub async fn tpms_history(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<TpmsHistoryParams>) -> Result<Response, ApiError> {
+    let bad = |m: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response();
+    let days = clamp_tpms_days(p.days.unwrap_or(30));
+    let tz = p.tz.unwrap_or_else(|| "UTC".into());
+    let bucket = tpms_bucket_kind(days);
+    // Resolve UTC window from "now" in the caller's timezone so day buckets align with local midnights.
+    // UTC window ending "now"; BRIN(date) prunes to these binds. Local labeling via date_trunc AT TIME ZONE.
+    let bounds: Result<(String, String), _> = sqlx::query_as(
+        "SELECT to_char((now() AT TIME ZONE 'UTC') - ($1::text || ' days')::interval, 'YYYY-MM-DD HH24:MI:SS'),
+                to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')")
+        .bind(days.to_string()).fetch_one(&s.db).await;
+    let (t0, t1) = match bounds { Ok(v) => v, Err(e) => return Err(e.into()) };
+    // Reject unknown tz before the positions scan (date_trunc AT TIME ZONE $tz).
+    if let Err(e) = sqlx::query_scalar::<_, String>("SELECT to_char(now() AT TIME ZONE $1, 'YYYY-MM-DD')").bind(&tz).fetch_one(&s.db).await {
+        return match e {
+            sqlx::Error::Database(d) if d.code().as_deref() == Some("22023") => Ok(bad("unknown tz")),
+            other => Err(other.into()),
+        };
+    }
+
+    let exists: Option<i64> = sqlx::query_scalar("SELECT id::int8 FROM cars WHERE id = $1").bind(id).fetch_optional(&s.db).await?;
+    if exists.is_none() { return Ok(not_found("car not found")); }
+
+    let trunc = if bucket == "hour" { "hour" } else { "day" };
+    // date_trunc in the caller's TZ so daily bars match local calendar days; BRIN still sees UTC binds.
+    // Treat positions.date (timestamp without tz, UTC wall) as UTC, then project into caller's TZ for trunc.
+    let sql = format!(
+        "SELECT to_char(date_trunc('{trunc}', (date AT TIME ZONE 'UTC') AT TIME ZONE $4), '{TS}') AS bucket,
+                avg(tpms_pressure_fl)::float8 AS fl_avg, avg(tpms_pressure_fr)::float8 AS fr_avg,
+                avg(tpms_pressure_rl)::float8 AS rl_avg, avg(tpms_pressure_rr)::float8 AS rr_avg,
+                min(tpms_pressure_fl)::float8 AS fl_min, min(tpms_pressure_fr)::float8 AS fr_min,
+                min(tpms_pressure_rl)::float8 AS rl_min, min(tpms_pressure_rr)::float8 AS rr_min,
+                avg(outside_temp)::float8 AS outside_temp_avg,
+                count(*)::int8 AS n
+         FROM positions
+         WHERE car_id = $1
+           AND date >= $2::timestamp AND date < $3::timestamp
+           AND {TPMS_ANY}
+         GROUP BY 1
+         ORDER BY 1"
+    );
+    let rows = sqlx::query_as::<_, TpmsHistRow>(&sql)
+        .bind(id).bind(&t0).bind(&t1).bind(&tz)
+        .fetch_all(&s.db).await?;
+
+    let series: Vec<_> = rows.into_iter().map(|r| serde_json::json!({
+        "t": r.bucket,
+        "fl_avg": r.fl_avg.map(r1), "fr_avg": r.fr_avg.map(r1),
+        "rl_avg": r.rl_avg.map(r1), "rr_avg": r.rr_avg.map(r1),
+        "fl_min": r.fl_min.map(r1), "fr_min": r.fr_min.map(r1),
+        "rl_min": r.rl_min.map(r1), "rr_min": r.rr_min.map(r1),
+        "outside_temp_avg": r.outside_temp_avg.map(r1),
+        "n": r.n,
+    })).collect();
+
+    let current = load_tpms(&s, id).await?;
+
+    Ok(Json(serde_json::json!({
+        "days": days,
+        "timezone": tz,
+        "from": t0,
+        "to": t1,
+        "bucket": bucket,
+        "unit": "bar",
+        "current": current,
+        "series": series,
+    })).into_response())
+}
+
 #[cfg(test)]
 mod tpms_tests {
     use super::*;
@@ -438,5 +615,37 @@ mod tpms_tests {
         assert!(fallback.contains("7 days"));
         assert!(!fallback.contains("90 days"));
         assert_eq!(TPMS_RECENT_DRIVES, 3);
+    }
+
+    #[test]
+    fn clamp_and_bucket_kind() {
+        assert_eq!(clamp_tpms_days(7), 7);
+        assert_eq!(clamp_tpms_days(30), 30);
+        assert_eq!(clamp_tpms_days(90), 90);
+        assert_eq!(clamp_tpms_days(14), 30);
+        assert_eq!(clamp_tpms_days(0), 30);
+        assert_eq!(tpms_bucket_kind(7), "hour");
+        assert_eq!(tpms_bucket_kind(30), "day");
+        assert_eq!(tpms_bucket_kind(90), "day");
+    }
+
+    #[test]
+    fn bucket_tpms_samples_hourly_avg_and_min() {
+        let hour = 3_600_000i64;
+        let samples = vec![
+            TpmsSample { ts_ms: hour + 10_000, fl: Some(2.8), fr: Some(2.9), rl: Some(2.8), rr: Some(2.9), outside_temp: Some(20.0) },
+            TpmsSample { ts_ms: hour + 20_000, fl: Some(2.6), fr: Some(2.9), rl: Some(2.8), rr: Some(2.9), outside_temp: Some(22.0) },
+            TpmsSample { ts_ms: 2 * hour + 5_000, fl: Some(2.4), fr: None, rl: Some(2.7), rr: Some(2.8), outside_temp: None },
+        ];
+        let b = bucket_tpms_samples(&samples, hour);
+        assert_eq!(b.len(), 2);
+        assert_eq!(b[0].t_ms, hour);
+        assert_eq!(b[0].fl_avg, Some(2.7)); // (2.8+2.6)/2
+        assert_eq!(b[0].fl_min, Some(2.6));
+        assert_eq!(b[0].outside_temp_avg, Some(21.0));
+        assert_eq!(b[0].n, 2);
+        assert_eq!(b[1].fl_avg, Some(2.4));
+        assert_eq!(b[1].fr_avg, None);
+        assert_eq!(b[1].n, 1);
     }
 }

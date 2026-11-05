@@ -235,6 +235,7 @@ The server reports one integer `api_level` on `/health`. The app turns individua
 | 18 | v0.16.0 (unreleased) | charging cost stats (cross-month) | `chargingCost` |
 | 19 | unreleased | battery trend rates / projections / home sparkline | `batteryTrend` |
 | 20 | unreleased | year in review (annual totals, highlights, YoY) | `yearReview` |
+| 21 | unreleased | TPMS history chart (bucketed pressures) | `tpmsHistory` |
 
 `tmHealth` is declared but no app code reads it; the app detects the TeslaMate method from the `tm` field of `/battery` (see app-insights). (src: app/src/version.ts:10)
 

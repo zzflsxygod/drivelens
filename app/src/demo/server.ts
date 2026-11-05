@@ -728,6 +728,62 @@ function chargingCosts(q: URLSearchParams) {
   });
 }
 
+
+function tpmsHistory(q: URLSearchParams) {
+  const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
+  const raw = Number(q.get("days") || 30);
+  const days = raw === 7 || raw === 30 || raw === 90 ? raw : 30;
+  const bucket = days <= 7 ? "hour" : "day";
+  const bucketMs = bucket === "hour" ? 3600e3 : 864e5;
+  const t1 = db.now;
+  const t0 = t1 - days * 864e5;
+  // Current snapshot must match status().tpms (same date helper + FL low 2.3).
+  const st = status() as { tpms: { date: string; fl: number; fr: number; rl: number; rr: number } };
+  const cur = { ...st.tpms };
+  const series: {
+    t: string; fl_avg: number | null; fr_avg: number | null; rl_avg: number | null; rr_avg: number | null;
+    fl_min: number | null; fr_min: number | null; rl_min: number | null; rr_min: number | null;
+    outside_temp_avg: number | null; n: number;
+  }[] = [];
+  const nBuckets = Math.max(1, Math.floor((t1 - t0) / bucketMs));
+  for (let i = 0; i < nBuckets; i++) {
+    const start = t0 + i * bucketMs;
+    if (start >= t1) break;
+    // Progress 0→1 over the window; FL drops from ~2.85 to 2.3 in the last ~10 days.
+    const ageDays = (t1 - start) / 864e5;
+    const flBase = 2.85 - 0.55 * (ageDays < 14 ? (14 - ageDays) / 14 : 0);
+    // slight temp correlation: warmer → +0.02 bar-ish noise on healthy wheels
+    const temp = r1(12 + 10 * Math.sin((start / 864e5) * Math.PI * 2 / 7) + (i % 5) * 0.3);
+    const wobble = (seed: number) => ((Math.sin(start / 1e7 + seed) + Math.cos(i * 0.7 + seed)) * 0.02);
+    const fl = r1(Math.max(2.2, flBase + wobble(1) * 0.5));
+    const fr = r1(2.85 + wobble(2) + (temp - 15) * 0.002);
+    const rl = r1(2.78 + wobble(3) + (temp - 15) * 0.002);
+    const rr = r1(2.82 + wobble(4) + (temp - 15) * 0.002);
+    // Force last bucket to match current snapshot for cross-page consistency.
+    const isLast = i === nBuckets - 1 || start + bucketMs >= t1;
+    const row = isLast
+      ? { fl: cur.fl, fr: cur.fr, rl: cur.rl, rr: cur.rr }
+      : { fl, fr, rl, rr };
+    series.push({
+      t: TS(start),
+      fl_avg: row.fl, fr_avg: row.fr, rl_avg: row.rl, rr_avg: row.rr,
+      fl_min: r1(row.fl - (isLast ? 0 : 0.02)), fr_min: r1(row.fr - 0.01),
+      rl_min: r1(row.rl - 0.01), rr_min: r1(row.rr - 0.01),
+      outside_temp_avg: temp, n: bucket === "hour" ? 4 : 18,
+    });
+  }
+  // Ensure final values exactly match current
+  if (series.length) {
+    const last = series[series.length - 1];
+    last.fl_avg = cur.fl; last.fr_avg = cur.fr; last.rl_avg = cur.rl; last.rr_avg = cur.rr;
+    last.fl_min = cur.fl; last.fr_min = cur.fr; last.rl_min = cur.rl; last.rr_min = cur.rr;
+  }
+  return ok({
+    days, timezone: tz, from: TS(t0), to: TS(t1), bucket, unit: "bar",
+    current: cur, series,
+  });
+}
+
 function vampire(q: URLSearchParams) {
   const days = Math.min(90, Math.max(1, Number(q.get("days") || 30) || 30));
   const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
@@ -783,10 +839,10 @@ export function handle(method: string, url: string, body: unknown): Res {
   const B = (body ?? {}) as Record<string, unknown>;
   if (p === "/health" || p === "/api/health") return ok(health());
   if (p === "/api/cars" && M === "GET") return ok(cars());
-  if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire|charging-costs|year-review)$/))) {
+  if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire|charging-costs|year-review|tpms-history)$/))) {
     // the demo has a single car: any car id (e.g. one remembered from a real server) is answered as the demo car
     switch (m[2]) { case "status": return ok(status()); case "last-activity": return ok(lastActivity()); case "stats": return stats(q); case "months": return months(q);
-      case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); case "vampire": return vampire(q); case "charging-costs": return chargingCosts(q); case "year-review": return yearReview(q); }
+      case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); case "vampire": return vampire(q); case "charging-costs": return chargingCosts(q); case "year-review": return yearReview(q); case "tpms-history": return tpmsHistory(q); }
   }
   if (p === "/api/drives") {
     const raw = (q.get("q") ?? "").trim().slice(0, 100);

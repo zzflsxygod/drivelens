@@ -29,6 +29,7 @@ import { DriveMap, effectiveTheme, speedColorToolsHtml, bindSpeedColorToggle, sp
 import { showReport as renderReport, nowMonth } from "./report";
 import { showYear as renderYear, nowYear, seasonalYear } from "./year";
 import { batteryCardHTML, showBattery, vampireCardHTML, showVampire, chargingCostCardHTML, showChargingCosts, type Battery, type Vampire, type ChargingCosts } from "./insights";
+import { showTpmsHistory } from "./tpms";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
@@ -696,7 +697,9 @@ function tpmsTileHTML(s: Status) {
     return `<span class="tpms-cell${low ? " low" : ""}" aria-label="${esc(aria)}"><b aria-hidden="true">${text}</b></span>`;
   }).join("");
   // Label: [⚠] 胎压 bar …… age (right). Unit muted after the name; age is separate so it can ellipsize.
-  return `<div class="tpms-tile${hasLow ? " is-low" : ""}"${hasLow ? ` title="${esc(t("tpms.warn"))}"` : ""}>
+  const canOpen = !lacks("tpmsHistory");
+  const title = hasLow ? t("tpms.warn") : (canOpen ? t("tpmsHist.open") : "");
+  return `<div class="tpms-tile${hasLow ? " is-low" : ""}${canOpen ? " tpms-link" : ""}"${canOpen ? ` data-tpms-hist role="button"` : ""}${title ? ` title="${esc(title)}"` : ""}>
       <small class="tpms-lab">${hasLow ? ic("alert") : ""}<span class="tpms-lab-l">${esc(t("tpms.row"))} <i class="unit" aria-hidden="true">${esc(t("set.tpmsUnit"))}</i></span>${age ? `<span class="tpms-age">${esc(age)}</span>` : ""}</small>
       <div class="tpms-mini" role="group" aria-label="${esc(t("tpms.row"))}">${cells}</div>
     </div>`;
@@ -851,6 +854,7 @@ async function showHome() {
     if (!data.status) return;
     sec("hero").innerHTML = heroHTML(data.status);
     sec("hero").querySelector("[data-refresh]")!.addEventListener("click", showHome);
+    sec("hero").querySelectorAll<HTMLElement>("[data-tpms-hist]").forEach(el => el.onclick = () => openTpmsHistory(id));
   };
   let mapObserver: IntersectionObserver | null = null;
   const paintMap = () => {
@@ -941,6 +945,7 @@ async function showHome() {
 async function carInfo(id: number): Promise<Car | null> { try { return (await api<Car[]>("/api/cars")).find(c => c.id === id) ?? null; } catch { return null; } }
 async function openBattery(id: number) { navPage("battery", showHome); destroyMap(); ++homeGen; showBattery(view, id, showHome, await carInfo(id)); window.scrollTo(0, 0); }
 async function openVampire(id: number) { navPage("vampire", showHome); destroyMap(); ++homeGen; showVampire(view, id, showHome); window.scrollTo(0, 0); }
+async function openTpmsHistory(id: number) { navPage("tpms-history", showHome); destroyMap(); ++homeGen; showTpmsHistory(view, id, showHome); window.scrollTo(0, 0); }
 async function openChargingCosts(id: number) { navPage("charging-costs", showHome); destroyMap(); ++homeGen; showChargingCosts(view, id, showHome); window.scrollTo(0, 0); }
 
 /** Monthly report (opened from the 首页 month card; back returns to 首页). */
@@ -1125,6 +1130,7 @@ function openView(v: string | null) {
   }
   else if (v === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
   else if (v === "vampire") currentCarId().then(id => { if (id != null) openVampire(id); });
+  else if (v === "tpms-history" || v === "tpms") currentCarId().then(id => { if (id != null) openTpmsHistory(id); });
   else if (v === "charging-costs" || v === "chargingCosts") currentCarId().then(id => { if (id != null) openChargingCosts(id); });
   else if (v?.startsWith("journey:")) { mark("drives"); serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(v.slice(8))))); }
   else if (v === "journeys") { mark("drives"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
