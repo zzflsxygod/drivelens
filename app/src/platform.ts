@@ -44,9 +44,11 @@ export function inAppBack(): boolean {
   if (jmenu) { jmenu.hidden = true; document.querySelector("#j-more")?.classList.remove("open"); return true; }
   const sel = document.querySelector<HTMLElement>("#selmode.active");
   if (sel) { sel.click(); return true; }
+  // Detail pages: always popPage (marks scroll restore + runs the stored back). The in-app .back button
+  // also goes through popPage via nav.ts's capture listener — so button and history.back share one path.
+  if (popPage()) return true;
   const back = document.querySelector<HTMLElement>("#view .page-head .back, #view .back");
-  if (back && back.offsetParent !== null) { back.click(); return true; }
-  if (popPage()) return true;   // a detail page that is still loading (its back button is not rendered yet)
+  if (back && back.offsetParent !== null) { back.click(); return true; }   // back UI without a stack entry
   return backHandler?.() ?? false;
 }
 
