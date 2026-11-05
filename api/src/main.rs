@@ -351,8 +351,8 @@ pub(crate) fn charge_select(costs: bool) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = place search (drives/journeys q) + car status TPMS (v0.15.0) · 17 = vampire drain parked SoC/range stats + optional push alert (unreleased) · 18 = charging cost stats: cross-month ¥/kWh, ¥/100 km, home/SuC/other (unreleased)
-pub(crate) const API_LEVEL: u32 = 18;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = place search (drives/journeys q) + car status TPMS (v0.15.0) · 17 = vampire drain parked SoC/range stats + optional push alert (unreleased) · 18 = charging cost stats: cross-month ¥/kWh, ¥/100 km, home/SuC/other (unreleased) · 19 = battery health trend rates/projections/spark on /battery `tm.trend` (unreleased)
+pub(crate) const API_LEVEL: u32 = 19;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).

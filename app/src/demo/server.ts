@@ -308,22 +308,76 @@ function tmHealth(summary: boolean) {
   for (const c of db.charges) if (c.duration_min > 10 && c.el <= 95 && c.added > 0 && c.err - c.srr !== 0) { const v = Math.round(c.added / (c.err - c.srr) * 1000) / 1000; counts.set(v, (counts.get(v) ?? 0) + 1); }
   const mode = [...counts].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
   const eff = mode ? Math.round(mode[0] * 1000) / 10 : db.car.efficiency * 100;
-  const jit = (id: number) => (((id * 2654435761) >>> 0) % 1000 / 1000 - 0.5) * 1.2;
-  const q = db.charges.filter(c => c.end < db.now && c.added >= eff && c.el > 0).sort((a, b) => a.end - b.end)
-    .map(c => ({ c, cap: c.err * eff / c.el + jit(c.id) })).filter(x => x.cap >= 20 && x.cap <= 150);
+  const jit = (id: number) => (((id * 2654435761) >>> 0) % 1000 / 1000 - 0.5) * 0.35;
+  // Capacity samples follow demo rated-range fade in gen.ts (no extra odo fade — would double-count).
+  const raw = db.charges.filter(c => c.end < db.now && c.added >= eff && c.el > 0).sort((a, b) => a.end - b.end);
+  const q = raw.map(c => ({ c, cap: c.err * eff / c.el + jit(c.id) })).filter(x => x.cap >= 20 && x.cap <= 150);
   if (!q.length) return { method: "teslamate-battery-health", efficiency_kwh_100km: r2(eff), efficiency_source: mode ? "derived" : "car", capacity_now_kwh: null, now_samples: 0,
-    capacity_max_kwh: null, capacity_new_kwh: null, new_source: "max", health_pct: null, degradation_pct: null, cycles: null, energy_added_kwh: null, charges: 0, points: [], half_months: [] };
-  const last = q.slice(-3), now = last.reduce((a, x) => a + x.cap, 0) / last.length, max = Math.max(...q.map(x => x.cap));
+    capacity_max_kwh: null, capacity_new_kwh: null, new_source: "max", health_pct: null, degradation_pct: null, cycles: null, energy_added_kwh: null, charges: 0, points: [], half_months: [], trend: null };
+  const last = q.slice(-100), now = last.reduce((a, x) => a + x.cap, 0) / last.length, max = Math.max(...q.map(x => x.cap));
   const tot = db.charges.filter(c => c.added > 0.01), kwh = tot.reduce((a, c) => a + c.added, 0), ratio = now * 100 / max;
   const day = (ms: number) => tokyoDay(ms), byDay = new Map<string, typeof q>(), byHalf = new Map<string, typeof q>();
   for (const x of q) { const d = day(x.c.end); byDay.set(d, [...(byDay.get(d) ?? []), x]); const h = d.slice(0, 4) + d.slice(5, 7) + (Number(d.slice(8, 10)) <= 15 ? "1" : "2"); byHalf.set(h, [...(byHalf.get(h) ?? []), x]); }
   const avg = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
   const pct50 = (v: number[]) => { const s2 = [...v].sort((a, b) => a - b), i = (s2.length - 1) / 2, lo = Math.floor(i); return s2[lo] + (s2[Math.ceil(i)] - s2[lo]) * (i - lo); };
-  return { method: "teslamate-battery-health", efficiency_kwh_100km: r2(eff), efficiency_source: mode ? "derived" : "car", capacity_now_kwh: r2(now), now_samples: 100,
+  const half_months = [...byHalf].map(([h, g]) => ({ period: h, odometer_km: Math.round(Math.min(...g.map(x => x.c.odometer))), capacity_kwh: r1(pct50(g.map(x => x.cap))), n: g.length }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+  const trend = demoBatteryTrend(half_months, max);
+  return { method: "teslamate-battery-health", efficiency_kwh_100km: r2(eff), efficiency_source: mode ? "derived" : "car", capacity_now_kwh: r2(now), now_samples: Math.min(100, last.length),
     capacity_max_kwh: r2(max), capacity_new_kwh: r2(max), new_source: "max", health_pct: r1(Math.min(100, ratio)), degradation_pct: r1(Math.max(0, 100 - ratio)),
     cycles: Math.floor(kwh / max), energy_added_kwh: r1(kwh), charges: tot.length,
     points: summary ? [] : [...byDay].map(([d, g]) => ({ date: d, odometer_km: r1(avg(g.map(x => x.c.odometer))), capacity_kwh: r2(avg(g.map(x => x.cap))) })),
-    half_months: summary ? [] : [...byHalf].map(([h, g]) => ({ period: h, odometer_km: Math.round(Math.min(...g.map(x => x.c.odometer))), capacity_kwh: r1(pct50(g.map(x => x.cap))), n: g.length })) };
+    half_months: summary ? [] : half_months,
+    trend };
+}
+/** Mirror of api `compute_battery_trend` so demo card/page match production numbers. */
+function demoBatteryTrend(halves: { period: string; odometer_km: number | null; capacity_kwh: number }[], newKwh: number) {
+  const spark = halves.slice(-12).map(h => r1(h.capacity_kwh));
+  const empty = { enough_time: false, enough_odo: false, pct_per_10k_km: null as number | null, pct_per_year: null as number | null,
+    no_measurable_degradation: false, projections: [] as { odometer_km: number; capacity_kwh: number; health_pct: number }[],
+    spark, months_span: 0, km_span: 0, n_halves: halves.length };
+  if (!(newKwh > 0) || halves.length < 4) return empty;
+  const periodDay = (p: string) => {
+    if (p.length < 7) return null;
+    const y = Number(p.slice(0, 4)), m = Number(p.slice(4, 6)), day = p.endsWith("1") ? 8 : 23;
+    if (!(m >= 1 && m <= 12)) return null;
+    return y * 365.25 + (m - 1) * 30.4375 + day;
+  };
+  const fit = (xs: number[], ys: number[]) => {
+    const n = xs.length; if (n < 2) return null;
+    const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+    let sxy = 0, sxx = 0; for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; }
+    if (Math.abs(sxx) < 1e-12) return null; const b = sxy / sxx; return { a: my - b * mx, b };
+  };
+  const tPairs = halves.map(h => ({ x: periodDay(h.period), y: h.capacity_kwh })).filter((p): p is { x: number; y: number } => p.x != null);
+  const tXs = tPairs.map(p => p.x), tYs = tPairs.map(p => p.y);
+  const monthsSpan = tXs.length >= 2 ? (Math.max(...tXs) - Math.min(...tXs)) / 30.4375 : 0;
+  const enoughTime = tXs.length >= 4 && monthsSpan >= 3;
+  let pctYear: number | null = null;
+  if (enoughTime) { const f = fit(tXs, tYs); if (f) { const pct = f.b * 365.25 / newKwh * 100; pctYear = pct >= -0.05 ? 0 : r1(pct); } }
+  const oPairs = halves.filter(h => h.odometer_km != null && h.odometer_km > 0).map(h => ({ x: h.odometer_km!, y: h.capacity_kwh }));
+  const oXs = oPairs.map(p => p.x), oYs = oPairs.map(p => p.y);
+  const odoMin = oXs.length ? Math.min(...oXs) : 0, odoMax = oXs.length ? Math.max(...oXs) : 0;
+  const kmSpan = odoMax - odoMin;
+  const enoughOdo = oXs.length >= 4 && kmSpan >= 5000;
+  let pct10k: number | null = null; let fitOdo: { a: number; b: number } | null = null;
+  if (enoughOdo) { const f = fit(oXs, oYs); if (f) { fitOdo = f; const pct = f.b * 10000 / newKwh * 100; pct10k = pct >= -0.05 ? 0 : r1(pct); } }
+  let noMeas = false;
+  if (pct10k != null && pctYear != null) noMeas = pct10k >= -0.05 && pctYear >= -0.05;
+  else if (pct10k != null) noMeas = pct10k >= -0.05;
+  else if (pctYear != null) noMeas = pctYear >= -0.05;
+  const projections: { odometer_km: number; capacity_kwh: number; health_pct: number }[] = [];
+  if (fitOdo) {
+    for (const target of [100_000, 200_000]) {
+      if (target <= odoMax + 1) continue;
+      let cap = fitOdo.a + fitOdo.b * target;
+      const lo = Math.max(newKwh * 0.5, 20);
+      cap = Math.min(newKwh, Math.max(lo, cap));
+      projections.push({ odometer_km: target, capacity_kwh: r1(cap), health_pct: r1(Math.min(100, cap / newKwh * 100)) });
+    }
+  }
+  return { enough_time: enoughTime, enough_odo: enoughOdo, pct_per_10k_km: pct10k, pct_per_year: pctYear,
+    no_measurable_degradation: noMeas, projections, spark, months_span: r1(monthsSpan), km_span: r1(kmSpan), n_halves: halves.length };
 }
 
 // ----- journeys -----

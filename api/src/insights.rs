@@ -183,7 +183,10 @@ async fn tm_health(s: &AppState, id: i64, tz: Option<String>, new_kwh: Option<f6
     let ratio = match (cur, new) { (Some(c), Some(n)) if n > 0.0 => Some(c * 100.0 / n), _ => None };
     let r1 = |v: f64| (v * 10.0).round() / 10.0;
     let r2 = |v: f64| (v * 100.0).round() / 100.0;
-    let (points, halves): (Vec<TmPoint>, Vec<TmHalf>) = if summary || eff.is_none() { (vec![], vec![]) } else {
+    // Half-months are needed for trend even on summary; daily points only on the full page.
+    let (points, halves): (Vec<TmPoint>, Vec<TmHalf>) = if eff.is_none() {
+        (vec![], vec![])
+    } else {
         let tz = tz.unwrap_or_else(|| "UTC".into());
         let tz_ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)").bind(&tz).fetch_one(&s.db).await?;
         let tz = if tz_ok { tz } else { "UTC".to_string() };
@@ -191,9 +194,13 @@ async fn tm_health(s: &AppState, id: i64, tz: Option<String>, new_kwh: Option<f6
             l AS (SELECT timezone($2, timezone('UTC', cp.end_date)) AS t, p.odometer, last.cap
                   FROM last JOIN charging_processes cp ON cp.id = last.cp_id JOIN positions p ON p.id = cp.position_id
                   WHERE last.cap IS NOT NULL)");
-        let pts = sqlx::query_as::<_, TmPoint>(&format!("{base}
+        let pts = if summary {
+            vec![]
+        } else {
+            sqlx::query_as::<_, TmPoint>(&format!("{base}
             SELECT to_char(t, 'YYYY-MM-DD') AS date, ROUND(AVG(odometer)::numeric, 1)::float8 AS odometer_km, ROUND(AVG(cap)::numeric, 2)::float8 AS capacity_kwh
-            FROM l GROUP BY 1 ORDER BY 1")).bind(id as i32).bind(&tz).fetch_all(&s.db).await?;
+            FROM l GROUP BY 1 ORDER BY 1")).bind(id as i32).bind(&tz).fetch_all(&s.db).await?
+        };
         let hs = sqlx::query_as::<_, TmHalf>(&format!("{base}
             SELECT to_char(t, 'YYYYMM') || CASE WHEN to_char(t, 'DD')::int <= 15 THEN '1' ELSE '2' END AS period,
                    ROUND(MIN(odometer)::numeric, 0)::float8 AS odometer_km,
@@ -201,6 +208,12 @@ async fn tm_health(s: &AppState, id: i64, tz: Option<String>, new_kwh: Option<f6
             FROM l GROUP BY 1 ORDER BY 1")).bind(id as i32).bind(&tz).fetch_all(&s.db).await?;
         (pts, hs)
     };
+    let trend_halves: Vec<TrendHalf> = halves.iter().map(|h| TrendHalf {
+        period: h.period.clone(), odometer_km: h.odometer_km, capacity_kwh: h.capacity_kwh,
+    }).collect();
+    let trend = new.map(|n| compute_battery_trend(&trend_halves, n));
+    // Summary keeps spark via trend; omit the full half_months list to keep the home-card payload small.
+    let halves_out = if summary { vec![] } else { halves };
     Ok(serde_json::json!({
         "method": "teslamate-battery-health",
         "efficiency_kwh_100km": eff.map(r2), "efficiency_source": derived.map(|d| if d { "derived" } else { "car" }),
@@ -209,8 +222,198 @@ async fn tm_health(s: &AppState, id: i64, tz: Option<String>, new_kwh: Option<f6
         "health_pct": ratio.map(|r| r1(r.min(100.0))), "degradation_pct": ratio.map(|r| r1((100.0 - r).max(0.0))),
         "cycles": match (kwh, new) { (Some(k), Some(n)) if n > 0.0 => Some((k / n).floor() as i64), _ => None },
         "energy_added_kwh": kwh.map(r1), "charges": n_charges,
-        "points": points, "half_months": halves,
+        "points": points, "half_months": halves_out,
+        "trend": trend.as_ref().map(trend_json),
     }))
+}
+
+
+
+// ---------------- api_level 19: battery trend (rates + projections + spark) ----------------
+// Fit least-squares on half-month capacity medians (same series as the charts) to cut charge-to-charge noise.
+// Thresholds for "enough data": ≥ 4 half-month points, calendar span ≥ 3 months, odometer span ≥ 5 000 km
+// (odo span required only for %/10k km and odometer projections; %/yr needs the time span + points).
+
+#[derive(Clone, Debug)]
+pub struct TrendHalf {
+    pub period: String,
+    pub odometer_km: Option<f64>,
+    pub capacity_kwh: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatProjection {
+    pub odometer_km: i64,
+    pub capacity_kwh: f64,
+    pub health_pct: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatTrend {
+    pub enough_time: bool,
+    pub enough_odo: bool,
+    pub pct_per_10k_km: Option<f64>,
+    pub pct_per_year: Option<f64>,
+    pub no_measurable_degradation: bool,
+    pub projections: Vec<BatProjection>,
+    pub spark: Vec<f64>,
+    pub months_span: f64,
+    pub km_span: f64,
+    pub n_halves: usize,
+}
+
+fn round1(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
+
+/// Mid-point of a half-month period key `YYYYMM1` / `YYYYMM2` as an ordinal day (enough for slope).
+pub fn period_day(period: &str) -> Option<f64> {
+    if period.len() < 7 { return None; }
+    let y: f64 = period.get(0..4)?.parse().ok()?;
+    let m: f64 = period.get(4..6)?.parse().ok()?;
+    if !(1.0..=12.0).contains(&m) { return None; }
+    let day: f64 = if period.ends_with('1') { 8.0 } else { 23.0 };
+    Some(y * 365.25 + (m - 1.0) * 30.4375 + day)
+}
+
+fn ls_fit(xs: &[f64], ys: &[f64]) -> Option<(f64, f64)> {
+    let n = xs.len();
+    if n < 2 || ys.len() != n { return None; }
+    let mx = xs.iter().sum::<f64>() / n as f64;
+    let my = ys.iter().sum::<f64>() / n as f64;
+    let mut sxy = 0.0;
+    let mut sxx = 0.0;
+    for i in 0..n {
+        sxy += (xs[i] - mx) * (ys[i] - my);
+        sxx += (xs[i] - mx) * (xs[i] - mx);
+    }
+    if sxx.abs() < 1e-12 { return None; }
+    let b = sxy / sxx;
+    Some((my - b * mx, b))
+}
+
+const MIN_HALVES: usize = 4;
+const MIN_MONTHS: f64 = 3.0;
+const MIN_KM: f64 = 5_000.0;
+const PROJ_TARGETS: [i64; 2] = [100_000, 200_000];
+
+/// Build trend stats from half-month medians and the new-capacity baseline (kWh).
+pub fn compute_battery_trend(halves: &[TrendHalf], new_kwh: f64) -> BatTrend {
+    let spark: Vec<f64> = halves.iter().rev().take(12).map(|h| round1(h.capacity_kwh)).collect::<Vec<_>>().into_iter().rev().collect();
+    let n_halves = halves.len();
+    let mut empty = BatTrend {
+        enough_time: false, enough_odo: false,
+        pct_per_10k_km: None, pct_per_year: None,
+        no_measurable_degradation: false, projections: vec![],
+        spark, months_span: 0.0, km_span: 0.0, n_halves,
+    };
+    if new_kwh <= 0.0 || n_halves < MIN_HALVES {
+        return empty;
+    }
+
+    // ---- time fit ----
+    let mut t_xs = Vec::new();
+    let mut t_ys = Vec::new();
+    for h in halves {
+        if let Some(d) = period_day(&h.period) {
+            t_xs.push(d);
+            t_ys.push(h.capacity_kwh);
+        }
+    }
+    let months_span = if t_xs.len() >= 2 {
+        (t_xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max) - t_xs.iter().cloned().fold(f64::INFINITY, f64::min)) / 30.4375
+    } else { 0.0 };
+    empty.months_span = round1(months_span);
+    let enough_time = t_xs.len() >= MIN_HALVES && months_span >= MIN_MONTHS;
+    empty.enough_time = enough_time;
+
+    let mut pct_year: Option<f64> = None;
+    if enough_time {
+        if let Some((_a, b)) = ls_fit(&t_xs, &t_ys) {
+            // b = kWh per day → % of new per year
+            let pct = b * 365.25 / new_kwh * 100.0;
+            pct_year = Some(if pct >= -0.05 { 0.0 } else { round1(pct) });
+        }
+    }
+
+    // ---- odometer fit ----
+    let mut o_xs = Vec::new();
+    let mut o_ys = Vec::new();
+    for h in halves {
+        if let Some(o) = h.odometer_km {
+            if o.is_finite() && o > 0.0 {
+                o_xs.push(o);
+                o_ys.push(h.capacity_kwh);
+            }
+        }
+    }
+    let (odo_min, odo_max) = if o_xs.is_empty() {
+        (0.0, 0.0)
+    } else {
+        (o_xs.iter().cloned().fold(f64::INFINITY, f64::min), o_xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+    };
+    let km_span = odo_max - odo_min;
+    empty.km_span = round1(km_span);
+    let enough_odo = o_xs.len() >= MIN_HALVES && km_span >= MIN_KM;
+    empty.enough_odo = enough_odo;
+
+    let mut pct_10k: Option<f64> = None;
+    let mut fit_odo: Option<(f64, f64)> = None;
+    if enough_odo {
+        if let Some((a, b)) = ls_fit(&o_xs, &o_ys) {
+            fit_odo = Some((a, b));
+            let pct = b * 10_000.0 / new_kwh * 100.0;
+            pct_10k = Some(if pct >= -0.05 { 0.0 } else { round1(pct) });
+        }
+    }
+
+    // Flat or rising capacity → "no measurable degradation" (do not show a negative degradation %).
+    let no_measurable = match (pct_10k, pct_year) {
+        (Some(a), Some(b)) => a >= -0.05 && b >= -0.05,
+        (Some(a), None) => a >= -0.05,
+        (None, Some(b)) => b >= -0.05,
+        (None, None) => false,
+    };
+
+    let mut projections = Vec::new();
+    if let Some((a, b)) = fit_odo {
+        for &target in &PROJ_TARGETS {
+            if (target as f64) <= odo_max + 1.0 { continue; } // already passed / at target
+            let mut cap = a + b * target as f64;
+            // physical clamp: not above new, not below 50% of new (or 20 kWh floor)
+            let lo = (new_kwh * 0.5).max(20.0);
+            cap = cap.clamp(lo, new_kwh);
+            let health = round1((cap / new_kwh * 100.0).min(100.0));
+            projections.push(BatProjection { odometer_km: target, capacity_kwh: round1(cap), health_pct: health });
+        }
+    }
+
+    BatTrend {
+        enough_time, enough_odo,
+        pct_per_10k_km: pct_10k,
+        pct_per_year: pct_year,
+        no_measurable_degradation: no_measurable,
+        projections,
+        spark: empty.spark,
+        months_span: empty.months_span,
+        km_span: empty.km_span,
+        n_halves,
+    }
+}
+
+fn trend_json(t: &BatTrend) -> serde_json::Value {
+    serde_json::json!({
+        "enough_time": t.enough_time,
+        "enough_odo": t.enough_odo,
+        "pct_per_10k_km": t.pct_per_10k_km,
+        "pct_per_year": t.pct_per_year,
+        "no_measurable_degradation": t.no_measurable_degradation,
+        "projections": t.projections.iter().map(|p| serde_json::json!({
+            "odometer_km": p.odometer_km, "capacity_kwh": p.capacity_kwh, "health_pct": p.health_pct
+        })).collect::<Vec<_>>(),
+        "spark": t.spark,
+        "months_span": t.months_span,
+        "km_span": t.km_span,
+        "n_halves": t.n_halves,
+    })
 }
 
 
@@ -543,5 +746,92 @@ mod vampire_tests {
         let s = parse_ts("2026-10-01 12:00:00").unwrap();
         assert_eq!(fmt_ts(s), "2026-10-01T12:00:00Z");
         assert_eq!(parse_ts("2026-10-01T12:00:00Z"), Some(s));
+    }
+}
+
+
+#[cfg(test)]
+mod battery_trend_tests {
+    use super::*;
+
+    fn h(period: &str, odo: f64, cap: f64) -> TrendHalf {
+        TrendHalf { period: period.into(), odometer_km: Some(odo), capacity_kwh: cap }
+    }
+
+    #[test]
+    fn period_day_orders_halves() {
+        let a = period_day("2026011").unwrap();
+        let b = period_day("2026012").unwrap();
+        let c = period_day("2026021").unwrap();
+        assert!(a < b && b < c);
+    }
+
+    #[test]
+    fn insufficient_when_short_span() {
+        let halves = vec![
+            h("2026101", 10_000.0, 60.0),
+            h("2026102", 11_000.0, 59.9),
+            h("2026111", 12_000.0, 59.8),
+        ];
+        let t = compute_battery_trend(&halves, 60.0);
+        assert!(!t.enough_time);
+        assert!(!t.enough_odo); // km span 2000 < 5000
+        assert!(t.pct_per_year.is_none());
+        assert!(t.projections.is_empty());
+        assert_eq!(t.spark.len(), 3);
+    }
+
+    #[test]
+    fn rates_and_projections_from_gentle_fade() {
+        // ~2% over 40 000 km and ~1 year → about −0.5 %/10k km, roughly −2 %/yr
+        let mut halves = Vec::new();
+        let new = 60.0_f64;
+        for i in 0..8 {
+            let month = 1 + i;
+            let period = format!("2026{:02}1", month);
+            let odo = 20_000.0 + i as f64 * 5_000.0; // 20k .. 55k
+            let cap = new * (1.0 - (odo - 20_000.0) / 40_000.0 * 0.02);
+            halves.push(h(&period, odo, cap));
+        }
+        let t = compute_battery_trend(&halves, new);
+        assert!(t.enough_time && t.enough_odo);
+        let p10 = t.pct_per_10k_km.unwrap();
+        let pyr = t.pct_per_year.unwrap();
+        assert!(p10 < -0.2 && p10 > -0.8, "p10={p10}");
+        assert!(pyr < -1.0 && pyr > -4.0, "pyr={pyr}");
+        assert!(!t.no_measurable_degradation);
+        assert!(!t.projections.is_empty());
+        // 100k is ahead of 55k
+        let p100 = t.projections.iter().find(|p| p.odometer_km == 100_000).unwrap();
+        assert!(p100.capacity_kwh < new && p100.capacity_kwh >= new * 0.5);
+        assert!(p100.health_pct <= 100.0);
+        // spark last up to 12
+        assert_eq!(t.spark.len(), 8);
+    }
+
+    #[test]
+    fn rising_capacity_is_no_measurable_degradation() {
+        let halves: Vec<_> = (0..6).map(|i| {
+            let period = format!("2026{:02}1", i + 1);
+            h(&period, 10_000.0 + i as f64 * 3_000.0, 58.0 + i as f64 * 0.2)
+        }).collect();
+        let t = compute_battery_trend(&halves, 60.0);
+        assert!(t.enough_odo && t.enough_time);
+        assert_eq!(t.pct_per_10k_km, Some(0.0));
+        assert_eq!(t.pct_per_year, Some(0.0));
+        assert!(t.no_measurable_degradation);
+    }
+
+    #[test]
+    fn skips_projection_already_passed() {
+        let halves: Vec<_> = (0..6).map(|i| {
+            let period = format!("2025{:02}1", i + 1);
+            // odo already past 100k
+            h(&period, 150_000.0 + i as f64 * 5_000.0, 55.0 - i as f64 * 0.1)
+        }).collect();
+        let t = compute_battery_trend(&halves, 60.0);
+        assert!(t.enough_odo);
+        assert!(t.projections.iter().all(|p| p.odometer_km > 175_000 || p.odometer_km == 200_000));
+        assert!(t.projections.iter().all(|p| p.odometer_km != 100_000));
     }
 }
