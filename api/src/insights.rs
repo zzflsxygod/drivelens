@@ -437,10 +437,16 @@ struct DriveEdge {
     end_rated_km: Option<f64>,
 }
 
-#[derive(FromRow)]
+/// One charging_processes row used to punch holes in parked gaps.
+/// `end_date` is never null here: active sessions use "now"; stale open rows are dropped in SQL.
+#[derive(FromRow, Clone, Debug)]
 struct ChargeWin {
     start_date: String,
     end_date: String,
+    start_soc: Option<i32>,
+    end_soc: Option<i32>,
+    start_rated_km: Option<f64>,
+    end_rated_km: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -458,6 +464,9 @@ pub struct VampirePeriod {
     pub after_drive_id: Option<i64>,
     pub before_drive_id: Option<i64>,
 }
+
+/// Charge interval for the pure bucketer: (start, end, start_soc, end_soc, start_rated, end_rated).
+pub type VampireCharge = (String, String, Option<i32>, Option<i32>, Option<f64>, Option<f64>);
 
 fn parse_ts(s: &str) -> Option<i64> {
     // Accept "YYYY-MM-DD HH:MM:SS" (TeslaMate naive UTC) or "YYYY-MM-DDTHH:MM:SSZ".
@@ -499,11 +508,31 @@ fn fmt_ts(secs: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{se:02}Z")
 }
 
+fn iso_z(s: &str) -> String {
+    if s.contains('T') { s.to_string() } else { format!("{}Z", s.replace(' ', "T")) }
+}
+
 fn overlaps(a0: &str, a1: &str, b0: &str, b1: &str) -> bool {
     a0 < b1 && b0 < a1
 }
 
 fn r1(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
+
+fn soc_lost_of(start: Option<i32>, end: Option<i32>) -> Option<i32> {
+    match (start, end) {
+        (Some(s), Some(e)) if s >= e => Some(s - e),
+        (Some(_), Some(_)) => Some(0), // rose without a logged charge — treat as 0, still list
+        _ => None,
+    }
+}
+
+fn range_lost_of(start: Option<f64>, end: Option<f64>) -> Option<f64> {
+    match (start, end) {
+        (Some(s), Some(e)) if s >= e => Some(r1(s - e)),
+        (Some(_), Some(_)) => Some(0.0),
+        _ => None,
+    }
+}
 
 /// Average drain per parked day: total loss ÷ (parked_hours / 24).
 /// Returns (avg_soc_per_day, avg_range_km_per_day); None when there is no parked time / no samples.
@@ -516,11 +545,86 @@ pub fn vampire_averages(soc_lost: Option<i32>, range_lost_km: Option<f64>, parke
     )
 }
 
-/// Build parked periods between consecutive completed drives, dropping any gap that overlaps a charge.
-/// `now_ts` / `now_soc` / `now_rated` fill an ongoing park after the latest drive when present.
+/// Uncharged slices of `[park_start, park_end]` after subtracting overlapping charges.
+/// Each slice carries the SoC / rated range at its ends (from the enclosing drive or the
+/// charge that borders it). Charging itself is never reported as vampire drain.
+fn uncharged_slices(
+    park_start: &str,
+    park_end: &str,
+    start_soc: Option<i32>,
+    end_soc: Option<i32>,
+    start_rated: Option<f64>,
+    end_rated: Option<f64>,
+    charges: &[VampireCharge],
+) -> Vec<(String, String, Option<i32>, Option<i32>, Option<f64>, Option<f64>)> {
+    if park_end <= park_start { return vec![]; }
+    let mut hit: Vec<&VampireCharge> = charges.iter()
+        .filter(|c| overlaps(park_start, park_end, &c.0, &c.1))
+        .collect();
+    hit.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut out = Vec::new();
+    let mut cursor = park_start.to_string();
+    let mut cur_soc = start_soc;
+    let mut cur_rated = start_rated;
+    for c in hit {
+        // charge may start before the park (still overlapping) — clamp
+        let c0 = if c.0.as_str() < park_start { park_start.to_string() } else { c.0.clone() };
+        let c1 = if c.1.as_str() > park_end { park_end.to_string() } else { c.1.clone() };
+        if c0.as_str() > cursor.as_str() {
+            out.push((cursor.clone(), c0.clone(), cur_soc, c.2, cur_rated, c.4));
+        }
+        if c1.as_str() > cursor.as_str() {
+            cursor = c1;
+            cur_soc = c.3;   // after charging, SoC is the charge's end
+            cur_rated = c.5;
+        }
+    }
+    if park_end > cursor.as_str() {
+        out.push((cursor, park_end.to_string(), cur_soc, end_soc, cur_rated, end_rated));
+    }
+    out
+}
+
+fn push_segment(
+    out: &mut Vec<VampirePeriod>,
+    start: &str,
+    end: &str,
+    start_soc: Option<i32>,
+    end_soc: Option<i32>,
+    start_rated: Option<f64>,
+    end_rated: Option<f64>,
+    ongoing: bool,
+    after_drive_id: Option<i64>,
+    before_drive_id: Option<i64>,
+    window_start: &str,
+) {
+    if end <= start { return; }
+    // Drop slices that ended entirely before the window (a slice that spans the window edge is kept).
+    if end < window_start && start < window_start { return; }
+    let hours = match (parse_ts(start), parse_ts(end)) {
+        (Some(s), Some(e)) if e > s => (e - s) as f64 / 3600.0,
+        _ => return,
+    };
+    if hours < 0.25 { return; } // ignore sub-15-minute gaps (door open / short stop)
+    out.push(VampirePeriod {
+        start: iso_z(start),
+        end: iso_z(end),
+        duration_hours: r1(hours),
+        start_soc, end_soc, soc_lost: soc_lost_of(start_soc, end_soc),
+        start_rated_km: start_rated.map(r1), end_rated_km: end_rated.map(r1),
+        range_lost_km: range_lost_of(start_rated, end_rated),
+        ongoing, after_drive_id, before_drive_id,
+    });
+}
+
+/// Build parked periods between consecutive completed drives.
+///
+/// A gap that contains charging is **split** around each charge: only the uncharged
+/// slices count as vampire drain (home charging every night no longer zeroes the card).
+/// `now` fills an ongoing park after the latest drive when present.
 pub fn build_vampire_periods(
     drives: &[(i64, String, String, Option<i32>, Option<i32>, Option<f64>, Option<f64>)],
-    charges: &[(String, String)],
+    charges: &[VampireCharge],
     now: Option<(String, Option<i32>, Option<f64>)>,
     window_start: &str,
 ) -> Vec<VampirePeriod> {
@@ -529,63 +633,21 @@ pub fn build_vampire_periods(
     for w in drives.windows(2) {
         let (a, b) = (&w[0], &w[1]);
         let (park_start, park_end) = (&a.2, &b.1); // end of A → start of B
-        if park_end <= park_start { continue; }
-        if park_end.as_str() < window_start && park_start.as_str() < window_start { continue; }
-        if charges.iter().any(|(cs, ce)| overlaps(park_start, park_end, cs, ce)) { continue; }
-        let hours = match (parse_ts(park_start), parse_ts(park_end)) {
-            (Some(s), Some(e)) if e > s => (e - s) as f64 / 3600.0,
-            _ => continue,
-        };
-        if hours < 0.25 { continue; } // ignore sub-15-minute gaps (door open / short stop)
-        let start_soc = a.4; let end_soc = b.3;
-        let start_rated = a.6; let end_rated = b.5;
-        let soc_lost = match (start_soc, end_soc) {
-            (Some(s), Some(e)) if s >= e => Some(s - e),
-            (Some(_), Some(_)) => Some(0), // SoC rose without a logged charge — treat as 0, still list
-            _ => None,
-        };
-        let range_lost = match (start_rated, end_rated) {
-            (Some(s), Some(e)) if s >= e => Some(r1(s - e)),
-            (Some(_), Some(_)) => Some(0.0),
-            _ => None,
-        };
-        out.push(VampirePeriod {
-            start: if park_start.contains('T') { park_start.clone() } else { format!("{}Z", park_start.replace(' ', "T")) },
-            end: if park_end.contains('T') { park_end.clone() } else { format!("{}Z", park_end.replace(' ', "T")) },
-            duration_hours: r1(hours),
-            start_soc, end_soc, soc_lost,
-            start_rated_km: start_rated.map(r1), end_rated_km: end_rated.map(r1), range_lost_km: range_lost,
-            ongoing: false, after_drive_id: Some(a.0), before_drive_id: Some(b.0),
-        });
+        for (s, e, ss, es, sr, er) in uncharged_slices(
+            park_start, park_end, a.4, b.3, a.6, b.5, charges,
+        ) {
+            push_segment(&mut out, &s, &e, ss, es, sr, er, false, Some(a.0), Some(b.0), window_start);
+        }
     }
     if let (Some(last), Some((now_s, now_soc, now_rated))) = (drives.last(), now) {
         let park_start = &last.2;
-        if now_s.as_str() > park_start.as_str()
-            && !charges.iter().any(|(cs, ce)| overlaps(park_start, &now_s, cs, ce))
-        {
-            if let (Some(s), Some(e)) = (parse_ts(park_start), parse_ts(&now_s)) {
-                let hours = (e - s) as f64 / 3600.0;
-                if hours >= 0.25 {
-                    let start_soc = last.4;
-                    let soc_lost = match (start_soc, now_soc) {
-                        (Some(a), Some(b)) if a >= b => Some(a - b),
-                        (Some(_), Some(_)) => Some(0),
-                        _ => None,
-                    };
-                    let range_lost = match (last.6, now_rated) {
-                        (Some(a), Some(b)) if a >= b => Some(r1(a - b)),
-                        (Some(_), Some(_)) => Some(0.0),
-                        _ => None,
-                    };
-                    out.push(VampirePeriod {
-                        start: if park_start.contains('T') { park_start.clone() } else { format!("{}Z", park_start.replace(' ', "T")) },
-                        end: if now_s.contains('T') { now_s } else { format!("{}Z", now_s.replace(' ', "T")) },
-                        duration_hours: r1(hours),
-                        start_soc, end_soc: now_soc, soc_lost,
-                        start_rated_km: last.6.map(r1), end_rated_km: now_rated.map(r1), range_lost_km: range_lost,
-                        ongoing: true, after_drive_id: Some(last.0), before_drive_id: None,
-                    });
-                }
+        if now_s.as_str() > park_start.as_str() {
+            for (s, e, ss, es, sr, er) in uncharged_slices(
+                park_start, &now_s, last.4, now_soc, last.6, now_rated, charges,
+            ) {
+                // only the final slice (ending at "now") is the ongoing park
+                let ongoing = e == now_s || iso_z(&e) == iso_z(&now_s);
+                push_segment(&mut out, &s, &e, ss, es, sr, er, ongoing, Some(last.0), None, window_start);
             }
         }
     }
@@ -593,20 +655,52 @@ pub fn build_vampire_periods(
     out
 }
 
-/// Drain of the parked gap immediately before `drive_id` (for push alerts). None when unknown / charged / too short.
+/// Drain of the parked gap immediately before `drive_id` (for push alerts).
+/// Sums uncharged slices between the previous drive and this one. None when unknown / fully charged / too short.
 pub fn gap_before_drive(
     drives: &[(i64, String, String, Option<i32>, Option<i32>, Option<f64>, Option<f64>)],
-    charges: &[(String, String)],
+    charges: &[VampireCharge],
     drive_id: i64,
 ) -> Option<VampirePeriod> {
     let idx = drives.iter().position(|d| d.0 == drive_id)?;
     if idx == 0 { return None; }
     let periods = build_vampire_periods(&drives[idx - 1 ..= idx], charges, None, "0000-01-01");
-    periods.into_iter().find(|p| p.before_drive_id == Some(drive_id))
+    let mine: Vec<_> = periods.into_iter().filter(|p| p.before_drive_id == Some(drive_id)).collect();
+    if mine.is_empty() { return None; }
+    let duration_hours = r1(mine.iter().map(|p| p.duration_hours).sum::<f64>());
+    if duration_hours < 0.25 { return None; }
+    let mut soc = 0i32; let mut soc_n = 0i32;
+    let mut range = 0.0; let mut range_n = 0i32;
+    for p in &mine {
+        if let Some(s) = p.soc_lost { soc += s; soc_n += 1; }
+        if let Some(r) = p.range_lost_km { range += r; range_n += 1; }
+    }
+    let first = mine.last().unwrap(); // chronological first (mine was sorted newest-first)
+    let last = mine.first().unwrap();
+    Some(VampirePeriod {
+        start: first.start.clone(),
+        end: last.end.clone(),
+        duration_hours,
+        start_soc: first.start_soc,
+        end_soc: last.end_soc,
+        soc_lost: if soc_n > 0 { Some(soc) } else { None },
+        start_rated_km: first.start_rated_km,
+        end_rated_km: last.end_rated_km,
+        range_lost_km: if range_n > 0 { Some(r1(range)) } else { None },
+        ongoing: false,
+        after_drive_id: Some(drives[idx - 1].0),
+        before_drive_id: Some(drive_id),
+    })
 }
 
+/// How long a charging_processes row with NULL end_date may still be treated as "active".
+/// Older open rows are a common TeslaMate leftover; treating them as open-until-now would
+/// blank every parked gap since they started. Completed rows (`end_date IS NOT NULL`) are unaffected.
+pub const VAMPIRE_ACTIVE_CHARGE_HOURS: i32 = 48;
+
 /// GET /api/cars/:id/vampire?days=30&tz=
-/// Parked SoC / rated-range loss between drives. Gaps that overlap a charging session are excluded.
+/// Parked SoC / rated-range loss between drives. Charging intervals are punched out of each gap
+/// (not "exclude the whole gap"). Stale open charging_processes rows are ignored.
 pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<VampireParams>) -> Result<Response, ApiError> {
     let bad = |m: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response();
     let days = p.days.unwrap_or(30).clamp(1, 90);
@@ -616,6 +710,7 @@ pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Q
     let tz_ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)").bind(&tz).fetch_one(&s.db).await?;
     if !tz_ok { return Ok(bad("unknown tz")); }
     // Window start = now − days in the caller's tz, expressed as TeslaMate naive-UTC.
+    // Final AT TIME ZONE 'UTC' yields timestamp without time zone, so to_char is session-TZ-safe.
     let win: (String, String) = sqlx::query_as(&format!(
         "SELECT to_char((((now() AT TIME ZONE $1) - ($2::int * interval '1 day')) AT TIME ZONE $1) AT TIME ZONE 'UTC', '{TS}'),
                 to_char(now() AT TIME ZONE 'UTC', '{TS}')"))
@@ -625,10 +720,13 @@ pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Q
     let drive_from: String = sqlx::query_scalar(&format!(
         "SELECT to_char((replace(replace($1, 'T', ' '), 'Z', '')::timestamp - interval '2 days'), '{TS}')"))
         .bind(&from).fetch_one(&s.db).await?;
+    // TeslaMate stores UTC in timestamp-without-time-zone. Format with to_char(col, …) directly —
+    // `to_char(col AT TIME ZONE 'UTC', …)` re-interprets through the session TimeZone and can shift
+    // the wall clock while still appending "Z" (see main.rs drive list, which formats the same way).
     let edges = sqlx::query_as::<_, DriveEdge>(
         &format!("SELECT d.id::int8 AS id,
-                to_char(d.start_date AT TIME ZONE 'UTC', '{TS}') AS start_date,
-                to_char(d.end_date AT TIME ZONE 'UTC', '{TS}') AS end_date,
+                to_char(d.start_date, '{TS}') AS start_date,
+                to_char(d.end_date, '{TS}') AS end_date,
                 sp.battery_level::int4 AS start_soc, ep.battery_level::int4 AS end_soc,
                 d.start_rated_range_km::float8 AS start_rated_km, d.end_rated_range_km::float8 AS end_rated_km
          FROM drives d
@@ -637,23 +735,34 @@ pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Q
          WHERE d.car_id = $1 AND d.end_date IS NOT NULL
            AND d.end_date >= replace(replace($2, 'T', ' '), 'Z', '')::timestamp
          ORDER BY d.end_date ASC, d.id ASC")).bind(id as i16).bind(&drive_from).fetch_all(&s.db).await?;
+    // Completed charges always count. Open (end_date IS NULL) rows only count when recent —
+    // otherwise a forgotten open session would extend to "now" and punch out every park since.
     let charges = sqlx::query_as::<_, ChargeWin>(
-        &format!("SELECT to_char(start_date AT TIME ZONE 'UTC', '{TS}') AS start_date,
-                to_char(COALESCE(end_date, now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', '{TS}') AS end_date
+        &format!("SELECT to_char(start_date, '{TS}') AS start_date,
+                to_char(COALESCE(end_date, now() AT TIME ZONE 'UTC'), '{TS}') AS end_date,
+                start_battery_level::int4 AS start_soc, end_battery_level::int4 AS end_soc,
+                start_rated_range_km::float8 AS start_rated_km, end_rated_range_km::float8 AS end_rated_km
          FROM charging_processes
          WHERE car_id = $1
            AND start_date < replace(replace($3, 'T', ' '), 'Z', '')::timestamp
-           AND COALESCE(end_date, now() AT TIME ZONE 'UTC') > replace(replace($2, 'T', ' '), 'Z', '')::timestamp"))
-        .bind(id as i16).bind(&drive_from).bind(&now_utc).fetch_all(&s.db).await?;
+           AND COALESCE(end_date, now() AT TIME ZONE 'UTC') > replace(replace($2, 'T', ' '), 'Z', '')::timestamp
+           AND (
+             end_date IS NOT NULL
+             OR start_date >= (now() AT TIME ZONE 'UTC') - make_interval(hours => $4)
+           )"))
+        .bind(id as i16).bind(&drive_from).bind(&now_utc).bind(VAMPIRE_ACTIVE_CHARGE_HOURS)
+        .fetch_all(&s.db).await?;
     // Latest position for the ongoing park (PK / recent date — same pattern as /status).
     let latest: Option<(Option<i32>, Option<f64>, Option<String>)> = sqlx::query_as(
         &format!("SELECT battery_level::int4, rated_battery_range_km::float8,
-                to_char(date AT TIME ZONE 'UTC', '{TS}')
+                to_char(date, '{TS}')
          FROM positions WHERE car_id = $1 ORDER BY date DESC LIMIT 1")).bind(id as i16).fetch_optional(&s.db).await?;
     let drive_tuples: Vec<_> = edges.iter().map(|e| {
         (e.id, e.start_date.clone(), e.end_date.clone(), e.start_soc, e.end_soc, e.start_rated_km, e.end_rated_km)
     }).collect();
-    let charge_tuples: Vec<_> = charges.iter().map(|c| (c.start_date.clone(), c.end_date.clone())).collect();
+    let charge_tuples: Vec<VampireCharge> = charges.iter().map(|c| (
+        c.start_date.clone(), c.end_date.clone(), c.start_soc, c.end_soc, c.start_rated_km, c.end_rated_km,
+    )).collect();
     let now_opt = latest.and_then(|(soc, rated, date)| date.map(|d| (d, soc, rated)));
     let periods = build_vampire_periods(&drive_tuples, &charge_tuples, now_opt, &from);
     let mut parked_hours = 0.0;
@@ -700,22 +809,63 @@ mod vampire_tests {
         (id, start.into(), end.into(), Some(ss), Some(es), Some(sr), Some(er))
     }
 
+    fn c(start: &str, end: &str, ss: i32, es: i32, sr: f64, er: f64) -> VampireCharge {
+        (start.into(), end.into(), Some(ss), Some(es), Some(sr), Some(er))
+    }
+
     #[test]
-    fn excludes_charged_gaps_and_sums_drain() {
+    fn keeps_uncharged_overnight_and_splits_around_home_charge() {
+        // Realistic TeslaMate-shaped fixture: commute + overnight home charge.
+        // Drive 1 → 2: pure parked overnight, −2% SoC (must appear).
+        // Drive 2 → 3: park 09:00, plug in 22:00–06:00, leave 08:00.
+        //   Old bug: whole gap dropped because a charge overlapped → home chargers saw 0 periods.
+        //   Fix: keep 09:00→22:00 (−2%) and 06:00→08:00 (−1%); drop only the charging window.
         let drives = vec![
             d(1, "2026-10-01T08:00:00Z", "2026-10-01T09:00:00Z", 70, 60, 280.0, 240.0),
-            d(2, "2026-10-02T08:00:00Z", "2026-10-02T09:00:00Z", 58, 50, 232.0, 200.0), // −2% overnight
-            d(3, "2026-10-03T18:00:00Z", "2026-10-03T19:00:00Z", 80, 70, 320.0, 280.0), // charged in between → excluded
+            d(2, "2026-10-02T08:00:00Z", "2026-10-02T09:00:00Z", 58, 50, 232.0, 200.0),
+            d(3, "2026-10-03T08:00:00Z", "2026-10-03T09:00:00Z", 79, 70, 316.0, 280.0),
         ];
-        let charges = vec![("2026-10-02T12:00:00Z".into(), "2026-10-02T15:00:00Z".into())];
+        let charges = vec![c("2026-10-02T22:00:00Z", "2026-10-03T06:00:00Z", 48, 80, 192.0, 320.0)];
         let periods = build_vampire_periods(&drives, &charges, None, "2026-09-01T00:00:00Z");
-        assert_eq!(periods.len(), 1);
-        assert_eq!(periods[0].soc_lost, Some(2));
-        assert_eq!(periods[0].after_drive_id, Some(1));
-        assert_eq!(periods[0].before_drive_id, Some(2));
-        let g = gap_before_drive(&drives, &charges, 2).unwrap();
-        assert_eq!(g.soc_lost, Some(2));
-        assert!(gap_before_drive(&drives, &charges, 3).is_none());
+        assert_eq!(periods.len(), 3, "{periods:?}");
+        // newest first
+        assert_eq!(periods[0].start, "2026-10-03T06:00:00Z");
+        assert_eq!(periods[0].soc_lost, Some(1)); // 80 → 79
+        assert_eq!(periods[1].start, "2026-10-02T09:00:00Z");
+        assert_eq!(periods[1].end, "2026-10-02T22:00:00Z");
+        assert_eq!(periods[1].soc_lost, Some(2)); // 50 → 48
+        assert_eq!(periods[2].soc_lost, Some(2)); // overnight 60 → 58
+        assert_eq!(periods[2].after_drive_id, Some(1));
+        assert_eq!(periods[2].before_drive_id, Some(2));
+        let g2 = gap_before_drive(&drives, &charges, 2).unwrap();
+        assert_eq!(g2.soc_lost, Some(2));
+        let g3 = gap_before_drive(&drives, &charges, 3).unwrap();
+        assert_eq!(g3.soc_lost, Some(3)); // 2 + 1 from the two free slices
+        assert!(g3.duration_hours > 14.0); // 13h + 2h, charging hours excluded
+    }
+
+    #[test]
+    fn stale_open_charge_extending_to_now_must_not_wipe_history() {
+        // Simulates what the SQL used to feed the bucketer: a forgotten charging_processes
+        // row with end_date NULL, COALESCE'd to "now", overlapping every park since Oct 1.
+        // With whole-gap exclusion that blanked the card; with split + dropping stale opens
+        // in SQL, the bucketer must still keep free slices when such a row is NOT passed in.
+        let drives = vec![
+            d(1, "2026-10-01T08:00:00Z", "2026-10-01T09:00:00Z", 70, 60, 280.0, 240.0),
+            d(2, "2026-10-10T08:00:00Z", "2026-10-10T09:00:00Z", 55, 50, 220.0, 200.0),
+            d(3, "2026-10-20T08:00:00Z", "2026-10-20T09:00:00Z", 54, 48, 216.0, 192.0),
+        ];
+        // No charges passed (= SQL filtered the stale open row out) → both parks kept.
+        let periods = build_vampire_periods(&drives, &[], None, "2026-09-01T00:00:00Z");
+        assert_eq!(periods.len(), 2);
+        // If a stale open WERE wrongly passed through as open-until-now, every park vanishes:
+        let stale = vec![c("2026-10-01T12:00:00Z", "2026-10-25T00:00:00Z", 58, 58, 232.0, 232.0)];
+        let wiped = build_vampire_periods(&drives, &stale, None, "2026-09-01T00:00:00Z");
+        // first park 09:00–10th 08:00 overlaps stale from 12:00 → keeps only 09:00–12:00 slice
+        // second park fully inside stale → gone
+        assert_eq!(wiped.len(), 1);
+        assert_eq!(wiped[0].end, "2026-10-01T12:00:00Z");
+        assert_eq!(VAMPIRE_ACTIVE_CHARGE_HOURS, 48);
     }
 
     #[test]
@@ -727,6 +877,20 @@ mod vampire_tests {
         assert!(periods[0].ongoing);
         assert_eq!(periods[0].soc_lost, Some(3));
         assert_eq!(periods[0].range_lost_km, Some(12.0));
+    }
+
+    #[test]
+    fn ongoing_park_split_around_active_charge() {
+        let drives = vec![d(1, "2026-10-01T08:00:00Z", "2026-10-01T09:00:00Z", 70, 50, 280.0, 200.0)];
+        // Plugged in at 18:00; still charging at "now" 22:00.
+        let charges = vec![c("2026-10-01T18:00:00Z", "2026-10-01T22:00:00Z", 48, 60, 192.0, 240.0)];
+        let periods = build_vampire_periods(
+            &drives, &charges, Some(("2026-10-01T22:00:00Z".into(), Some(60), Some(240.0))), "2026-09-01T00:00:00Z");
+        // Only the pre-charge slice 09:00–18:00; the "ongoing" part is inside the charge → omitted.
+        assert_eq!(periods.len(), 1);
+        assert!(!periods[0].ongoing);
+        assert_eq!(periods[0].end, "2026-10-01T18:00:00Z");
+        assert_eq!(periods[0].soc_lost, Some(2)); // 50 → 48
     }
 
     #[test]
