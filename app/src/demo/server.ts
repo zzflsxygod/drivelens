@@ -445,6 +445,61 @@ function speedBands(id: number) {
 }
 
 
+
+function chargingCosts(q: URLSearchParams) {
+  const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
+  const nMonths = Math.min(24, Math.max(1, Number(q.get("months") || 12) || 12));
+  const defCur = curParam(q.get("currency"));
+  const toMonth = ym(db.now, tz);
+  const months = Array.from({ length: nMonths }, (_, i) => shiftM(toMonth, i - (nMonths - 1)));
+  const fromMonth = months[0];
+  const t0 = monthStart(fromMonth, tz), t1 = monthStart(shiftM(toMonth, 1), tz);
+  const { drives, charges } = reportRows(t0, t1, t0, tz);
+  const rate = (amount: number, div: number) => div > 0 ? r2(amount / div) : null;
+  const per100 = (amount: number, km: number) => km > 0 ? r2(amount / km * 100) : null;
+  const moneyList = (map: Map<string, number>) => [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([currency, amount]) => ({ currency, amount: r2(amount) }));
+  const rateList = (map: Map<string, number>, div: number) => moneyList(map).flatMap(m => { const a = rate(m.amount, div); return a == null ? [] : [{ currency: m.currency, amount: a }]; });
+  const per100List = (map: Map<string, number>, km: number) => moneyList(map).flatMap(m => { const a = per100(m.amount, km); return a == null ? [] : [{ currency: m.currency, amount: a }]; });
+
+  const byDist = new Map(months.map(m => [m, 0]));
+  for (const x of drives) { const m = x.day.slice(0, 7); if (byDist.has(m)) byDist.set(m, (byDist.get(m) ?? 0) + x.d.distance); }
+  const split = new Map(["home", "supercharger", "other"].map(k => [k, { count: 0, energy: 0, costs: new Map<string, number>(), pricedE: 0 }]));
+  const byMonth = new Map(months.map(m => [m, { energy: 0, charge_count: 0, priced_count: 0, priced_kwh: 0, costs: new Map<string, number>() }]));
+  let energy = 0, charge_count = 0, priced_count = 0, priced_kwh = 0;
+  const totals = new Map<string, number>();
+  for (const x of charges) {
+    const m = x.day.slice(0, 7); const agg = byMonth.get(m); if (!agg) continue;
+    const e = Math.max(0, x.c.added); energy += e; charge_count++; agg.energy += e; agg.charge_count++;
+    const b = split.get(x.kind)!; b.count++; b.energy += e;
+    if (x.k.cost != null) {
+      const cur = x.k.currency ?? defCur;
+      priced_count++; priced_kwh += e; agg.priced_count++; agg.priced_kwh += e; b.pricedE += e;
+      totals.set(cur, (totals.get(cur) ?? 0) + x.k.cost);
+      agg.costs.set(cur, (agg.costs.get(cur) ?? 0) + x.k.cost);
+      b.costs.set(cur, (b.costs.get(cur) ?? 0) + x.k.cost);
+    }
+  }
+  const distance = [...byDist.values()].reduce((a, b) => a + b, 0);
+  const coverage = energy > 0 ? r1(priced_kwh / energy * 100) : null;
+  return ok({
+    months: nMonths, timezone: tz, from_month: fromMonth, to_month: toMonth,
+    summary: {
+      distance_km: r1(distance), energy_added_kwh: r1(energy), charge_count, priced_count, priced_kwh: r1(priced_kwh),
+      costs: moneyList(totals), cost_per_kwh: rateList(totals, priced_kwh), cost_per_100km: per100List(totals, distance),
+      coverage_pct: coverage,
+    },
+    split: ["home", "supercharger", "other"].map(kind => {
+      const b = split.get(kind)!;
+      return { kind, count: b.count, energy_kwh: r1(b.energy), costs: moneyList(b.costs), cost_per_kwh: rateList(b.costs, b.pricedE) };
+    }),
+    monthly: months.map(month => {
+      const m = byMonth.get(month)!; const dist = byDist.get(month) ?? 0;
+      return { month, distance_km: r1(dist), energy_added_kwh: r1(m.energy), charge_count: m.charge_count, priced_count: m.priced_count,
+        costs: moneyList(m.costs), cost_per_kwh: rateList(m.costs, m.priced_kwh), cost_per_100km: per100List(m.costs, dist) };
+    }),
+  });
+}
+
 function vampire(q: URLSearchParams) {
   const days = Math.min(90, Math.max(1, Number(q.get("days") || 30) || 30));
   const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
@@ -500,10 +555,10 @@ export function handle(method: string, url: string, body: unknown): Res {
   const B = (body ?? {}) as Record<string, unknown>;
   if (p === "/health" || p === "/api/health") return ok(health());
   if (p === "/api/cars" && M === "GET") return ok(cars());
-  if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire)$/))) {
+  if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire|charging-costs)$/))) {
     // the demo has a single car: any car id (e.g. one remembered from a real server) is answered as the demo car
     switch (m[2]) { case "status": return ok(status()); case "last-activity": return ok(lastActivity()); case "stats": return stats(q); case "months": return months(q);
-      case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); case "vampire": return vampire(q); }
+      case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); case "vampire": return vampire(q); case "charging-costs": return chargingCosts(q); }
   }
   if (p === "/api/drives") {
     const raw = (q.get("q") ?? "").trim().slice(0, 100);
