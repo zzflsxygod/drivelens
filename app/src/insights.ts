@@ -499,13 +499,18 @@ function fmtPerKwh(m: Money | null) {
   return m ? `${fmtMoney(m.amount, m.currency, true)}<i>/kWh</i>` : "—";
 }
 
+/** One-line note when some sessions in the window have no cost. Empty when fully priced. */
+function missingCostNote(s: ChargingCosts["summary"]) {
+  const miss = s.charge_count - s.priced_count;
+  if (miss <= 0) return "";
+  return `<div class="muted small-note">${t("cc.missingCost", { n: miss })}</div>`;
+}
+
 export function chargingCostCardHTML(c: ChargingCosts) {
   const s = c.summary;
   const spent = mainMoney(s.costs);
   const per100 = mainMoney(s.cost_per_100km);
   const perKwh = mainMoney(s.cost_per_kwh);
-  const covNote = (s.coverage_pct != null && s.coverage_pct < 100)
-    ? `<div class="muted small-note">${t("cc.coverageLow", { pct: n(s.coverage_pct, 0) })}</div>` : "";
   return `<div class="section-title">${t("cc.title")} <a class="link" data-cc>${t("cc.open")}</a></div>
     <div class="card cc-card" data-cc>
       <div class="ov cc-ov">
@@ -515,7 +520,7 @@ export function chargingCostCardHTML(c: ChargingCosts) {
         <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)}<i>kWh</i></b></div>
       </div>
       <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.hint")}</div>
-      ${covNote}
+      ${missingCostNote(s)}
     </div>`;
 }
 
@@ -575,11 +580,10 @@ export async function showChargingCosts(view: HTMLElement, carId: number, back: 
         <div><small>${t("cc.per100")}</small><b>${per100 ? fmtMoney(per100.amount, per100.currency) : "—"}</b></div>
         <div><small>${t("cc.driven")}</small><b>${n(s.distance_km, 0)}<i>km</i></b></div>
         <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)}<i>kWh</i></b></div>
-        <div><small>${t("cc.coverage")}</small><b>${s.coverage_pct == null ? "—" : `${n(s.coverage_pct, 0)}%`}</b></div>
+        <div><small>${t("cc.charges")}</small><b>${s.charge_count}</b></div>
       </div>
-      <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.sessions", { n: s.charge_count })} · ${t("cc.priced", { n: s.priced_count })}</div>
-      ${s.coverage_pct != null ? `<div class="muted small-note">${t("cc.coverageHint", { pct: n(s.coverage_pct, 0), priced: n(s.priced_kwh, 0), total: n(s.energy_added_kwh, 0) })}</div>` : ""}
-      <div class="muted small-note">${t("cc.hintDetail")}</div>
+      <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.hintDetail")}</div>
+      ${missingCostNote(s)}
       <div class="section-title" style="margin-top:16px"><span>${t("cc.split")}</span></div>
       <div class="card" style="padding:0;overflow:auto"><table class="cc-table">
         <thead><tr><th></th><th>#</th><th>kWh</th><th>${t("cc.spent")}</th><th>${t("cc.unit")}</th></tr></thead>
