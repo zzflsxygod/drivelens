@@ -909,7 +909,7 @@ mod auth_tests {
         let res = app.oneshot(axum::http::Request::builder().uri("/health").body(axum::body::Body::empty()).unwrap()).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":18"));
+        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":19"));
     }
 
     /// GET /api/auth/me without device auth: owner, device_auth false, mode full.
