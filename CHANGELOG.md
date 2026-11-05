@@ -4,23 +4,20 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
-## [Unreleased]
-
-### Added
-- **TPMS history chart**: tap the home TPMS tile to open pressure trends for 7 / 30 / 90 days (hourly or daily buckets). Threshold line matches the home low-pressure warning. New `GET /api/cars/{id}/tpms-history` (API level 21). No database migration.
-- **Year in review** (年度回顾): annual totals, monthly distance chart, highlights, and year-over-year when prior-year data exists. New `GET /api/cars/{id}/year-review` (API level 20). Entry from the monthly report; optional Home link in Dec–Jan. Partial years show “data since &lt;month&gt;”. Demo year-review now uses the same drives/charges/`costOf` path as report and charging-costs (totals reconcile with Home lifetime and the 12-month cost card); costs use data currency via `fmtMoney` (JPY `¥`, no decimals); efficiency/cost tiles use the 2-column `ov` grid; highlight cards stack name + value without truncating at phone width.
-
-## Unreleased
-
-- **Server (unreleased, `api_level` 19):** `GET /api/cars/{id}/battery` adds `tm.trend` (rates, projections, spark) from half-month medians. No database migration.
-- **App:** battery detail Trend pane (%/10k km, %/yr, 100k/200k projections); home card sparkline + rate chip when the server is level ≥ 19.
-
-- **Charging cost stats:** Home shows a card with cost per 100 km over the last 12 months, total spent, average ¥/kWh and cost coverage; a detail page adds home / Supercharger / other unit prices and monthly spend / ¥/100 km charts. Uses manual costs when set, otherwise TeslaMate. Does not replace the monthly report (still the place for one-month MoM deltas).
-- **Server (unreleased, `api_level` 18):** `GET /api/cars/{id}/charging-costs?months=&tz=&currency=` (no database migration).
-- **Vampire drain (parking drain):** Home shows a card with average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes realistic sample periods.
-- The setup screen recommends server 0.16.0 once that release ships.
-- **Vampire drain review fixes:** period times use local short `fmtDateTime`/`fmtTime` (ongoing → now); `avg_soc_per_day` = total SoC lost ÷ (parked_hours/24) in API + demo (unit test `averages_use_parked_days_not_window_days`); total lost labeled as pct · km · period count (zh/en/ja); gauge shows one decimal.
-- **Server (unreleased, `api_level` 17):** `GET /api/cars/{id}/vampire?days=&tz=`; push subscription fields `vampire_drain` / `vampire_threshold_pct` (additive columns on `drivelens.push_subscriptions`, applied on API start when the role can ALTER).
+## v1.4.0 — 2026-11-05
+- **Vampire drain (parking drain):** Home shows average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes sample periods.
+- **Charging cost stats:** Home card with 12-month spend, average ¥/kWh, ¥/100 km and charged energy; a detail page adds home / Supercharger / other unit prices and monthly spend / ¥/100 km charts. Uses manual costs when set, otherwise TeslaMate. Does not replace the monthly report (still the place for one-month MoM deltas). When some sessions have no cost, a one-line warning appears under the grid.
+- **Battery health trend:** detail page Trend pane (%/10k km, %/yr, 100k/200k km projections); home card sparkline + rate chip when the server is level ≥ 19.
+- **Year in review:** annual totals, monthly distance chart, highlights, and year-over-year when prior-year data exists. Entry from the monthly report; optional Home link in Dec–Jan. Partial years show “data since &lt;month&gt;”.
+- **TPMS history chart:** tap the home TPMS tile to open pressure trends for 7 / 30 / 90 days (hourly or daily buckets). Threshold line matches the home low-pressure warning.
+- **Back navigation keeps scroll position** on the parent page (anchor-based restore while async Home cards finish loading).
+- The setup screen now recommends server 0.16.0.
+- **Server 0.16.0** (`api_level` 21; recommended, Watchtower updates it automatically). Additive columns on `drivelens.push_subscriptions` (`vampire_drain`, `vampire_threshold_pct`) are applied on API start when the role can ALTER — no manual SQL after the one-time `setup.sql`. Older servers keep working; new features stay hidden until you update:
+  - **Vampire drain:** `GET /api/cars/{id}/vampire?days=&tz=` (level 17); optional push fields above.
+  - **Charging costs:** `GET /api/cars/{id}/charging-costs?months=&tz=&currency=` (level 18).
+  - **Battery trend:** `tm.trend` on `GET /api/cars/{id}/battery` (level 19).
+  - **Year in review:** `GET /api/cars/{id}/year-review` (level 20).
+  - **TPMS history:** `GET /api/cars/{id}/tpms-history?days=&tz=` (level 21); `positions.date` bounded for BRIN.
 
 ## v1.3.1 — 2026-10-29
 - **Home tire pressure layout:** the four wheels are now the fourth tile in the 2×2 home grid (front axle on top, rear below), matching the other status tiles. A low wheel uses the warning color and a warning icon on the tile title; turning the feature off restores the previous three-tile row.

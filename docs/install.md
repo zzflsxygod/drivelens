@@ -81,7 +81,7 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 
 If it shows `disabled features: …` or `cannot read TeslaMate tables`, step 3 did not work: run `setup.sql` again, then `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api`.
 
-Check on the server: `curl http://127.0.0.1:8080/health` returns `{"status":"ok","version":"…","api_level":16}`.
+Check on the server: `curl http://127.0.0.1:8080/health` returns `{"status":"ok","version":"…","api_level":21}`.
 
 By default the compose file publishes the API on `127.0.0.1:8080` only, so it is not reachable from other machines. **Don't expose port 8080 to the internet**; use one of the https options below.
 
@@ -279,7 +279,7 @@ With git and Docker you can build in the `node:22` image without installing Node
 
 ```bash
 cd teslamate
-TAG=v1.3.1   # replace with the latest release
+TAG=v1.4.0   # replace with the latest release
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
@@ -354,7 +354,7 @@ After updating the server (drivelens-api), rebuild the web app from the same rel
 
 ```bash
 cd teslamate
-TAG=v1.3.1   # the new release
+TAG=v1.4.0   # the new release
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \

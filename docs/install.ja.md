@@ -81,7 +81,7 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 
 `disabled features: …` や `cannot read TeslaMate tables` と表示された場合は手順 3 が完了していません。`setup.sql` をもう一度実行し、`docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api` を実行してください。
 
-サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":16}` を返します。
+サーバー上での確認：`curl http://127.0.0.1:8080/health` が `{"status":"ok","version":"…","api_level":21}` を返します。
 
 compose ファイルの初期設定では API を `127.0.0.1:8080` にだけ公開するので、ほかのマシンからは接続できません。**8080 番ポートをインターネットに直接公開しないでください**。下の https の方法のどちらかを使います。
 
@@ -279,7 +279,7 @@ git と Docker があれば、Node.js をインストールせずに `node:22` �
 
 ```bash
 cd teslamate
-TAG=v1.3.1   # Releases の最新版に置き換える
+TAG=v1.4.0   # Releases の最新版に置き換える
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
@@ -354,7 +354,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 
 ```bash
 cd teslamate
-TAG=v1.3.1   # 新しいリリース
+TAG=v1.4.0   # 新しいリリース
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \

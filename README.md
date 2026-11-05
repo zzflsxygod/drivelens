@@ -31,11 +31,14 @@ DriveLens is a companion app for [TeslaMate](https://github.com/teslamate-org/te
 - **Drives and charging:** infinite lists, route maps coloured by speed, charging curves, weather per drive, energy by speed band
 - **Journeys:** group drives into trips (with suggestions), cover photo and notes, share card
 - **Monthly report:** distance, energy, charging cost, home vs. Supercharger, daily breakdown, footprint map, 12-month trends
-- **Battery health:** health %, usable capacity now / new (kWh), degradation and charge cycles, calculated the same way as TeslaMate's Battery Health dashboard
-- **Notifications:** a trip summary when a drive ends and a monthly-report reminder on the 1st (web push, sent by your own server)
+- **Battery health:** health %, usable capacity now / new (kWh), degradation and charge cycles (same method as TeslaMate's Battery Health dashboard), plus a trend pane with rates and projections and a home sparkline
+- **Vampire drain:** average daily SoC lost while parked between drives, with an optional notification when a parked period exceeds your threshold
+- **Charging cost stats:** 12-month spend, ¥/kWh and ¥/100 km on Home, with a detail page for home / Supercharger / other unit prices
+- **Year in review:** annual totals, monthly distance, highlights and year-over-year
+- **Notifications:** a trip summary when a drive ends and a monthly-report reminder on the 1st (web push, sent by your own server); optional vampire-drain alert
 - **Your names and costs:** rename places, enter charging costs manually in any currency
 - **Place search:** filter Drives and Journeys by place or journey name
-- **Tire pressure:** Home shows pressures from a recent drive when the car reported them; a warning appears below a threshold you set
+- **Tire pressure:** Home shows pressures from a recent drive when the car reported them; a warning appears below a threshold you set; tap the tile for 7 / 30 / 90 day history
 - English, 中文, 日本語 · light and dark themes · demo mode
 
 ## How it works

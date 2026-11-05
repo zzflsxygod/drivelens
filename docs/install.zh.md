@@ -81,7 +81,7 @@ INFO drivelens_api: listening on 0.0.0.0:8080
 
 如果出现 `disabled features: …` 或 `cannot read TeslaMate tables`，说明第 3 步没有成功：重新执行 `setup.sql`，然后 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-api`。
 
-在服务器上检查：`curl http://127.0.0.1:8080/health` 返回 `{"status":"ok","version":"…","api_level":16}`。
+在服务器上检查：`curl http://127.0.0.1:8080/health` 返回 `{"status":"ok","version":"…","api_level":21}`。
 
 compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问不到。**不要把 8080 端口直接暴露到公网**，请用下面的 https 方式之一。
 
@@ -279,7 +279,7 @@ API 读取的可选变量（`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_OWNER_KEY_MODE
 
 ```bash
 cd teslamate
-TAG=v1.3.1   # 换成 Releases 里的最新版本
+TAG=v1.4.0   # 换成 Releases 里的最新版本
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
@@ -354,7 +354,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 
 ```bash
 cd teslamate
-TAG=v1.3.1   # 新版本
+TAG=v1.4.0   # 新版本
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
