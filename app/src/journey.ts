@@ -7,7 +7,7 @@ import { infiniteList, monthLabel } from "./infinite";
 import * as J2 from "./journey2";
 import { ICON } from "./toolbar";
 import { trackPopover } from "./ui";
-import { navPage, navRoot } from "./nav";
+import { navPage, navRoot, settleScroll } from "./nav";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { focusField } from "./sheets";
 import { lacks } from "./version";
@@ -189,7 +189,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
         : t("drives.monthHead", { n: loaded.length, km: n(loaded.reduce((a, d) => a + (d.distance_km ?? 0), 0), 0) })}</span>`,
       bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
         const id = Number(el.dataset.id), d = byId.get(id);
-        if (!selectMode) { list!.leave(); window.scrollTo(0, 0); return ctx.showDrive(id, () => showDriveList(ctx, undefined, [], true)); }
+        if (!selectMode) { list!.leave(); return ctx.showDrive(id, () => showDriveList(ctx, undefined, [], true)); }
         if (d?.journey_id) return;
         sel.has(id) ? sel.delete(id) : sel.add(id);
         el.classList.toggle("selected", sel.has(id)); el.querySelector(".chk")!.textContent = sel.has(id) ? "✓" : "";
@@ -206,6 +206,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   }
 
   mountList(restore);
+  settleScroll({ forwardTop: false });
 
   const sm = v.querySelector<HTMLElement>("#selmode");
   if (sm) sm.onclick = () => {
@@ -324,6 +325,7 @@ export async function showJourneys(ctx: Ctx) {
   const searchBtn = v.querySelector<HTMLElement>("#d-search");
   if (searchBar && qIn) bindPlaceSearch({ searchBtn, searchBar, qIn, onQuery: () => refresh() });
   refresh();
+  settleScroll({ forwardTop: false });   // restore after back from journey detail (list loads async)
 }
 
 // ---------------- Journey detail ----------------
@@ -416,6 +418,7 @@ export async function showJourney(ctx: Ctx, id: number) {
     <div class="timeline">${tl.join("")}</div>
     ${rw ? `<div class="btn-row"><button id="jdrives" class="ghost">${t("j.editDrives")}</button><button id="jdel" class="ghost" style="color:var(--red)">${t("j.delete")}</button></div>` : ""}`;
   (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx);
+  settleScroll();   // forward → top; back from drive-edit → restore journey scroll
   v.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => ctx.showDrive(Number(el.dataset.drive), self));
   v.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => ctx.showCharge(Number(el.dataset.charge), self));
   const edit = () => nameDialog({ title: t("j.edit"), name: j.name, note: j.note ?? "", ok: t("common.save"),

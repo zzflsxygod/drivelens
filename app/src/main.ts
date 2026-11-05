@@ -15,7 +15,7 @@ import "./urlguard";   // first: drops ?api= / ?token= / ?key= from the address 
 import "./style.css";
 import { ic } from "./icons";
 import { initPlatform, setRootBack, inAppBack } from "./platform";
-import { initHistory, navPage, navRoot } from "./nav";
+import { clearScrollRestore, initHistory, navPage, navRoot, settleScroll } from "./nav";
 import { initWeb, installMode, promptInstall, onInstallChange, isWeb } from "./pwa";
 import { isDemo, enterDemo, exitDemo, DEMO_CREDIT, skey } from "./demo";   // first: installs the demo fetch layer before any request
 import { t, fmtDateTime as fmtDate, fmtDur, fmtTime, ago as agoIso, monthLabel, fmtNum, langSetting, currentLang, type LangSetting } from "./i18n";
@@ -248,9 +248,10 @@ async function showCharges(restore = false) {
         </div>
       </div>`,
     bind: root => root.querySelectorAll<HTMLElement>(".card[data-id]").forEach(el => el.onclick = () => {
-      list.leave(); window.scrollTo(0, 0); showCharge(Number(el.dataset.id), () => showCharges(true));
+      list.leave(); showCharge(Number(el.dataset.id), () => showCharges(true));
     }),
   });
+  settleScroll({ forwardTop: false });   // list also restores via infinite.ts; clamp if still loading
 }
 
 /** SVG chart: power (kW, filled area, left axis) + battery % (line, right axis). */
@@ -815,6 +816,7 @@ async function showHome() {
       <div id="sec-totals"><div class="section-title">${sk("20%")}</div>${skGrid(3)}</div>
     </div>`;
   view.querySelector("[data-refresh]")?.addEventListener("click", showHome);
+  settleScroll({ forwardTop: false });   // restore after back; tab switch scrolls to top itself
 
   const id = await currentCarId().catch(() => null);
   if (!alive()) return;
@@ -957,7 +959,7 @@ async function openReport(month: string, carId?: number) {
   renderReport(view, id, month, { back: showHome, month: self,
     drive: d => showDrive(d, back), charge: c => showCharge(c, back),
     extras: lacks("insights") ? undefined : { setMap: m => { destroyMap(); map = m; } } });
-  window.scrollTo(0, 0);
+  settleScroll();   // forward → top; back from drive/charge → restore report scroll
 }
 
 // ---------------- 旅程 ----------------
@@ -1065,7 +1067,10 @@ document.querySelectorAll<HTMLButtonElement>("nav button").forEach(b => b.onclic
   // re-tapping the active tab (real tap, not a programmatic re-render) scrolls to top / back to newest
   if (e.isTrusted && b.classList.contains("active") && (window.scrollY > 0 || isJumped())) return backToTop();
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
-  b.classList.add("active"); tabs[b.dataset.tab!]();
+  b.classList.add("active");
+  clearScrollRestore();   // tab roots start at top (do not carry a detail's restore)
+  tabs[b.dataset.tab!]();
+  window.scrollTo(0, 0);
 });
 carSel.onchange = () => { localStorage.setItem(LAST_CAR_KEY, carSel.value); (document.querySelector("nav button.active") as HTMLElement).click(); };
 
