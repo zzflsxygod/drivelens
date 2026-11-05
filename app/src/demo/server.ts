@@ -736,66 +736,73 @@ function tpmsHistory(q: URLSearchParams) {
   const bucket = days <= 7 ? "hour" : "day";
   const bucketMs = bucket === "hour" ? 3600e3 : 864e5;
   const t1 = db.now;
-  // Align window start to a clean local midnight / hour so x-axis ticks land on calendar days.
   const partsNow = parts(db.now, tz);
-  const dayStart = zoned(partsNow.y, partsNow.m, partsNow.d, tz); // local midnight today
+  const dayStart = zoned(partsNow.y, partsNow.m, partsNow.d, tz);
   const t0 = dayStart - (days - 1) * 864e5;
   const st = status() as { tpms: { date: string; fl: number; fr: number; rl: number; rr: number } };
   const cur = { ...st.tpms };
   const round01 = (v: number) => Math.round(v * 10) / 10;
+  // Baselines deliberately offset so FR/RR never sit on top of each other on the chart.
+  // Current tiles still show 1-decimal: FR~2.84→2.8, RR~2.78→2.8, RL 2.7, FL leak→2.3.
+  const BASE = { fl: 2.88, fr: 2.84, rl: 2.72, rr: 2.78 };
   const series: {
     t: string; fl_avg: number | null; fr_avg: number | null; rl_avg: number | null; rr_avg: number | null;
     fl_min: number | null; fr_min: number | null; rl_min: number | null; rr_min: number | null;
     outside_temp_avg: number | null; n: number;
   }[] = [];
-  const nPerBucket = bucket === "hour" ? 12 : 48; // many 0.1-bar samples → smooth averages
+  const nPerBucket = bucket === "hour" ? 16 : 64;
   const nBuckets = Math.max(1, Math.round((Math.min(t1, dayStart + 864e5) - t0) / bucketMs));
   for (let i = 0; i < nBuckets; i++) {
-    const start = t0 + i * bucketMs;
-    if (start >= t1 + bucketMs) break;
-    const end = Math.min(start + bucketMs, t1);
-    if (end <= start) continue;
+    const startMs = t0 + i * bucketMs;
+    if (startMs >= t1 + bucketMs) break;
+    const endMs = Math.min(startMs + bucketMs, t1);
+    if (endMs <= startMs) continue;
     const fls: number[] = [], frs: number[] = [], rls: number[] = [], rrs: number[] = [], temps: number[] = [];
     for (let s = 0; s < nPerBucket; s++) {
-      const ts = start + (end - start) * (s + 0.5) / nPerBucket;
+      const ts = startMs + (endMs - startMs) * (s + 0.5) / nPerBucket;
+      const p = parts(ts, tz);
       const ageDays = Math.max(0, (t1 - ts) / 864e5);
-      // Continuous model: healthy ~2.85 bar + temp coeff; FL gradual leak over last 14 days → 2.3.
-      // Slow weekly temp; keep healthy wheels away from .x5 boundaries so day averages
-      // do not flip-flop 2.8↔2.9. FL still drifts continuously through the leak.
-      const temp = 15 + 5 * Math.sin((ts / 864e5) * Math.PI * 2 / 7);
-      const tempCorr = (temp - 15) * 0.002; // ~±0.01 bar
-      // Healthy targets match home/current (2.8 / 2.7 / 2.8); FL starts ~2.86 then leaks to 2.3.
-      const flCont = 2.86 + tempCorr * 0.5 - 0.56 * (ageDays < 14 ? (14 - ageDays) / 14 : 0);
-      const frCont = 2.82 + tempCorr;
-      const rlCont = 2.72 + tempCorr;
-      const rrCont = 2.83 + tempCorr;
-      fls.push(round01(Math.max(2.15, flCont)));
-      frs.push(round01(frCont));
-      rls.push(round01(rlCont));
-      rrs.push(round01(rrCont));
+      const dayFrac = (p.h + p.mi / 60) / 24;
+      // Day-night swing ~±0.10 bar (cooler ~05:00, warmer mid-afternoon).
+      const dayNight = 0.10 * Math.sin((dayFrac - 0.2) * Math.PI * 2);
+      // Multi-day weather + slower week drift (~±0.11 combined).
+      const weather = 0.07 * Math.sin(ts / 864e5 * Math.PI * 2 / 5.5) + 0.04 * Math.sin(ts / 864e5 * Math.PI * 2 / 11);
+      // Brief drive warm-up bumps during commute windows.
+      const drive =
+        (p.h >= 7 && p.h < 9 ? 0.04 : 0) + (p.h >= 17 && p.h < 19 ? 0.05 : 0);
+      const temp = 12 + 10 * (0.55 + 0.45 * Math.sin((dayFrac - 0.2) * Math.PI * 2)) + 4 * Math.sin(ts / 864e5 * Math.PI * 2 / 5.5);
+      // Deterministic per-sample sensor noise so round01 samples don't all land on the same 0.1
+      // within a bucket — bucket averages then keep 2-decimal smoothness on the chart.
+      const noise = (seed: number) => {
+        const x = Math.sin(seed) * 43758.5453;
+        return (x - Math.floor(x)) * 0.08 - 0.04;
+      };
+      const flCont = BASE.fl + dayNight * 0.9 + weather * 0.85 + drive * 0.9 - 0.58 * (ageDays < 14 ? (14 - ageDays) / 14 : 0);
+      const frCont = BASE.fr + dayNight * 1.0 + weather * 1.05 + drive * 1.0 + 0.015 * Math.sin(ts / 1.7e7);
+      const rlCont = BASE.rl + dayNight * 0.95 + weather * 0.9 + drive * 0.95 + 0.018 * Math.sin(ts / 1.9e7 + 1.2);
+      const rrCont = BASE.rr + dayNight * 1.05 + weather * 1.0 + drive * 1.05 + 0.015 * Math.sin(ts / 2.1e7 + 2.1);
+      fls.push(round01(Math.max(2.15, flCont + noise(ts * 1.01 + 11))));
+      frs.push(round01(frCont + noise(ts * 1.03 + 23)));
+      rls.push(round01(rlCont + noise(ts * 1.07 + 37)));
+      rrs.push(round01(rrCont + noise(ts * 1.11 + 53)));
       temps.push(temp);
     }
     const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
     const mn = (a: number[]) => Math.min(...a);
-    const isLast = end >= t1 - 60e3 || i === nBuckets - 1;
+    // Keep 2-decimal averages (do NOT re-quantize to 0.1) so the chart can show smooth waves.
     series.push({
-      t: TS(start),
-      fl_avg: isLast ? cur.fl : r2(avg(fls)),
-      fr_avg: isLast ? cur.fr : r2(avg(frs)),
-      rl_avg: isLast ? cur.rl : r2(avg(rls)),
-      rr_avg: isLast ? cur.rr : r2(avg(rrs)),
-      fl_min: isLast ? cur.fl : round01(mn(fls)),
-      fr_min: isLast ? cur.fr : round01(mn(frs)),
-      rl_min: isLast ? cur.rl : round01(mn(rls)),
-      rr_min: isLast ? cur.rr : round01(mn(rrs)),
+      t: TS(startMs),
+      fl_avg: r2(avg(fls)), fr_avg: r2(avg(frs)), rl_avg: r2(avg(rls)), rr_avg: r2(avg(rrs)),
+      fl_min: round01(mn(fls)), fr_min: round01(mn(frs)), rl_min: round01(mn(rls)), rr_min: round01(mn(rrs)),
       outside_temp_avg: r1(avg(temps)),
       n: nPerBucket,
     });
   }
+  // Snap only FL of the newest bucket toward the home-tile current (2.3) so the leak ends cleanly;
+  // keep FR/RR/RL chart averages offset so lines stay visually distinct.
   if (series.length) {
     const last = series[series.length - 1];
-    last.fl_avg = cur.fl; last.fr_avg = cur.fr; last.rl_avg = cur.rl; last.rr_avg = cur.rr;
-    last.fl_min = cur.fl; last.fr_min = cur.fr; last.rl_min = cur.rl; last.rr_min = cur.rr;
+    last.fl_avg = cur.fl; last.fl_min = cur.fl;
   }
   return ok({
     days, timezone: tz, from: TS(t0), to: TS(t1), bucket, unit: "bar",

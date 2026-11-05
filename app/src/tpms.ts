@@ -151,25 +151,23 @@ function chartSVG(h: TpmsHistory, thr: number | null) {
   const x = (i: number) => L + (series.length <= 1 ? iw / 2 : iw * i / (series.length - 1));
 
   let g = "";
-  // faint band below threshold (low-pressure zone)
   if (thr != null && thr > lo && thr < hi) {
     const yThr = y(thr), yBot = y(lo);
     g += `<rect x="${L}" y="${yThr}" width="${iw}" height="${Math.max(0, yBot - yThr)}" fill="var(--warn)" opacity="0.08"/>`;
   }
-  // grid + y labels
   for (const v of ticks) {
     const yy = y(v);
     g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" class="cg"/>`;
     g += `<text class="ax" x="${L - 4}" y="${yy + 3}" text-anchor="end">${v.toFixed(1)}</text>`;
   }
-  // threshold dashed line + label
   if (thr != null && thr >= lo && thr <= hi) {
     const yy = y(thr);
     g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="var(--warn)" stroke-dasharray="4 3" stroke-width="1.2"/>`;
     g += `<text class="ax" x="${W - R}" y="${yy - 4}" text-anchor="end" fill="var(--warn)">${thr.toFixed(1)}</text>`;
   }
-  // wheel lines (segments below thr drawn in warn colour)
-  for (const w of WHEELS) {
+  // Draw legend order reversed so first-listed (FL) paints on top when lines cross.
+  const drawOrder: Wheel[] = ["rr", "rl", "fr", "fl"];
+  for (const w of drawOrder) {
     const pts: { x: number; y: number; v: number }[] = [];
     series.forEach((b, i) => {
       const v = avgOf(b, w);
@@ -178,13 +176,15 @@ function chartSVG(h: TpmsHistory, thr: number | null) {
     });
     for (const seg of pathSegments(pts, thr, COLORS[w])) {
       if (pts.length === 1) {
-        g += `<circle cx="${pts[0].x.toFixed(1)}" cy="${pts[0].y.toFixed(1)}" r="2.5" fill="${COLORS[w]}"/>`;
+        g += `<circle cx="${pts[0].x.toFixed(1)}" cy="${pts[0].y.toFixed(1)}" r="2.5" fill="${COLORS[w]}" opacity="0.9"/>`;
       } else {
-        g += `<path fill="none" stroke="${seg.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="${seg.d}"/>`;
+        g += `<path fill="none" stroke="${seg.color}" stroke-width="1.5" stroke-opacity="0.9" stroke-linejoin="round" stroke-linecap="round" d="${seg.d}"/>`;
       }
     }
   }
-  // clean local-day x ticks
+  // Scrubber (hidden until pointer)
+  g += `<line id="tpms-scrub" x1="${L}" x2="${L}" y1="${T}" y2="${T + ih}" stroke="var(--text)" stroke-opacity="0.35" stroke-width="1" visibility="hidden"/>`;
+  g += `<rect id="tpms-hit" x="${L}" y="${T}" width="${iw}" height="${ih}" fill="transparent" style="cursor:crosshair"/>`;
   const tickIdx = dayTickIndices(series, h.bucket);
   const seen = new Set<string>();
   for (const i of tickIdx) {
@@ -194,7 +194,49 @@ function chartSVG(h: TpmsHistory, thr: number | null) {
     seen.add(key);
     g += `<text class="ax" x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(fmtDayTick(d))}</text>`;
   }
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("tpmsHist.chartAria")}">${g}</svg>`;
+  return `<svg id="tpms-svg" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("tpmsHist.chartAria")}">${g}</svg>`;
+}
+
+function fmtReadoutTime(raw: string, bucket: "hour" | "day") {
+  try {
+    const d = parseBucketTime(raw);
+    if (bucket === "hour") {
+      return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`;
+    }
+    return fmtDayTick(d);
+  } catch { return raw; }
+}
+
+function bindChartScrub(pane: HTMLElement, h: TpmsHistory) {
+  const svg = pane.querySelector<SVGSVGElement>("#tpms-svg");
+  const hit = pane.querySelector<SVGRectElement>("#tpms-hit");
+  const scrub = pane.querySelector<SVGLineElement>("#tpms-scrub");
+  const out = pane.querySelector<HTMLElement>("#tpms-readout");
+  if (!svg || !hit || !scrub || !out || !h.series.length) return;
+  const W = 392, L = 34, R = 12, iw = W - L - R;
+  const xOf = (i: number) => L + (h.series.length <= 1 ? iw / 2 : iw * i / (h.series.length - 1));
+  const show = (idx: number) => {
+    const b = h.series[idx]; if (!b) return;
+    scrub.setAttribute("x1", String(xOf(idx)));
+    scrub.setAttribute("x2", String(xOf(idx)));
+    scrub.setAttribute("visibility", "visible");
+    const parts = WHEELS.map(w => {
+      const v = avgOf(b, w);
+      return `<span class="tpms-ro-w"><i style="background:${COLORS[w]}"></i>${t(`tpms.${w}`)} <b>${v != null ? n(v, 2) : "—"}</b></span>`;
+    }).join("");
+    out.innerHTML = `<span class="tpms-ro-t">${esc(fmtReadoutTime(b.t, h.bucket))}</span>${parts}`;
+    out.hidden = false;
+  };
+  const hide = () => { scrub.setAttribute("visibility", "hidden"); out.hidden = true; };
+  const idxFromClientX = (clientX: number) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (clientX - rect.left) * (W / rect.width);
+    const t = Math.max(0, Math.min(1, (px - L) / iw));
+    return Math.round(t * (h.series.length - 1));
+  };
+  hit.addEventListener("pointermove", e => show(idxFromClientX(e.clientX)));
+  hit.addEventListener("pointerdown", e => show(idxFromClientX(e.clientX)));
+  hit.addEventListener("pointerleave", hide);
 }
 
 function currentTiles(cur: TpmsSnap | null, thr: number | null) {
@@ -255,10 +297,12 @@ export async function showTpmsHistory(view: HTMLElement, carId: number, back: ()
     <div class="section-title">${t("tpmsHist.chart")} <span class="muted" style="font-weight:500">${esc(unit())}</span></div>
     <div class="pane tpms-chart-pane">
       ${chartSVG(h, thr)}
+      <div id="tpms-readout" class="tpms-readout" hidden></div>
       ${legend(thr)}
       <div class="muted small-note">${t("tpmsHist.bucketNote", { b: h.bucket === "hour" ? t("tpmsHist.hourly") : t("tpmsHist.daily") })}</div>
     </div>`;
   body.querySelectorAll<HTMLElement>("#tpms-seg [data-d]").forEach(el => {
     el.onclick = () => showTpmsHistory(view, carId, back, Number(el.dataset.d));
   });
+  bindChartScrub(body.querySelector(".tpms-chart-pane") as HTMLElement, h);
 }
