@@ -763,7 +763,9 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
     let year = p.year.unwrap_or(cur_year);
     if !valid_year(year) { return Ok(bad("year must be 2000–2100")); }
     if year > cur_year { return Ok(bad("year is in the future")); }
-    if sqlx::query_scalar::<_, i64>("SELECT id FROM cars WHERE id = $1").bind(id).fetch_optional(&s.db).await?.is_none() {
+    // cars.id is smallint — do not SELECT id into i64 (sqlx type mismatch → HTTP 500, #62).
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM cars WHERE id = $1").bind(id).fetch_optional(&s.db).await?;
+    if exists.is_none() {
         return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"car not found"}))).into_response());
     }
 
@@ -931,6 +933,25 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
 #[cfg(test)]
 mod year_review_tests {
     use super::*;
+
+    /// TeslaMate `cars.id` is `smallint` (INT2). Decoding it as `i64` makes sqlx return
+    /// HTTP 500 before any year aggregation runs (#62). Keep the same `SELECT 1` existence
+    /// check as `car_report` / `car_exists`.
+    #[test]
+    fn year_review_car_exists_avoids_smallint_id_decode() {
+        let src = include_str!("report.rs");
+        let yr = src.split("pub async fn year_review").nth(1).expect("year_review fn");
+        let head = yr.split("let is_current").next().expect("before is_current");
+        assert!(
+            head.contains("SELECT 1 FROM cars WHERE id = $1"),
+            "year_review must use SELECT 1 for car existence (cars.id is smallint)"
+        );
+        assert!(
+            !head.contains("SELECT id FROM cars WHERE id = $1"),
+            "decoding cars.id as i64 fails: sqlx INT2 vs i64"
+        );
+    }
+
 
     fn drive(month: &str, id: i64, km: f64, place: &str) -> YrDrive {
         YrDrive {
