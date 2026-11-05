@@ -279,7 +279,7 @@ With git and Docker you can build in the `node:22` image without installing Node
 
 ```bash
 cd teslamate
-TAG=v1.4.2   # replace with the latest release
+TAG=v1.4.3   # replace with the latest release
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
@@ -354,7 +354,7 @@ After updating the server (drivelens-api), rebuild the web app from the same rel
 
 ```bash
 cd teslamate
-TAG=v1.4.2   # the new release
+TAG=v1.4.3   # the new release
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \

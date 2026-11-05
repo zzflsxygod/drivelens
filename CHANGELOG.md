@@ -6,6 +6,11 @@ The API upgrades its own `drivelens` schema on start; no manual SQL is needed af
 
 ## [Unreleased]
 
+## v1.4.3 — 2026-11-05
+- **Year in review HTTP 500:** opening the annual report no longer fails on every car. The handler had decoded TeslaMate `cars.id` (`smallint`) as `i64`, which sqlx rejects before any aggregation — including partial years with only a few months of data. Uses the same `SELECT 1` existence check as the monthly report. `api_level` unchanged (21).
+- The setup screen now recommends server 0.16.3.
+- **Server 0.16.3** (`api_level` 21, unchanged). Watchtower updates it automatically; no database migration.
+
 ## v1.4.2 — 2026-11-05
 - **Vampire drain % precision:** pack-% (segment loss, 合计损耗, 停车日均 / ring, push threshold) is derived from rated-range loss ÷ full rated range (same ratio as battery health), at 0.1% steps. Flat integer SoC with a real km drop no longer shows "−0%"; values that round to 0.0 with range evidence show "<0.1%". Falls back to SoC delta only when range is missing. `api_level` unchanged (21).
 - The setup screen now recommends server 0.16.2.

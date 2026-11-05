@@ -279,7 +279,7 @@ git と Docker があれば、Node.js をインストールせずに `node:22` �
 
 ```bash
 cd teslamate
-TAG=v1.4.2   # Releases の最新版に置き換える
+TAG=v1.4.3   # Releases の最新版に置き換える
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
@@ -354,7 +354,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 
 ```bash
 cd teslamate
-TAG=v1.4.2   # 新しいリリース
+TAG=v1.4.3   # 新しいリリース
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
