@@ -491,7 +491,8 @@ function moneyLine(list: Money[]) {
   return list.map(m => fmtMoney(m.amount, m.currency)).join(" + ");
 }
 function kindLabel(k: string) {
-  return k === "home" ? t("mix.home") : k === "supercharger" ? t("mix.supercharger") : t("mix.other");
+  // Short labels so the split table stays on one line at 390 px (en "Supercharger" / ja full name are too wide).
+  return k === "home" ? t("cc.kindHome") : k === "supercharger" ? t("cc.kindSc") : t("cc.kindOther");
 }
 
 function fmtPerKwh(m: Money | null) {
@@ -503,6 +504,8 @@ export function chargingCostCardHTML(c: ChargingCosts) {
   const spent = mainMoney(s.costs);
   const per100 = mainMoney(s.cost_per_100km);
   const perKwh = mainMoney(s.cost_per_kwh);
+  const covNote = (s.coverage_pct != null && s.coverage_pct < 100)
+    ? `<div class="muted small-note">${t("cc.coverageLow", { pct: n(s.coverage_pct, 0) })}</div>` : "";
   return `<div class="section-title">${t("cc.title")} <a class="link" data-cc>${t("cc.open")}</a></div>
     <div class="card cc-card" data-cc>
       <div class="ov cc-ov">
@@ -510,9 +513,9 @@ export function chargingCostCardHTML(c: ChargingCosts) {
         <div><small>${t("cc.perKwh")}</small><b>${fmtPerKwh(perKwh)}</b></div>
         <div><small>${t("cc.per100")}</small><b>${per100 ? fmtMoney(per100.amount, per100.currency) : "—"}</b></div>
         <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)}<i>kWh</i></b></div>
-        <div><small>${t("cc.coverage")}</small><b>${s.coverage_pct == null ? "—" : `${n(s.coverage_pct, 0)}%`}</b></div>
       </div>
       <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.hint")}</div>
+      ${covNote}
     </div>`;
 }
 
@@ -553,8 +556,9 @@ export async function showChargingCosts(view: HTMLElement, carId: number, back: 
   const hasCost = s.costs.length > 0;
   const splitRows = c.split.map(b => {
     const u = mainMoney(b.cost_per_kwh);
-    return `<tr><td>${esc(kindLabel(b.kind))}</td><td class="num">${b.count}</td><td class="num">${n(b.energy_kwh, 1)} kWh</td>
-      <td class="num">${moneyLine(b.costs)}</td><td class="num">${u ? `${fmtMoney(u.amount, u.currency, true)}/kWh` : "—"}</td></tr>`;
+    // Headers carry units (kWh, /kWh); cells stay bare so the row fits at 390 px.
+    return `<tr><td class="kind">${esc(kindLabel(b.kind))}</td><td class="num">${b.count}</td><td class="num">${n(b.energy_kwh, 1)}</td>
+      <td class="num">${moneyLine(b.costs)}</td><td class="num">${u ? fmtMoney(u.amount, u.currency, true) : "—"}</td></tr>`;
   }).join("");
   const monthly = c.monthly;
   const costOf = (m: ChargingCosts["monthly"][0]) => mainMoney(m.costs)?.amount ?? 0;
