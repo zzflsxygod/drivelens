@@ -109,7 +109,7 @@ export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
       <div class="bat-info tm">
         <div class="bat-kv"><div><small>${t("bat.now")}</small><b>${n(v.now, 1)}<i>kWh</i></b></div><div><small>${t("bat.new")}${v.custom ? "*" : ""}</small><b>${n(v.newKwh, 1)}<i>kWh</i></b></div>
           <div><small>${t("bat.degr")}</small><b>${n(v.degradation, 1)}<i>%</i></b></div><div><small>${t("bat.cycles")}</small><b>${v.cycles == null ? "—" : n(v.cycles)}</b></div></div>
-        ${trendBlock(b.tm?.trend, "card")}
+        ${trendBlock(b.tm?.trend, "card", v.newKwh)}
         <div class="muted small-note">${t("bat.tmSame")}</div></div>
     </div>`;
   const bl = baseline(b, car, carId);
@@ -124,29 +124,46 @@ export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
 }
 
 
-function fmtRate(v: number | null | undefined): string {
+/** Rate for display: proper minus and a % unit (e.g. −0.6%). */
+function fmtRatePct(v: number | null | undefined): string {
   if (v == null) return "—";
-  if (Math.abs(v) < 0.05) return "0";
-  const s = n(v, 1);
-  return v > 0 ? `+${s}` : s;
+  if (Math.abs(v) < 0.05) return "0%";
+  const abs = n(Math.abs(v), 1);
+  return v > 0 ? `+${abs}%` : `−${abs}%`;
 }
-/** Compact sparkline for half-month capacity medians (home card). */
-function batSpark(vals: number[]): string {
-  if (vals.length < 2) return "";
-  const W = 120, H = 28, P = 2;
-  const lo = Math.min(...vals), hi = Math.max(...vals);
-  const span = Math.max(0.2, hi - lo);
+/**
+ * Home-card sparkline. Vertical range is at least ±3 % of `newKwh` around the data (and includes
+ * the new-capacity baseline), so small noise stays nearly flat. Primary stroke = least-squares
+ * fit; faint dots = half-month medians; dashed line = 100 % (new) baseline.
+ */
+function batSpark(vals: number[], newKwh: number): string {
+  if (vals.length < 2 || !(newKwh > 0)) return "";
+  const W = 132, H = 28, P = 3;
+  let lo = Math.min(...vals, newKwh), hi = Math.max(...vals, newKwh);
+  const minSpan = newKwh * 0.06;   // ±3 % of new
+  if (hi - lo < minSpan) {
+    const mid = (hi + lo) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+  }
+  const span = hi - lo || 1;
   const X = (i: number) => P + (W - 2 * P) * i / (vals.length - 1);
   const Y = (v: number) => H - P - (H - 2 * P) * (v - lo) / span;
-  const d = vals.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join("");
-  return `<svg class="bat-spark" viewBox="0 0 ${W} ${H}" width="120" height="28" aria-hidden="true"><path d="${d}" class="bat-spark-line"/></svg>`;
+  const xs = vals.map((_, i) => i);
+  const f = fit(xs, vals);
+  const trend = f
+    ? `<path d="M${X(0).toFixed(1)},${Y(f.a + f.b * 0).toFixed(1)} L${X(vals.length - 1).toFixed(1)},${Y(f.a + f.b * (vals.length - 1)).toFixed(1)}" class="bat-spark-trend"/>`
+    : "";
+  const dots = vals.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="1.4" class="bat-spark-dot"/>`).join("");
+  const base = `<line x1="${P}" x2="${W - P}" y1="${Y(newKwh).toFixed(1)}" y2="${Y(newKwh).toFixed(1)}" class="bat-spark-base"/>`;
+  return `<svg class="bat-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${base}${dots}${trend}</svg>`;
 }
-function trendBlock(tr: BatTrend | null | undefined, kind: "page" | "card"): string {
+function trendBlock(tr: BatTrend | null | undefined, kind: "page" | "card", newKwh?: number | null): string {
   if (!tr) return "";
   if (kind === "card") {
-    const spark = batSpark(tr.spark);
+    const spark = batSpark(tr.spark, newKwh && newKwh > 0 ? newKwh : Math.max(...tr.spark, 1));
     const chip = tr.no_measurable_degradation ? t("bat.noDegrade")
-      : tr.pct_per_year != null ? t("bat.rateChip", { v: fmtRate(tr.pct_per_year) })
+      : tr.pct_per_year != null ? t("bat.rateChip", { v: fmtRatePct(tr.pct_per_year) })
       : "";
     if (!spark && !chip) return "";
     return `<div class="bat-trend-row">${spark}${chip ? `<span class="bat-rate-chip">${esc(chip)}</span>` : ""}</div>`;
@@ -159,8 +176,8 @@ function trendBlock(tr: BatTrend | null | undefined, kind: "page" | "card"): str
     body = `<div class="bat-kv"><div><small>${t("bat.trend")}</small><b>${t("bat.noDegrade")}</b></div></div>`;
   } else {
     body = `<div class="bat-kv">
-      <div><small>${t("bat.rate10k")}</small><b>${tr.pct_per_10k_km == null ? "—" : fmtRate(tr.pct_per_10k_km)}</b></div>
-      <div><small>${t("bat.rateYear")}</small><b>${tr.pct_per_year == null ? "—" : fmtRate(tr.pct_per_year)}</b></div>
+      <div><small>${t("bat.rate10k")}</small><b>${tr.pct_per_10k_km == null ? "—" : fmtRatePct(tr.pct_per_10k_km)}</b></div>
+      <div><small>${t("bat.rateYear")}</small><b>${tr.pct_per_year == null ? "—" : fmtRatePct(tr.pct_per_year)}</b></div>
     </div>`;
   }
   let proj = "";
@@ -171,8 +188,8 @@ function trendBlock(tr: BatTrend | null | undefined, kind: "page" | "card"): str
         return `<div><small>${t("bat.projAt", { km: kmLabel })}</small><b>${t("bat.projVal", { kwh: n(p.capacity_kwh, 1), pct: n(p.health_pct, 1) })}</b></div>`;
       }).join("") + `</div>`;
   }
-  return `<div class="pane bat-trend-pane"><div class="pane-t">${t("bat.trend")}</div>${body}${proj}
-    <div class="muted small-note">${hasRate ? t("bat.trendNote") : t("bat.trendShort")}</div></div>`;
+  const note = hasRate ? `<div class="muted small-note">${t("bat.trendNote")}</div>` : "";
+  return `<div class="pane bat-trend-pane"><div class="pane-t">${t("bat.trend")}</div>${body}${proj}${note}</div>`;
 }
 
 /** least-squares line y = a + b·x */
@@ -276,7 +293,7 @@ function tmPage(view: HTMLElement, b: Battery, v: TmView, carId: number, back: (
       <div><small>${t("bat.cycles")}</small><b>${v.cycles == null ? "—" : n(v.cycles)}</b><div class="d neu">${t("bat.added", { v: n(tm.energy_added_kwh) })}</div></div>
       <div><small>${t("bat.eff")}</small><b>${n(tm.efficiency_kwh_100km, 1)}<i>kWh/100km</i></b><div class="d neu">${t(tm.efficiency_source === "car" ? "bat.effCar" : "bat.effDerived")}</div></div>
     </div>
-    ${trendBlock(tm.trend, "page")}
+    ${trendBlock(tm.trend, "page", v.newKwh)}
     <div class="pane bl-box"><div class="pane-t">${t("bat.newTitle")}</div>
       <div class="muted bl-src">${esc(v.custom ? t("bat.srcKwhManual", { v: n(v.newKwh, 1) }) : t("bat.srcKwhMax", { v: n(v.max, 1) }))}${v.migrated ? `<br>${esc(t("bat.migrated"))}` : ""}</div>
       <div class="bl-row"><input id="bl-kwh" type="number" inputmode="decimal" min="20" max="250" step="0.1" placeholder="${t("bat.newPh")}" value="${ovv ?? ""}" aria-label="${t("bat.newPh")}">
