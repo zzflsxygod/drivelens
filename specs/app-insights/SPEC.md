@@ -211,6 +211,7 @@ In demo mode each key is renamed by `skey()` to `drivelens-demo~battery-…`. (s
 
 ### Vampire drain detail (api_level ≥ 17)
 - **AINS-140** When the vampire detail page opens and the server supports `vampire`, the system SHALL load `GET /api/cars/{id}/vampire?days=30&tz=` and show the summary plus recent parked periods; on older servers it SHALL show the too-old message. (src: app/src/insights.ts `showVampire`)
+- **AINS-141** When showing vampire pack-% (segment loss, 合计损耗, 停车日均, ring), the system SHALL use the API's `soc_lost` / `soc_lost_pct` / `avg_soc_per_day` at 1 decimal. When the value is `0` (or `0.0`) but `range_lost_km > 0`, the system SHALL display `<0.1` (locale `vamp.ltPct`) instead of `0` / `0.0`, so a flat integer SoC with a real rated-range drop is never shown as "−0%". True zero loss (no range drop) SHALL show `0.0`. The raw `电量 start% → end%` row SHALL keep the integer SoC fields unchanged. (src: app/src/insights.ts `fmtPctLost`, `showVampire`, `vampireCardHTML`; locales `vamp.ltPct`)
 
 ## 4. Key design decisions
 

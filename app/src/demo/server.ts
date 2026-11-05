@@ -760,32 +760,34 @@ function vampire(q: URLSearchParams) {
   const days = Math.min(90, Math.max(1, Number(q.get("days") || 30) || 30));
   const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
   const from = db.now - days * 864e5;
-  // Realistic Tesla-ish parked drain (~1 %/parked-day), with one higher weekend outlier.
-  // Totals: 8% SoC / 144 h parked → 1.3 %/d; range ≈ SoC% × 4.4 km.
-  const seeds: { hAgo: number; hours: number; lost: number; soc: number; ongoing?: boolean }[] = [
-    { hAgo: 0, hours: 12, lost: 1, soc: 70, ongoing: true },
-    { hAgo: 30, hours: 18, lost: 1, soc: 72 },
-    { hAgo: 72, hours: 24, lost: 1, soc: 66 },
-    { hAgo: 120, hours: 16, lost: 1, soc: 60 },
-    { hAgo: 190, hours: 54, lost: 3, soc: 78 }, // outlier (~1.3 %/d for that gap; still mild)
-    { hAgo: 270, hours: 20, lost: 1, soc: 55 },
+  // Full rated ≈ 440 km. Seeds mix clear SoC drops with a flat-SoC / small-range case (shows <0.1% or 0.x%).
+  const FULL = 440;
+  const seeds: { hAgo: number; hours: number; rangeLost: number; soc: number; flatSoc?: boolean; ongoing?: boolean }[] = [
+    { hAgo: 0, hours: 12, rangeLost: 4.4, soc: 70, ongoing: true },           // −1.0%
+    { hAgo: 30, hours: 18, rangeLost: 4.4, soc: 72 },                           // −1.0%
+    { hAgo: 72, hours: 24, rangeLost: 2.8, soc: 71, flatSoc: true },            // SoC 71→71, −0.6% via range
+    { hAgo: 120, hours: 16, rangeLost: 4.4, soc: 60 },                          // −1.0%
+    { hAgo: 190, hours: 54, rangeLost: 13.2, soc: 78 },                         // −3.0%
+    { hAgo: 270, hours: 20, rangeLost: 0.2, soc: 55, flatSoc: true },           // tiny → rounds to 0.0, UI "<0.1%"
   ];
   const periods = [];
   for (const s of seeds) {
     const endMs = db.now - s.hAgo * 3600e3;
     const startMs = endMs - s.hours * 3600e3;
     if (endMs < from) continue;
-    const endSoc = Math.max(1, s.soc - s.lost);
-    const startRated = r1(s.soc / 100 * 440), endRated = r1(endSoc / 100 * 440);
+    const startRated = r1(s.soc / 100 * FULL);
+    const endRated = r1(startRated - s.rangeLost);
+    const endSoc = s.flatSoc ? s.soc : Math.max(1, Math.round(endRated / FULL * 100));
+    const pct = r1(s.rangeLost / FULL * 100);
     periods.push({
       start: TS(startMs), end: TS(endMs), duration_hours: r1(s.hours),
-      start_soc: s.soc, end_soc: endSoc, soc_lost: s.lost,
-      start_rated_km: startRated, end_rated_km: endRated, range_lost_km: r1(startRated - endRated),
+      start_soc: s.soc, end_soc: endSoc, soc_lost: pct,
+      start_rated_km: startRated, end_rated_km: endRated, range_lost_km: r1(s.rangeLost),
       ongoing: !!s.ongoing, after_drive_id: null, before_drive_id: null,
     });
   }
   const parked = periods.reduce((s, x) => s + x.duration_hours, 0);
-  const soc = periods.reduce((s, x) => s + (x.soc_lost ?? 0), 0);
+  const soc = r1(periods.reduce((s, x) => s + (x.soc_lost ?? 0), 0));
   const range = periods.reduce((s, x) => s + (x.range_lost_km ?? 0), 0);
   const parkedDays = parked > 0 ? parked / 24 : 0;
   return ok({

@@ -438,6 +438,14 @@ function fmtHours(h: number) {
   return `${n(h, 1)} h`;
 }
 
+/** Pack-% lost for display. Never "−0%": tiny positive loss (API rounds to 0.0 with range evidence) → "<0.1%". */
+function fmtPctLost(pct: number | null | undefined, rangeLostKm?: number | null): string {
+  if (pct == null) return "—";
+  if (pct > 0) return n(pct, 1);
+  if ((rangeLostKm ?? 0) > 0) return t("vamp.ltPct"); // 0.0 after rounding but range dropped
+  return n(0, 1); // true zero → "0.0"
+}
+
 /** Same calendar day → "11/4 12:12 → 19:42"; ongoing → "… → now"; else full short datetimes. */
 export function fmtParkSpan(start: string, end: string, ongoing: boolean) {
   const a = new Date(start), b = new Date(end);
@@ -451,7 +459,7 @@ export function fmtParkSpan(start: string, end: string, ongoing: boolean) {
 
 function lostSummary(s: Vampire["summary"]) {
   if (s.soc_lost_pct == null && s.range_lost_km == null) return "";
-  const pct = s.soc_lost_pct == null ? "—" : String(s.soc_lost_pct);
+  const pct = s.soc_lost_pct == null ? "—" : fmtPctLost(s.soc_lost_pct, s.range_lost_km);
   const km = s.range_lost_km == null ? "—" : n(s.range_lost_km, 1);
   return t("vamp.lostSummary", { pct, km, n: s.period_count });
 }
@@ -502,7 +510,7 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
   const rows = v.periods.length === 0
     ? `<div class="empty"><span>${t("vamp.empty")}</span></div>`
     : v.periods.map(p => {
-      const soc = p.soc_lost == null ? "—" : `−${p.soc_lost}%`;
+      const soc = p.soc_lost == null ? "—" : `−${fmtPctLost(p.soc_lost, p.range_lost_km)}%`;
       const range = p.range_lost_km == null ? "" : ` · −${n(p.range_lost_km, 1)} km`;
       const socLine = (p.start_soc != null && p.end_soc != null)
         ? `${p.start_soc}% → ${p.end_soc}%`

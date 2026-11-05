@@ -456,7 +456,8 @@ pub struct VampirePeriod {
     pub duration_hours: f64,
     pub start_soc: Option<i32>,
     pub end_soc: Option<i32>,
-    pub soc_lost: Option<i32>,
+    /// Pack-% lost (1 decimal). Prefer rated-range / full-rated; fall back to integer SoC delta.
+    pub soc_lost: Option<f64>,
     pub start_rated_km: Option<f64>,
     pub end_rated_km: Option<f64>,
     pub range_lost_km: Option<f64>,
@@ -518,7 +519,7 @@ fn overlaps(a0: &str, a1: &str, b0: &str, b1: &str) -> bool {
 
 fn r1(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
 
-fn soc_lost_of(start: Option<i32>, end: Option<i32>) -> Option<i32> {
+fn soc_delta_of(start: Option<i32>, end: Option<i32>) -> Option<i32> {
     match (start, end) {
         (Some(s), Some(e)) if s >= e => Some(s - e),
         (Some(_), Some(_)) => Some(0), // rose without a logged charge — treat as 0, still list
@@ -534,13 +535,42 @@ fn range_lost_of(start: Option<f64>, end: Option<f64>) -> Option<f64> {
     }
 }
 
+/// Rated range at 100% SoC (km). Same ratio as battery health's `end_rated / end_level × 100`.
+pub fn full_rated_km(rated: Option<f64>, soc: Option<i32>) -> Option<f64> {
+    match (rated, soc) {
+        (Some(r), Some(s)) if r > 0.0 && s > 0 => Some(r / f64::from(s) * 100.0),
+        _ => None,
+    }
+}
+
+/// Pack-% lost for one parked slice (1 decimal).
+/// Prefer `range_lost / full_rated × 100` (full from start/end endpoints, averaged when both
+/// exist). Fall back to the integer SoC delta only when rated range is missing.
+pub fn pct_lost_of(
+    start_soc: Option<i32>, end_soc: Option<i32>,
+    start_rated: Option<f64>, end_rated: Option<f64>,
+    range_lost: Option<f64>,
+) -> Option<f64> {
+    let full = match (full_rated_km(start_rated, start_soc), full_rated_km(end_rated, end_soc)) {
+        (Some(a), Some(b)) => Some((a + b) / 2.0),
+        (Some(a), None) | (None, Some(a)) => Some(a),
+        _ => None,
+    };
+    if let (Some(rl), Some(f)) = (range_lost, full) {
+        if f > 0.0 {
+            return Some(r1((rl / f * 100.0).max(0.0)));
+        }
+    }
+    soc_delta_of(start_soc, end_soc).map(|i| f64::from(i))
+}
+
 /// Average drain per parked day: total loss ÷ (parked_hours / 24).
-/// Returns (avg_soc_per_day, avg_range_km_per_day); None when there is no parked time / no samples.
-pub fn vampire_averages(soc_lost: Option<i32>, range_lost_km: Option<f64>, parked_hours: f64) -> (Option<f64>, Option<f64>) {
+/// `soc_lost` is already pack-% (float). Returns (avg_%/d, avg_km/d).
+pub fn vampire_averages(soc_lost: Option<f64>, range_lost_km: Option<f64>, parked_hours: f64) -> (Option<f64>, Option<f64>) {
     if !(parked_hours > 0.0) { return (None, None); }
     let days = parked_hours / 24.0;
     (
-        soc_lost.map(|s| r1(s as f64 / days)),
+        soc_lost.map(|s| r1(s / days)),
         range_lost_km.map(|r| r1(r / days)),
     )
 }
@@ -606,13 +636,15 @@ fn push_segment(
         _ => return,
     };
     if hours < 0.25 { return; } // ignore sub-15-minute gaps (door open / short stop)
+    let range_lost = range_lost_of(start_rated, end_rated);
     out.push(VampirePeriod {
         start: iso_z(start),
         end: iso_z(end),
         duration_hours: r1(hours),
-        start_soc, end_soc, soc_lost: soc_lost_of(start_soc, end_soc),
+        start_soc, end_soc,
+        soc_lost: pct_lost_of(start_soc, end_soc, start_rated, end_rated, range_lost),
         start_rated_km: start_rated.map(r1), end_rated_km: end_rated.map(r1),
-        range_lost_km: range_lost_of(start_rated, end_rated),
+        range_lost_km: range_lost,
         ongoing, after_drive_id, before_drive_id,
     });
 }
@@ -669,7 +701,7 @@ pub fn gap_before_drive(
     if mine.is_empty() { return None; }
     let duration_hours = r1(mine.iter().map(|p| p.duration_hours).sum::<f64>());
     if duration_hours < 0.25 { return None; }
-    let mut soc = 0i32; let mut soc_n = 0i32;
+    let mut soc = 0.0; let mut soc_n = 0i32;
     let mut range = 0.0; let mut range_n = 0i32;
     for p in &mine {
         if let Some(s) = p.soc_lost { soc += s; soc_n += 1; }
@@ -683,7 +715,7 @@ pub fn gap_before_drive(
         duration_hours,
         start_soc: first.start_soc,
         end_soc: last.end_soc,
-        soc_lost: if soc_n > 0 { Some(soc) } else { None },
+        soc_lost: if soc_n > 0 { Some(r1(soc)) } else { None },
         start_rated_km: first.start_rated_km,
         end_rated_km: last.end_rated_km,
         range_lost_km: if range_n > 0 { Some(r1(range)) } else { None },
@@ -766,7 +798,7 @@ pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Q
     let now_opt = latest.and_then(|(soc, rated, date)| date.map(|d| (d, soc, rated)));
     let periods = build_vampire_periods(&drive_tuples, &charge_tuples, now_opt, &from);
     let mut parked_hours = 0.0;
-    let mut soc_lost = 0i32;
+    let mut soc_lost = 0.0;
     let mut range_lost = 0.0;
     let mut soc_n = 0i32;
     let mut range_n = 0i32;
@@ -775,7 +807,8 @@ pub async fn vampire(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Q
         if let Some(s) = p.soc_lost { soc_lost += s; soc_n += 1; }
         if let Some(r) = p.range_lost_km { range_lost += r; range_n += 1; }
     }
-    let soc_opt = if soc_n > 0 { Some(soc_lost) } else { None };
+    // Sum of per-segment (already 1-decimal) values so 合计 reconciles with the list.
+    let soc_opt = if soc_n > 0 { Some(r1(soc_lost)) } else { None };
     let range_opt = if range_n > 0 { Some(r1(range_lost)) } else { None };
     let (avg_soc, avg_range) = vampire_averages(soc_opt, range_opt, parked_hours);
     let summary = serde_json::json!({
@@ -830,17 +863,17 @@ mod vampire_tests {
         assert_eq!(periods.len(), 3, "{periods:?}");
         // newest first
         assert_eq!(periods[0].start, "2026-10-03T06:00:00Z");
-        assert_eq!(periods[0].soc_lost, Some(1)); // 80 → 79
+        assert_eq!(periods[0].soc_lost, Some(1.0)); // ~80→79 via range
         assert_eq!(periods[1].start, "2026-10-02T09:00:00Z");
         assert_eq!(periods[1].end, "2026-10-02T22:00:00Z");
-        assert_eq!(periods[1].soc_lost, Some(2)); // 50 → 48
-        assert_eq!(periods[2].soc_lost, Some(2)); // overnight 60 → 58
+        assert_eq!(periods[1].soc_lost, Some(2.0)); // ~50→48 via range
+        assert_eq!(periods[2].soc_lost, Some(2.0)); // overnight ~60→58 via range
         assert_eq!(periods[2].after_drive_id, Some(1));
         assert_eq!(periods[2].before_drive_id, Some(2));
         let g2 = gap_before_drive(&drives, &charges, 2).unwrap();
-        assert_eq!(g2.soc_lost, Some(2));
+        assert_eq!(g2.soc_lost, Some(2.0));
         let g3 = gap_before_drive(&drives, &charges, 3).unwrap();
-        assert_eq!(g3.soc_lost, Some(3)); // 2 + 1 from the two free slices
+        assert_eq!(g3.soc_lost, Some(3.0)); // 2 + 1 from the two free slices
         assert!(g3.duration_hours > 14.0); // 13h + 2h, charging hours excluded
     }
 
@@ -875,7 +908,7 @@ mod vampire_tests {
             &drives, &[], Some(("2026-10-02T09:00:00Z".into(), Some(62), Some(248.0))), "2026-09-01T00:00:00Z");
         assert_eq!(periods.len(), 1);
         assert!(periods[0].ongoing);
-        assert_eq!(periods[0].soc_lost, Some(3));
+        assert_eq!(periods[0].soc_lost, Some(3.0));
         assert_eq!(periods[0].range_lost_km, Some(12.0));
     }
 
@@ -890,19 +923,60 @@ mod vampire_tests {
         assert_eq!(periods.len(), 1);
         assert!(!periods[0].ongoing);
         assert_eq!(periods[0].end, "2026-10-01T18:00:00Z");
-        assert_eq!(periods[0].soc_lost, Some(2)); // 50 → 48
+        assert_eq!(periods[0].soc_lost, Some(2.0)); // 50 → 48 via range
     }
 
     #[test]
     fn averages_use_parked_days_not_window_days() {
         // 31% over 138.5 h ≈ 5.775 parked days → ~5.4 %/d (not 31/30 ≈ 1.0)
-        let (avg_soc, avg_range) = vampire_averages(Some(31), Some(136.4), 138.5);
+        let (avg_soc, avg_range) = vampire_averages(Some(31.0), Some(136.4), 138.5);
         assert_eq!(avg_soc, Some(5.4));
         assert_eq!(avg_range, Some(23.6));
         // no parked time → no average
-        assert_eq!(vampire_averages(Some(5), Some(10.0), 0.0), (None, None));
+        assert_eq!(vampire_averages(Some(5.0), Some(10.0), 0.0), (None, None));
         // 6% over 120 h = 5 parked days → 1.2 %/d
-        assert_eq!(vampire_averages(Some(6), Some(26.4), 120.0), (Some(1.2), Some(5.3)));
+        assert_eq!(vampire_averages(Some(6.0), Some(26.4), 120.0), (Some(1.2), Some(5.3)));
+    }
+
+    #[test]
+    fn pct_lost_uses_rated_range_not_integer_soc() {
+        // Real-car case from the screenshot: SoC stays 71%→71% (integer) but rated drops 2.8 km.
+        // Integer SoC would report −0%; range basis reports ≈ −0.6%.
+        let start_soc = Some(71); let end_soc = Some(71);
+        let start_rated = Some(324.1); let end_rated = Some(321.3);
+        let rl = range_lost_of(start_rated, end_rated);
+        assert_eq!(rl, Some(2.8));
+        let pct = pct_lost_of(start_soc, end_soc, start_rated, end_rated, rl).unwrap();
+        assert_eq!(pct, 0.6);
+        // Full rated ≈ 324.1/71*100 ≈ 456.5; 2.8/456.5*100 ≈ 0.61 → 0.6
+        let full = full_rated_km(start_rated, start_soc).unwrap();
+        assert!((full - 456.5).abs() < 0.1);
+        // Fallback when no range: integer SoC delta
+        assert_eq!(pct_lost_of(Some(73), Some(72), None, None, None), Some(1.0));
+        // Tiny positive range loss that rounds to 0.0 at 1 decimal
+        let tiny = pct_lost_of(Some(71), Some(71), Some(324.1), Some(324.05), Some(0.05)).unwrap();
+        assert_eq!(tiny, 0.0); // UI shows "<0.1%" when range_lost > 0
+    }
+
+    #[test]
+    fn period_list_reconciles_with_summary_total() {
+        // Screenshot shape: integer SoC flat across the park, rated range drops while parked.
+        // Drive end rated → next drive start rated is the parked loss (not the in-drive drop).
+        let drives = vec![
+            d(1, "2026-11-03T08:00:00Z", "2026-11-03T09:00:00Z", 73, 71, 332.3, 324.1),
+            d(2, "2026-11-04T07:00:00Z", "2026-11-04T08:00:00Z", 71, 71, 321.3, 321.3), // arrived 2.8 km lower
+            d(3, "2026-11-05T07:00:00Z", "2026-11-05T08:00:00Z", 71, 70, 318.5, 316.0), // another 2.8 km park loss
+        ];
+        let periods = build_vampire_periods(&drives, &[], None, "2026-10-01T00:00:00Z");
+        assert_eq!(periods.len(), 2, "{periods:?}");
+        assert_eq!(periods[0].range_lost_km, Some(2.8));
+        assert_eq!(periods[0].soc_lost, Some(0.6)); // not −0%
+        assert_eq!(periods[1].soc_lost, Some(0.6));
+        let sum: f64 = r1(periods.iter().map(|p| p.soc_lost.unwrap_or(0.0)).sum::<f64>());
+        assert_eq!(sum, 1.2); // 合计 = sum of segment %
+        let parked: f64 = periods.iter().map(|p| p.duration_hours).sum();
+        let (avg, _) = vampire_averages(Some(sum), Some(5.6), parked);
+        assert_eq!(avg, Some(r1(1.2 / (parked / 24.0))));
     }
 
     #[test]

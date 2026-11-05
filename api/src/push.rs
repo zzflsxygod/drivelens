@@ -260,26 +260,28 @@ pub fn monthly_message(month: &str, l: &str, km: Option<f64>, drives: i64) -> Me
     };
     Message { title, body, tag: format!("report-{month}"), url: format!("/?view=report:{month}"), kind: "report" }
 }
-pub fn vampire_message(soc_lost: i32, hours: f64, range_km: Option<f64>, car_id: i64, l: &str, multi_car: bool, car_name: Option<&str>) -> Message {
+pub fn vampire_message(soc_lost: f64, hours: f64, range_km: Option<f64>, car_id: i64, l: &str, multi_car: bool, car_name: Option<&str>) -> Message {
     let car = if multi_car { car_name.map(|n| format!("{n} · ")).unwrap_or_default() } else { String::new() };
     let hrs = if hours >= 24.0 { format!("{:.0} d", hours / 24.0) } else { format!("{:.0} h", hours) };
+    // Match the in-app rule: positive loss that rounds to 0.0 at 1 decimal → "<0.1%".
+    let pct = if soc_lost > 0.0 && soc_lost < 0.05 { "<0.1".to_string() } else { format!("{soc_lost:.1}") };
     let (title, body) = match lang(l) {
         "zh" => (
-            format!("{car}停车耗电偏高 · −{soc_lost}%"),
+            format!("{car}停车耗电偏高 · −{pct}%"),
             match range_km {
                 Some(r) => format!("停放 {hrs}，续航少了 {r:.0} km。点按查看详情。"),
                 None => format!("停放 {hrs}。点按查看详情。"),
             },
         ),
         "ja" => (
-            format!("{car}駐車中の電力消費が大きい · −{soc_lost}%"),
+            format!("{car}駐車中の電力消費が大きい · −{pct}%"),
             match range_km {
                 Some(r) => format!("駐車 {hrs}、航続が {r:.0} km 減りました。タップして詳細を表示。"),
                 None => format!("駐車 {hrs}。タップして詳細を表示。"),
             },
         ),
         _ => (
-            format!("{car}High parked drain · −{soc_lost}%"),
+            format!("{car}High parked drain · −{pct}%"),
             match range_km {
                 Some(r) => format!("Parked {hrs}, {r:.0} km of range lost. Tap for details."),
                 None => format!("Parked {hrs}. Tap for details."),
@@ -444,8 +446,8 @@ async fn vampire_alert(s: &AppState, v: &Vapid, drive_id: i64) -> anyhow::Result
         .bind(crate::insights::VAMPIRE_ACTIVE_CHARGE_HOURS)
         .fetch_all(&s.db).await?;
     let Some(gap) = crate::insights::gap_before_drive(&drives, &charges, drive_id) else { return Ok(()) };
-    let lost = gap.soc_lost.unwrap_or(0);
-    if lost <= 0 { return Ok(()); }
+    let lost = gap.soc_lost.unwrap_or(0.0);
+    if lost <= 0.0 { return Ok(()); }
     // Only alert for gaps that finished recently (same STALE window as trips).
     let ended_recently: bool = sqlx::query_scalar(
         "SELECT $1::timestamp > (now() AT TIME ZONE 'UTC') - make_interval(hours => $2)")
@@ -455,7 +457,7 @@ async fn vampire_alert(s: &AppState, v: &Vapid, drive_id: i64) -> anyhow::Result
     let multi: bool = sqlx::query_scalar("SELECT count(*) > 1 FROM cars").fetch_one(&s.db).await.unwrap_or(false);
     for vs in vsubs {
         if let Some(c) = &vs.car_ids { if !c.is_empty() && !c.contains(&(cur.car_id as i32)) { continue; } }
-        if lost < vs.vampire_threshold_pct as i32 { continue; }
+        if lost < f64::from(vs.vampire_threshold_pct) { continue; }
         let sub = Sub { id: vs.id, endpoint: vs.endpoint, p256dh: vs.p256dh, auth: vs.auth, tz: vs.tz, locale: vs.locale, car_ids: vs.car_ids, fail_count: vs.fail_count };
         send(s, v, &sub, &vampire_message(lost, gap.duration_hours, gap.range_lost_km, cur.car_id, &sub.locale, multi, cur.car_name.as_deref()), TTL_TRIP).await;
     }
@@ -688,13 +690,14 @@ mod tests {
     }
     #[test]
     fn vampire_texts() {
-        let m = vampire_message(12, 18.0, Some(42.0), 1, "en", false, None);
-        assert_eq!(m.title, "High parked drain · −12%");
+        let m = vampire_message(12.0, 18.0, Some(42.0), 1, "en", false, None);
+        assert_eq!(m.title, "High parked drain · −12.0%");
         assert!(m.body.contains("42"));
         assert_eq!(m.url, "/?view=vampire&car=1");
         assert_eq!(m.kind, "vampire");
-        assert!(vampire_message(5, 6.0, None, 2, "zh", true, Some("Demo")).title.contains("停车耗电"));
-        assert!(vampire_message(5, 30.0, Some(10.0), 2, "ja", false, None).body.contains("航続"));
+        assert!(vampire_message(5.0, 6.0, None, 2, "zh", true, Some("Demo")).title.contains("停车耗电"));
+        assert!(vampire_message(0.04, 10.0, Some(0.2), 1, "en", false, None).title.contains("−<0.1%"));
+        assert!(vampire_message(5.0, 30.0, Some(10.0), 2, "ja", false, None).body.contains("航続"));
     }
     #[test]
     fn monthly_texts() {
