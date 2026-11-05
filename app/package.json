@@ -6,11 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-i18n.mjs && tsc && vite build",
+    "build": "node scripts/check-i18n.mjs && node scripts/check-demo-tpms.mjs && tsc && vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:web": "node scripts/check-i18n.mjs && tsc && vite build --mode web",
+    "build:web": "node scripts/check-i18n.mjs && node scripts/check-demo-tpms.mjs && tsc && vite build --mode web",
     "preview:web": "vite preview --mode web --outDir dist-web --port 4174"
   },
   "dependencies": {
