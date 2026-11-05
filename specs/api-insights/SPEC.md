@@ -19,6 +19,7 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 - `GET /api/cars/{id}/battery` — range-based battery estimate plus the TeslaMate-method `tm` object.
 - `GET /api/cars/{id}/vampire` — parked SoC / rated-range loss between drives (api_level ≥ 17).
 - `GET /api/cars/{id}/charging-costs` — cross-month spend, ¥/kWh, ¥/100 km, home/SuC/other unit prices (api_level ≥ 18).
+- `GET /api/cars/{id}/year-review` — calendar-year totals, monthly bars, highlights, YoY (api_level ≥ 20).
 - The charge-type classification (home / supercharger / other) used by the report, trends and charging-costs.
 - Aggregation of charging costs per currency for the report, trends and charging-costs.
 
@@ -50,6 +51,7 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 | GET | `/api/cars/{id}/battery` | yes | `summary` (bool), `tz`, `new_kwh` (number) | Battery estimate + `tm` health (+ `tm.trend` ≥ 19) | 12 (`tm`: 14, `trend`: 19) |
 | GET | `/api/cars/{id}/vampire` | yes | `days` (1–90, default 30), `tz` | Vampire drain between drives | 17 |
 | GET | `/api/cars/{id}/charging-costs` | yes | `months` (1–24, default 12), `tz`, `currency` | Cross-month charging cost stats | 18 |
+| GET | `/api/cars/{id}/year-review` | yes | `year` (YYYY, optional), `tz`, `currency` | Year in review totals / highlights / YoY | 20 |
 
 (src: api/src/main.rs:882-885; comment: api/src/main.rs:302; comment: api/src/insights.rs:2-3)
 
@@ -177,6 +179,14 @@ The formulas below are a port of TeslaMate's `grafana/dashboards/battery-health.
 - **INS-192** When enough, `pct_per_10k_km` / `pct_per_year` SHALL be the capacity slope relative to new capacity, as percent; a slope ≥ −0.05 % per unit SHALL be reported as `0` and `no_measurable_degradation = true` when every available rate is non-degrading. (src: api/src/insights.rs; test: `battery_trend_tests`)
 - **INS-193** When `enough_odo`, the system SHALL project capacity (clamped to `[max(20, new×0.5), new]`) and health % at 100 000 km and 200 000 km, skipping targets the car has already reached. (src: api/src/insights.rs)
 - **INS-194** `tm.trend.spark` SHALL list the last up to 12 half-month median capacities (oldest first) for the home-card sparkline. (src: api/src/insights.rs)
+
+
+### 3.x Year in review (api_level ≥ 20)
+- **INS-200** When `GET /api/cars/{id}/year-review` is called, the system SHALL aggregate drives and charges whose local start falls in calendar year `year` (default: current year in `tz`) and SHALL return `totals`, 12 `months` rows, `highlights`, and optional `yoy`. (src: api/src/report.rs `year_review`, `build_year_review`)
+- **INS-201** When year totals are built, `totals.distance_km` SHALL equal the sum of monthly `distance_km` values (within rounding). (test: api/src/report.rs year_review_tests::year_distance_equals_sum_of_months)
+- **INS-202** When the car's first activity in that year is after January, or the year is still in progress, the system SHALL set `partial` and may set `data_from`. (src: `build_year_review`)
+- **INS-203** When the previous calendar year has at least one drive or charge, the system SHALL include `yoy` with percent changes and `previous` totals; otherwise `yoy` is null. Costs remain per currency (no cross-currency sum). (src: `year_review`)
+- **INS-204** Charge classification for the year review SHALL reuse the report home / supercharger / other rules. (src: `charges_sql` via `year_review`)
 
 ## 4. Key design decisions
 

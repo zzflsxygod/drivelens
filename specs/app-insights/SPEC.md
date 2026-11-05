@@ -254,3 +254,9 @@ In demo mode each key is renamed by `skey()` to `drivelens-demo~battery-…`. (s
 ### Charging cost stats (api_level ≥ 18)
 - **AINS-150** When the charging-cost detail page opens and the server supports `chargingCost`, the system SHALL load `GET /api/cars/{id}/charging-costs?months=12&tz=&currency=` and show a Telemetry `.ov` tile grid (spent, avg ¥/kWh with `/kWh`, ¥/100 km, driven, charged, charge count) with no ring; when some sessions have no cost, a one-line missing-cost warning under the grid (no coverage tile), a home / SuC / other table whose headers carry units and whose cells show bare numbers (nowrap at 390 px), and monthly spend / ¥/100 km charts; on older servers it SHALL show the too-old message. (src: app/src/insights.ts `showChargingCosts`)
 - **AINS-151** When formatting unit prices, the system SHALL use the main currency (default currency if present, else the largest amount) and SHALL NOT invent a total by summing unlike currencies. (src: app/src/insights.ts `mainMoney` / `moneyLine`)
+
+
+## Year in review (api_level ≥ 20)
+- The monthly report switcher links to a Year in review page for that month's year when `FEATURE_LEVEL.yearReview` is met.
+- In local December–January, Home may show a seasonal link to the year just ending / just ended.
+- The page shows year totals (with units), monthly distance bars, charging mix, highlights, and YoY when present; partial years show data-since copy. (src: app/src/year.ts)

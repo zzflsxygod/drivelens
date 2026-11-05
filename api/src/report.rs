@@ -505,6 +505,478 @@ pub async fn charging_costs(State(s): State<AppState>, Path(id): Path<i64>, Quer
     Ok(Json(body).into_response())
 }
 
+
+// ---------------- api_level 20: year in review ----------------
+
+#[derive(Deserialize)]
+pub struct YearParams { year: Option<i32>, tz: Option<String>, currency: Option<String> }
+
+#[derive(Clone, Debug)]
+pub struct YrDrive {
+    pub month: String,
+    pub id: i64,
+    pub start_date: Option<String>,
+    pub start_address: Option<String>,
+    pub end_address: Option<String>,
+    pub distance_km: f64,
+    pub duration_min: i32,
+    pub energy_used_kwh: f64,
+    pub end_place: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct YrCharge {
+    pub month: String,
+    pub kind: String,
+    pub energy_kwh: f64,
+    pub cost: Option<f64>,
+    pub currency: String,
+    pub place: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct YrJourney {
+    pub id: i64,
+    pub name: String,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub start_address: Option<String>,
+    pub end_address: Option<String>,
+    pub distance_km: f64,
+    pub duration_min: i64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct YearTotals {
+    pub distance_km: f64,
+    pub drive_count: i64,
+    pub drive_duration_min: i64,
+    pub energy_used_kwh: f64,
+    pub energy_added_kwh: f64,
+    pub charge_count: i64,
+    pub costs: BTreeMap<String, f64>,
+    pub home_kwh: f64,
+    pub supercharger_kwh: f64,
+    pub other_kwh: f64,
+}
+
+fn year_money(map: &BTreeMap<String, f64>) -> Vec<serde_json::Value> {
+    map.iter().map(|(c, a)| serde_json::json!({"currency": c, "amount": r2(*a)})).collect()
+}
+
+fn year_per100(map: &BTreeMap<String, f64>, distance_km: f64) -> Vec<serde_json::Value> {
+    map.iter().filter_map(|(c, a)| {
+        cost_per_100km(*a, distance_km).map(|v| serde_json::json!({"currency": c, "amount": v}))
+    }).collect()
+}
+
+fn totals_json(t: &YearTotals) -> serde_json::Value {
+    let eff = (t.distance_km > 1.0).then(|| r1(t.energy_used_kwh * 1000.0 / t.distance_km));
+    serde_json::json!({
+        "distance_km": r1(t.distance_km),
+        "drive_count": t.drive_count,
+        "drive_duration_min": t.drive_duration_min,
+        "energy_used_kwh": r1(t.energy_used_kwh),
+        "efficiency_wh_km": eff,
+        "charge_count": t.charge_count,
+        "energy_added_kwh": r1(t.energy_added_kwh),
+        "costs": year_money(&t.costs),
+        "cost_per_100km": year_per100(&t.costs, t.distance_km),
+        "home_kwh": r1(t.home_kwh),
+        "supercharger_kwh": r1(t.supercharger_kwh),
+        "other_kwh": r1(t.other_kwh),
+    })
+}
+
+fn pct_change(cur: f64, prev: f64) -> Option<f64> {
+    if prev.abs() < 1e-9 { return None; }
+    Some(r1((cur - prev) / prev * 100.0))
+}
+
+/// Aggregate one calendar year's drives/charges into the year-review payload.
+/// Invariant: `totals.distance_km` (rounded) equals the sum of monthly `distance_km`.
+pub fn build_year_review(
+    year: i32,
+    month_keys: &[String],
+    data_from: Option<&str>,
+    data_to: &str,
+    is_current: bool,
+    drives: &[YrDrive],
+    charges: &[YrCharge],
+    journeys: &[YrJourney],
+    previous: Option<&YearTotals>,
+) -> serde_json::Value {
+    let mut by: BTreeMap<String, YearTotals> =
+        month_keys.iter().map(|m| (m.clone(), YearTotals::default())).collect();
+    let mut totals = YearTotals::default();
+    let mut longest: Option<&YrDrive> = None;
+    let mut places: BTreeMap<String, i64> = BTreeMap::new();
+    let mut sc_places: BTreeMap<String, ()> = BTreeMap::new();
+
+    for d in drives {
+        let Some(m) = by.get_mut(&d.month) else { continue };
+        m.distance_km += d.distance_km;
+        m.drive_count += 1;
+        m.drive_duration_min += i64::from(d.duration_min);
+        m.energy_used_kwh += d.energy_used_kwh.max(0.0);
+        totals.distance_km += d.distance_km;
+        totals.drive_count += 1;
+        totals.drive_duration_min += i64::from(d.duration_min);
+        totals.energy_used_kwh += d.energy_used_kwh.max(0.0);
+        if d.distance_km > longest.map(|x| x.distance_km).unwrap_or(0.0) {
+            longest = Some(d);
+        }
+        let place = d.end_place.trim();
+        if !place.is_empty() && place != "—" {
+            *places.entry(place.to_string()).or_default() += 1;
+        }
+    }
+
+    for c in charges {
+        let Some(m) = by.get_mut(&c.month) else { continue };
+        let e = c.energy_kwh.max(0.0);
+        m.energy_added_kwh += e;
+        m.charge_count += 1;
+        totals.energy_added_kwh += e;
+        totals.charge_count += 1;
+        match c.kind.as_str() {
+            "home" => { m.home_kwh += e; totals.home_kwh += e; }
+            "supercharger" => {
+                m.supercharger_kwh += e;
+                totals.supercharger_kwh += e;
+                let p = c.place.trim();
+                if !p.is_empty() && p != "—" { sc_places.insert(p.to_string(), ()); }
+            }
+            _ => { m.other_kwh += e; totals.other_kwh += e; }
+        }
+        if let Some(a) = c.cost {
+            *m.costs.entry(c.currency.clone()).or_default() += a;
+            *totals.costs.entry(c.currency.clone()).or_default() += a;
+        }
+    }
+
+    let month_rows: Vec<_> = month_keys.iter().map(|k| {
+        let m = by.get(k).unwrap();
+        serde_json::json!({
+            "month": k,
+            "distance_km": r1(m.distance_km),
+            "drive_count": m.drive_count,
+            "drive_duration_min": m.drive_duration_min,
+            "energy_used_kwh": r1(m.energy_used_kwh),
+            "energy_added_kwh": r1(m.energy_added_kwh),
+            "charge_count": m.charge_count,
+            "costs": year_money(&m.costs),
+        })
+    }).collect();
+
+    let busiest = month_rows.iter()
+        .filter(|m| m["distance_km"].as_f64().unwrap_or(0.0) > 0.0)
+        .max_by(|a, b| a["distance_km"].as_f64().partial_cmp(&b["distance_km"].as_f64()).unwrap())
+        .map(|m| serde_json::json!({"month": m["month"], "distance_km": m["distance_km"]}));
+
+    let mut top: Vec<_> = places.into_iter().collect();
+    top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    top.truncate(5);
+    let top_destinations: Vec<_> = top.into_iter()
+        .map(|(name, visits)| serde_json::json!({"name": name, "visits": visits})).collect();
+
+    let longest_journey = journeys.iter()
+        .filter(|j| j.distance_km > 0.0)
+        .max_by(|a, b| a.distance_km.partial_cmp(&b.distance_km).unwrap())
+        .map(|j| serde_json::json!({
+            "id": j.id, "name": j.name,
+            "start_date": j.start_date, "end_date": j.end_date,
+            "start_address": j.start_address, "end_address": j.end_address,
+            "distance_km": r1(j.distance_km), "duration_min": j.duration_min,
+        }));
+
+    let longest_drive = longest.map(|d| serde_json::json!({
+        "id": d.id, "start_date": d.start_date,
+        "start_address": d.start_address, "end_address": d.end_address,
+        "distance_km": r1(d.distance_km), "duration_min": d.duration_min,
+    }));
+
+    let yoy = previous.map(|p| serde_json::json!({
+        "distance_pct": pct_change(totals.distance_km, p.distance_km),
+        "drive_count_pct": pct_change(totals.drive_count as f64, p.drive_count as f64),
+        "energy_used_pct": pct_change(totals.energy_used_kwh, p.energy_used_kwh),
+        "energy_added_pct": pct_change(totals.energy_added_kwh, p.energy_added_kwh),
+        "previous": totals_json(p),
+    }));
+
+    let jan = format!("{year}-01");
+    let data_from_out = data_from.filter(|f| *f > jan.as_str());
+    let dec = format!("{year}-12");
+    let partial = data_from_out.is_some() || (is_current && data_to < dec.as_str());
+
+    serde_json::json!({
+        "year": year,
+        "is_current": is_current,
+        "data_from": data_from_out,
+        "data_to": data_to,
+        "partial": partial,
+        "totals": totals_json(&totals),
+        "months": month_rows,
+        "highlights": {
+            "longest_drive": longest_drive,
+            "longest_journey": longest_journey,
+            "busiest_month": busiest,
+            "top_destinations": top_destinations,
+            "superchargers_visited": sc_places.len() as i64,
+            "charge_split": {
+                "home_kwh": r1(totals.home_kwh),
+                "supercharger_kwh": r1(totals.supercharger_kwh),
+                "other_kwh": r1(totals.other_kwh),
+            },
+        },
+        "yoy": yoy,
+    })
+}
+
+fn valid_year(y: i32) -> bool { (2000..=2100).contains(&y) }
+
+/// GET /api/cars/:id/year-review?year=YYYY&tz=&currency=
+pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<YearParams>) -> Result<Response, ApiError> {
+    let bad = |m: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response();
+    let tz = p.tz.unwrap_or_else(|| "UTC".into());
+    let def_cur = p.currency.map(|c| c.trim().to_ascii_uppercase())
+        .filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase())).unwrap_or_else(|| "JPY".into());
+
+    let cur_year: Result<i32, _> = sqlx::query_scalar("SELECT extract(year from now() AT TIME ZONE $1)::int4")
+        .bind(&tz).fetch_one(&s.db).await;
+    let cur_year = match cur_year {
+        Ok(y) => y,
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22023") => return Ok(bad("unknown tz")),
+        Err(e) => return Err(e.into()),
+    };
+    let year = p.year.unwrap_or(cur_year);
+    if !valid_year(year) { return Ok(bad("year must be 2000–2100")); }
+    if year > cur_year { return Ok(bad("year is in the future")); }
+    if sqlx::query_scalar::<_, i64>("SELECT id FROM cars WHERE id = $1").bind(id).fetch_optional(&s.db).await?.is_none() {
+        return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"car not found"}))).into_response());
+    }
+
+    let is_current = year == cur_year;
+    let month_keys: Vec<String> = (1..=12).map(|m| format!("{year}-{m:02}")).collect();
+    let data_to = if is_current {
+        sqlx::query_scalar::<_, String>("SELECT to_char(now() AT TIME ZONE $1, 'YYYY-MM')").bind(&tz).fetch_one(&s.db).await?
+    } else {
+        format!("{year}-12")
+    };
+
+    // Window: local Jan 1 of year → local Jan 1 of year+1 (or now's next month end for current — use full year bound)
+    let bounds: Result<(String, String), _> = sqlx::query_as(
+        "SELECT to_char((($1 || '-01-01')::timestamp AT TIME ZONE $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                to_char(((($1::int + 1)::text || '-01-01')::timestamp AT TIME ZONE $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')")
+        .bind(year.to_string()).bind(&tz).fetch_one(&s.db).await;
+    let (t0, t1) = match bounds {
+        Ok(v) => v,
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22023") => return Ok(bad("unknown tz")),
+        Err(e) => return Err(e.into()),
+    };
+
+    let costs = costs_ok(&s).await?;
+    let (cc_amount, cc_cur, cc_join) = if costs {
+        ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
+    } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
+    let (dsql, csql) = (drives_sql(), charges_sql(cc_amount, &cc_cur, cc_join));
+    // drives_sql binds: car, p0(=t0 for "previous" unused), m0, m1, tz — use t0 for both p0 and m0 so only year rows have cur=true; we ignore cur.
+    let (drive_rows, charge_rows) = tokio::try_join!(
+        sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
+        sqlx::query_as::<_, ChargeRow>(&csql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
+    )?;
+
+    let place = |s: &Option<String>| s.clone().unwrap_or_default();
+    let drives: Vec<YrDrive> = drive_rows.iter().filter_map(|d| {
+        let day = d.day.as_ref()?;
+        if day.len() < 7 { return None; }
+        let month = day[..7].to_string();
+        if !month_keys.iter().any(|k| k == &month) { return None; }
+        Some(YrDrive {
+            month, id: d.id, start_date: d.start_date.clone(),
+            start_address: d.start_address.clone(), end_address: d.end_address.clone(),
+            distance_km: d.distance_km.unwrap_or(0.0),
+            duration_min: d.duration_min.unwrap_or(0),
+            energy_used_kwh: d.energy_kwh.unwrap_or(0.0).max(0.0),
+            end_place: place(&d.end_address),
+        })
+    }).collect();
+
+    let charges: Vec<YrCharge> = charge_rows.iter().filter_map(|c| {
+        let day = c.day.as_ref()?;
+        if day.len() < 7 { return None; }
+        let month = day[..7].to_string();
+        if !month_keys.iter().any(|k| k == &month) { return None; }
+        Some(YrCharge {
+            month, kind: c.kind.clone(), energy_kwh: c.energy_kwh.unwrap_or(0.0),
+            cost: c.cost, currency: c.currency.clone().unwrap_or_else(|| def_cur.clone()),
+            place: place(&c.address),
+        })
+    }).collect();
+
+    // Optional journeys that overlap the year (tables may be off).
+    let mut journeys: Vec<YrJourney> = vec![];
+    if s.journeys_ok.load(std::sync::atomic::Ordering::Relaxed) {
+        let jsql = format!(
+            "SELECT j.id, j.name,
+                    to_char(s.s0, '{TS}') AS start_date, to_char(s.s1, '{TS}') AS end_date,
+                    COALESCE(s.distance_km, 0)::float8 AS distance_km, COALESCE(s.duration_min, 0)::int8 AS duration_min,
+                    COALESCE(fa.end_address, '') AS start_address, COALESCE(la.end_address, '') AS end_address
+             FROM drivelens.journeys j
+             JOIN LATERAL (
+               SELECT min(d.start_date) AS s0, max(d.end_date) AS s1,
+                      round(sum(d.distance)::numeric, 1)::float8 AS distance_km,
+                      sum(d.duration_min)::int8 AS duration_min,
+                      (array_agg(d.id ORDER BY d.start_date))[1] AS first_id,
+                      (array_agg(d.id ORDER BY d.start_date DESC))[1] AS last_id
+               FROM drivelens.journey_drives jd
+               JOIN drives d ON d.id = jd.drive_id
+               WHERE jd.journey_id = j.id AND d.car_id = $1 AND d.end_date IS NOT NULL
+             ) s ON s.s0 IS NOT NULL
+             LEFT JOIN LATERAL (
+               SELECT COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city)) AS end_address
+               FROM drives d
+               LEFT JOIN addresses a ON a.id = d.start_address_id
+               LEFT JOIN drivelens.address_aliases al ON al.address_id = d.start_address_id
+               LEFT JOIN geofences g ON g.id = d.start_geofence_id
+               WHERE d.id = s.first_id
+             ) fa ON true
+             LEFT JOIN LATERAL (
+               SELECT COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city)) AS end_address
+               FROM drives d
+               LEFT JOIN addresses a ON a.id = d.end_address_id
+               LEFT JOIN drivelens.address_aliases al ON al.address_id = d.end_address_id
+               LEFT JOIN geofences g ON g.id = d.end_geofence_id
+               WHERE d.id = s.last_id
+             ) la ON true
+             WHERE s.s0 >= $2::timestamp AND s.s0 < $3::timestamp"
+        );
+        #[derive(sqlx::FromRow)]
+        struct JRow {
+            id: i64, name: String, start_date: Option<String>, end_date: Option<String>,
+            distance_km: f64, duration_min: i64, start_address: String, end_address: String,
+        }
+        if let Ok(rows) = sqlx::query_as::<_, JRow>(&jsql).bind(id).bind(&t0).bind(&t1).fetch_all(&s.db).await {
+            journeys = rows.into_iter().map(|r| YrJourney {
+                id: r.id, name: r.name, start_date: r.start_date, end_date: r.end_date,
+                start_address: Some(r.start_address).filter(|s| !s.is_empty()),
+                end_address: Some(r.end_address).filter(|s| !s.is_empty()),
+                distance_km: r.distance_km, duration_min: r.duration_min,
+            }).collect();
+        }
+    }
+
+    let data_from = drives.iter().map(|d| d.month.as_str())
+        .chain(charges.iter().map(|c| c.month.as_str()))
+        .min().map(|s| s.to_string());
+
+    // Previous calendar year totals (for YoY), only when that year has activity.
+    let previous = if year > 2000 {
+        let py = year - 1;
+        let pb: Result<(String, String), _> = sqlx::query_as(
+            "SELECT to_char((($1 || '-01-01')::timestamp AT TIME ZONE $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                    to_char(((($1::int + 1)::text || '-01-01')::timestamp AT TIME ZONE $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')")
+            .bind(py.to_string()).bind(&tz).fetch_one(&s.db).await;
+        if let Ok((p0, p1)) = pb {
+            let (pd, pc) = tokio::try_join!(
+                sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&p0).bind(&p0).bind(&p1).bind(&tz).fetch_all(&s.db),
+                sqlx::query_as::<_, ChargeRow>(&csql).bind(id).bind(&p0).bind(&p0).bind(&p1).bind(&tz).fetch_all(&s.db),
+            )?;
+            let mut t = YearTotals::default();
+            for d in &pd {
+                t.distance_km += d.distance_km.unwrap_or(0.0);
+                t.drive_count += 1;
+                t.drive_duration_min += i64::from(d.duration_min.unwrap_or(0));
+                t.energy_used_kwh += d.energy_kwh.unwrap_or(0.0).max(0.0);
+            }
+            for c in &pc {
+                let e = c.energy_kwh.unwrap_or(0.0).max(0.0);
+                t.energy_added_kwh += e; t.charge_count += 1;
+                match c.kind.as_str() {
+                    "home" => t.home_kwh += e,
+                    "supercharger" => t.supercharger_kwh += e,
+                    _ => t.other_kwh += e,
+                }
+                if let Some(a) = c.cost {
+                    *t.costs.entry(c.currency.clone().unwrap_or_else(|| def_cur.clone())).or_default() += a;
+                }
+            }
+            if t.drive_count > 0 || t.charge_count > 0 { Some(t) } else { None }
+        } else { None }
+    } else { None };
+
+    let mut body = build_year_review(
+        year, &month_keys, data_from.as_deref(), &data_to, is_current,
+        &drives, &charges, &journeys, previous.as_ref(),
+    );
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("timezone".into(), serde_json::json!(tz));
+    }
+    Ok(Json(body).into_response())
+}
+
+
+#[cfg(test)]
+mod year_review_tests {
+    use super::*;
+
+    fn drive(month: &str, id: i64, km: f64, place: &str) -> YrDrive {
+        YrDrive {
+            month: month.into(), id, start_date: Some(format!("{month}-15T00:00:00Z")),
+            start_address: Some("Home".into()), end_address: Some(place.into()),
+            distance_km: km, duration_min: 60, energy_used_kwh: km * 0.15,
+            end_place: place.into(),
+        }
+    }
+    fn charge(month: &str, kind: &str, kwh: f64, cost: Option<f64>, place: &str) -> YrCharge {
+        YrCharge { month: month.into(), kind: kind.into(), energy_kwh: kwh, cost, currency: "JPY".into(), place: place.into() }
+    }
+
+    #[test]
+    fn year_distance_equals_sum_of_months() {
+        let months: Vec<String> = (1..=12).map(|m| format!("2026-{m:02}")).collect();
+        let drives = vec![
+            drive("2026-05", 1, 100.0, "Office"),
+            drive("2026-05", 2, 50.4, "Office"),
+            drive("2026-06", 3, 200.0, "Park"),
+            drive("2026-11", 4, 12.3, "Home"),
+        ];
+        let charges = vec![
+            charge("2026-05", "home", 40.0, Some(800.0), "Home"),
+            charge("2026-06", "supercharger", 30.0, Some(1980.0), "SuC A"),
+            charge("2026-06", "supercharger", 20.0, Some(1200.0), "SuC B"),
+            charge("2026-11", "other", 10.0, None, "Mall"),
+        ];
+        let v = build_year_review(2026, &months, Some("2026-05"), "2026-11", true, &drives, &charges, &[], None);
+        assert_eq!(v["partial"], true);
+        assert_eq!(v["data_from"], "2026-05");
+        let tot = v["totals"]["distance_km"].as_f64().unwrap();
+        let sum: f64 = v["months"].as_array().unwrap().iter().map(|m| m["distance_km"].as_f64().unwrap()).sum();
+        assert!((tot - sum).abs() < 0.05, "tot={tot} sum={sum}");
+        assert_eq!(tot, 362.7);
+        assert_eq!(v["totals"]["drive_count"], 4);
+        assert_eq!(v["totals"]["charge_count"], 4);
+        assert_eq!(v["totals"]["cost_per_100km"][0]["amount"], 1097.33); // 3980/362.7*100
+        assert_eq!(v["highlights"]["superchargers_visited"], 2);
+        assert_eq!(v["highlights"]["busiest_month"]["month"], "2026-06");
+        assert_eq!(v["highlights"]["longest_drive"]["distance_km"], 200.0);
+        assert_eq!(v["highlights"]["top_destinations"][0]["name"], "Office");
+        assert_eq!(v["highlights"]["top_destinations"][0]["visits"], 2);
+        assert!(v["yoy"].is_null());
+    }
+
+    #[test]
+    fn yoy_pct_when_previous_exists() {
+        let months = vec!["2025-01".into()];
+        let prev = YearTotals { distance_km: 1000.0, drive_count: 10, energy_used_kwh: 150.0, energy_added_kwh: 160.0, ..Default::default() };
+        let drives = vec![drive("2025-01", 1, 1200.0, "A")];
+        let v = build_year_review(2025, &months, None, "2025-12", false, &drives, &[], &[], Some(&prev));
+        assert_eq!(v["yoy"]["distance_pct"], 20.0);
+        assert_eq!(v["partial"], false);
+        assert!(v["data_from"].is_null());
+    }
+}
+
 #[cfg(test)]
 mod charging_cost_tests {
     use super::*;

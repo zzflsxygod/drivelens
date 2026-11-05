@@ -912,3 +912,14 @@ html.touch * { -webkit-tap-highlight-color: transparent; }
 .bat-rate-chip { font-size: 12px; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 .bat-trend-pane .bat-kv { margin-top: 6px; }
 .bat-trend-pane .section-title { font-size: 13px; }
+
+/* Year in review */
+.yr-split-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.yr-split-row:last-of-type { border-bottom: 0; }
+.yr-split-row span:first-child { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.yr-split-row i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.yr-split-row b { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+.yr-place { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.yr-place:last-child { border-bottom: 0; }
+.yr-place b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yr-place span:last-child { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }

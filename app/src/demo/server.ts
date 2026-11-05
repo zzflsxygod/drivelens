@@ -380,6 +380,120 @@ function demoBatteryTrend(halves: { period: string; odometer_km: number | null; 
     no_measurable_degradation: noMeas, projections, spark, months_span: r1(monthsSpan), km_span: r1(kmSpan), n_halves: halves.length };
 }
 
+/** api_level 20 — year in review. Demo history is ~5 months → partial year with data_from. */
+function yearReview(q: URLSearchParams) {
+  const tz = q.get("tz") || "UTC";
+  const cur = (q.get("currency") || "JPY").trim().toUpperCase() || "JPY";
+  const nowY = Number(tokyoDay(db.now).slice(0, 4));
+  const year = Number(q.get("year") || nowY);
+  if (!(year >= 2000 && year <= 2100)) return err(400, "year must be 2000–2100");
+  if (year > nowY) return err(400, "year is in the future");
+  const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
+  const isCurrent = year === nowY;
+  const dataTo = isCurrent ? tokyoDay(db.now).slice(0, 7) : `${year}-12`;
+  type MT = { distance_km: number; drive_count: number; drive_duration_min: number; energy_used_kwh: number;
+    energy_added_kwh: number; charge_count: number; costs: number; home_kwh: number; supercharger_kwh: number; other_kwh: number };
+  const empty = (): MT => ({ distance_km: 0, drive_count: 0, drive_duration_min: 0, energy_used_kwh: 0, energy_added_kwh: 0, charge_count: 0, costs: 0, home_kwh: 0, supercharger_kwh: 0, other_kwh: 0 });
+  const by = new Map(monthKeys.map(m => [m, empty()]));
+  let longest: DDrive | null = null;
+  const places = new Map<string, number>();
+  const scPlaces = new Set<string>();
+  const placeName = (id: number | null) => addr(id)?.name || "—";
+  for (const d of db.drives) {
+    const day = tokyoDay(d.start);
+    if (!day.startsWith(String(year))) continue;
+    const month = day.slice(0, 7);
+    const m = by.get(month); if (!m) continue;
+    m.distance_km += d.distance; m.drive_count += 1; m.drive_duration_min += d.duration_min;
+    m.energy_used_kwh += Math.max(0, (d.srr - d.err) * db.car.efficiency);
+    if (!longest || d.distance > longest.distance) longest = d;
+    const endName = placeName(d.ea);
+    if (endName !== "—") places.set(endName, (places.get(endName) ?? 0) + 1);
+  }
+  for (const c of db.charges) {
+    const day = tokyoDay(c.start);
+    if (!day.startsWith(String(year))) continue;
+    const month = day.slice(0, 7);
+    const m = by.get(month); if (!m) continue;
+    const e = c.added; m.energy_added_kwh += e; m.charge_count += 1;
+    const nm = placeName(c.addr);
+    const kind = c.geo === 901 || /home|自宅|家/i.test(nm) ? "home"
+      : /supercharger|超充|スーパーチャージャー|tesla/i.test(nm) ? "supercharger" : "other";
+    if (kind === "home") m.home_kwh += e;
+    else if (kind === "supercharger") { m.supercharger_kwh += e; if (nm !== "—") scPlaces.add(nm); }
+    else m.other_kwh += e;
+    const mc = (c.id in st.costs ? st.costs[c.id] : db.manualCosts[c.id]) ?? null;
+    if (mc && typeof mc.amount === "number") m.costs += mc.amount;
+  }
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sum = empty();
+  for (const m of by.values()) {
+    sum.distance_km += m.distance_km; sum.drive_count += m.drive_count; sum.drive_duration_min += m.drive_duration_min;
+    sum.energy_used_kwh += m.energy_used_kwh; sum.energy_added_kwh += m.energy_added_kwh; sum.charge_count += m.charge_count;
+    sum.costs += m.costs; sum.home_kwh += m.home_kwh; sum.supercharger_kwh += m.supercharger_kwh; sum.other_kwh += m.other_kwh;
+  }
+  const months = monthKeys.map(k => {
+    const m = by.get(k)!;
+    return { month: k, distance_km: r1(m.distance_km), drive_count: m.drive_count, drive_duration_min: m.drive_duration_min,
+      energy_used_kwh: r1(m.energy_used_kwh), energy_added_kwh: r1(m.energy_added_kwh), charge_count: m.charge_count,
+      costs: m.costs > 0 ? [{ currency: cur, amount: r2(m.costs) }] : [] };
+  });
+  const totDist = r1(sum.distance_km);
+  const monthsSum = Math.round(months.reduce((a, m) => a + m.distance_km, 0) * 10) / 10;
+  if (Math.abs(totDist - monthsSum) >= 0.05) {
+    const i = months.map((m, idx) => m.distance_km > 0 ? idx : -1).filter(i => i >= 0).pop();
+    if (i != null) months[i] = { ...months[i], distance_km: r1(months[i].distance_km + (totDist - monthsSum)) };
+  }
+  const totals = {
+    distance_km: totDist, drive_count: sum.drive_count, drive_duration_min: sum.drive_duration_min,
+    energy_used_kwh: r1(sum.energy_used_kwh),
+    efficiency_wh_km: sum.distance_km > 1 ? r1(sum.energy_used_kwh * 1000 / sum.distance_km) : null,
+    charge_count: sum.charge_count, energy_added_kwh: r1(sum.energy_added_kwh),
+    costs: sum.costs > 0 ? [{ currency: cur, amount: r2(sum.costs) }] : [],
+    cost_per_100km: sum.costs > 0 && sum.distance_km > 0 ? [{ currency: cur, amount: r2(sum.costs / sum.distance_km * 100) }] : [],
+    home_kwh: r1(sum.home_kwh), supercharger_kwh: r1(sum.supercharger_kwh), other_kwh: r1(sum.other_kwh),
+  };
+  const busiest = [...months].sort((a, b) => b.distance_km - a.distance_km)[0];
+  const top = [...places.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5)
+    .map(([name, visits]) => ({ name, visits }));
+  let dataFrom: string | null = null;
+  for (const m of months) if (m.drive_count || m.charge_count) { dataFrom = m.month; break; }
+  const partial = (dataFrom != null && dataFrom > `${year}-01`) || (isCurrent && dataTo < `${year}-12`);
+  const longestDrive = longest ? {
+    id: longest.id, start_date: TS(longest.start),
+    start_address: placeName(longest.sa), end_address: placeName(longest.ea),
+    distance_km: r1(longest.distance), duration_min: longest.duration_min,
+  } : null;
+  let longestJourney: { id: number; name: string; start_date: string; end_date: string; start_address: string | null; end_address: string | null; distance_km: number; duration_min: number } | null = null;
+  for (const j of st.journeys) {
+    const ds = j.drive_ids.map(driveById).filter((d): d is DDrive => !!d);
+    if (!ds.length) continue;
+    const start = Math.min(...ds.map(d => d.start));
+    if (!tokyoDay(start).startsWith(String(year))) continue;
+    const dist = ds.reduce((a, d) => a + d.distance, 0);
+    if (!longestJourney || dist > longestJourney.distance_km) {
+      longestJourney = {
+        id: j.id, name: j.name, start_date: TS(start), end_date: TS(Math.max(...ds.map(d => d.end))),
+        start_address: placeName(ds[0].sa), end_address: placeName(ds[ds.length - 1].ea),
+        distance_km: r1(dist), duration_min: ds.reduce((a, d) => a + d.duration_min, 0),
+      };
+    }
+  }
+  return ok({
+    year, timezone: tz, is_current: isCurrent, partial,
+    data_from: dataFrom && dataFrom > `${year}-01` ? dataFrom : null,
+    data_to: dataTo, totals, months,
+    highlights: {
+      longest_drive: longestDrive, longest_journey: longestJourney,
+      busiest_month: busiest && busiest.distance_km > 0 ? { month: busiest.month, distance_km: busiest.distance_km } : null,
+      top_destinations: top, superchargers_visited: scPlaces.size,
+      charge_split: { home_kwh: totals.home_kwh, supercharger_kwh: totals.supercharger_kwh, other_kwh: totals.other_kwh },
+    },
+    yoy: null,
+  });
+}
+
 // ----- journeys -----
 function journeyRow(j: State["journeys"][0]) {
   const ds = j.drive_ids.map(driveById).filter((d): d is DDrive => !!d).sort((a, b) => a.start - b.start);
@@ -609,10 +723,10 @@ export function handle(method: string, url: string, body: unknown): Res {
   const B = (body ?? {}) as Record<string, unknown>;
   if (p === "/health" || p === "/api/health") return ok(health());
   if (p === "/api/cars" && M === "GET") return ok(cars());
-  if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire|charging-costs)$/))) {
+  if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire|charging-costs|year-review)$/))) {
     // the demo has a single car: any car id (e.g. one remembered from a real server) is answered as the demo car
     switch (m[2]) { case "status": return ok(status()); case "last-activity": return ok(lastActivity()); case "stats": return stats(q); case "months": return months(q);
-      case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); case "vampire": return vampire(q); case "charging-costs": return chargingCosts(q); }
+      case "report": return report(q); case "trends": return trends(q); case "footprint": return footprint(q); case "battery": return battery(q); case "vampire": return vampire(q); case "charging-costs": return chargingCosts(q); case "year-review": return yearReview(q); }
   }
   if (p === "/api/drives") {
     const raw = (q.get("q") ?? "").trim().slice(0, 100);
