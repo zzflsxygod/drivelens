@@ -4,6 +4,11 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
+## [Unreleased]
+
+### Added
+- **Year in review** (年度回顾): annual totals, monthly distance chart, highlights, and year-over-year when prior-year data exists. New `GET /api/cars/{id}/year-review` (API level 20). Entry from the monthly report; optional Home link in Dec–Jan. Partial years show “data since &lt;month&gt;”.
+
 ## Unreleased
 
 - **Server (unreleased, `api_level` 19):** `GET /api/cars/{id}/battery` adds `tm.trend` (rates, projections, spark) from half-month medians. No database migration.

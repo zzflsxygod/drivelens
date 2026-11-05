@@ -27,6 +27,7 @@ import { mountNotifications, initNotificationClicks } from "./notify";
 import { initOverlayScrollbar } from "./scrollbar";
 import { DriveMap, effectiveTheme, speedColorToolsHtml, bindSpeedColorToggle, speedColorMax, clampSpeedColorMax } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
+import { showYear as renderYear, nowYear, seasonalYear } from "./year";
 import { batteryCardHTML, showBattery, vampireCardHTML, showVampire, chargingCostCardHTML, showChargingCosts, type Battery, type Vampire, type ChargingCosts } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList } from "./infinite";
@@ -754,7 +755,10 @@ const heroSkeleton = () => `
 
 function monthHTML(d: StatsData) {
   const m = d.this_month;
-  return `<div class="section-title">${t("home.thisMonth", { m: m.month ? monthLabel(m.month) : "" })} <a class="link" data-report="${esc(m.month ?? "")}">${t("home.openReport")}</a></div>
+  const sy = seasonalYear();
+  const yearEntry = (sy != null && !lacks("yearReview"))
+    ? `<div class="section-title"><a class="link" data-year-review="${sy}">${t("yr.homeEntry", { y: sy })}</a></div>` : "";
+  return `${yearEntry}<div class="section-title">${t("home.thisMonth", { m: m.month ? monthLabel(m.month) : "" })} <a class="link" data-report="${esc(m.month ?? "")}">${t("home.openReport")}</a></div>
     <div class="grid month-card" data-report="${esc(m.month ?? "")}">
       <div><small>${t("home.driven")}</small><b>${n(m.distance_km, 0)} km</b></div>
       <div><small>${t("home.used")}</small><b>${n(m.drive_energy_kwh, 1)} kWh</b></div>
@@ -880,6 +884,7 @@ async function showHome() {
     if (!data.stats) return;
     sec("month").innerHTML = monthHTML(data.stats);
     sec("month").querySelectorAll<HTMLElement>("[data-report]").forEach(el => el.onclick = () => openReport(el.dataset.report || nowMonth(), id));
+    sec("month").querySelectorAll<HTMLElement>("[data-year-review]").forEach(el => el.onclick = () => openYear(Number(el.dataset.yearReview), id));
     applyFeatureGates();
     sec("totals").innerHTML = totalsHTML(data.stats);
   };
@@ -958,8 +963,34 @@ async function openReport(month: string, carId?: number) {
   const back = () => self(month);
   renderReport(view, id, month, { back: showHome, month: self,
     drive: d => showDrive(d, back), charge: c => showCharge(c, back),
+    yearReview: y => openYear(y, id, () => openReport(month, id)),
     extras: lacks("insights") ? undefined : { setMap: m => { destroyMap(); map = m; } } });
   settleScroll();   // forward → top; back from drive/charge → restore report scroll
+}
+
+/** Year in review (from monthly report or seasonal Home entry). */
+async function openYear(year: number, carId?: number, back?: () => void) {
+  const goBack = back ?? showHome;
+  navPage("year-review", goBack);
+  destroyMap();
+  await serverReady();
+  if (lacks("yearReview")) {
+    view.innerHTML = `<button class="back">${t("common.back")}</button><div class="pane" style="margin-top:12px">
+      <div class="error card-error">${ic("alert")} ${esc(featureText("yearReview"))} <button class="retry">${t("common.retry")}</button></div></div>`;
+    (view.querySelector(".back") as HTMLElement).onclick = goBack;
+    (view.querySelector(".retry") as HTMLElement).onclick = async () => { await checkServer(); openYear(year, carId, back); };
+    return;
+  }
+  const id = carId ?? await currentCarId().catch(() => null);
+  if (id == null) return showHome();
+  ++homeGen;
+  renderYear(view, id, year, {
+    back: goBack,
+    year: y => openYear(y, id, back),
+    drive: d => showDrive(d, () => openYear(year, id, back)),
+    month: mo => openReport(mo, id),
+  });
+  settleScroll();
 }
 
 // ---------------- 旅程 ----------------
@@ -1087,6 +1118,11 @@ function openView(v: string | null) {
   else if (v?.startsWith("drive:")) { mark("drives"); showDrive(Number(v.slice(6))); }
   else if (v?.startsWith("charge:")) { mark("charges"); showCharge(Number(v.slice(7))); }
   else if (v?.startsWith("report")) { const m = v.slice(7); openReport(/^\d{4}-(0[1-9]|1[0-2])$/.test(m) ? m : nowMonth()); }   // only YYYY-MM reaches the report HTML
+  else if (v?.startsWith("year-review:") || v?.startsWith("year:")) {
+    const raw = v.includes(":") ? v.split(":")[1] : "";
+    const y = /^\d{4}$/.test(raw) ? Number(raw) : nowYear();
+    currentCarId().then(id => { if (id != null) openYear(y, id); });
+  }
   else if (v === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
   else if (v === "vampire") currentCarId().then(id => { if (id != null) openVampire(id); });
   else if (v === "charging-costs" || v === "chargingCosts") currentCarId().then(id => { if (id != null) openChargingCosts(id); });

@@ -2,7 +2,7 @@
 // 月度报告 page. Data: GET /api/cars/:id/report?month=YYYY-MM&tz=..&currency=..
 import { api, fmtMoney, defaultCurrency } from "./api";
 import { ic } from "./icons";
-import { featureText } from "./version";
+import { featureText, lacks } from "./version";
 import type { DriveMap } from "./map";
 import { loadReportExtras } from "./insights";
 import { t, currentLang, fmtDur, fmtMonthDay, monthLabel, weekdays, fmtNum } from "./i18n";
@@ -20,6 +20,8 @@ export interface Report { month: string; is_current: boolean; first_month: strin
   records: { longest_drive: DriveRec | null; top_speed_drive: DriveRec | null; most_expensive_charge: ChargeRec | null; fastest_charge: ChargeRec | null } }
 
 export interface ReportNav { back: () => void; drive: (id: number) => void; charge: (id: number) => void; month: (m: string) => void;
+  /** api_level ≥ 20: open year in review for the year of the current month */
+  yearReview?: (year: number) => void;
   /** api_level ≥ 12: footprint map + 12-month trends */
   extras?: { setMap: (m: DriveMap | null) => void } }
 
@@ -184,8 +186,12 @@ export async function showReport(view: HTMLElement, carId: number, month: string
   (shell.querySelector(".back") as HTMLElement).onclick = nav.back;
   let shown: Report | null = null;
   const setSwitcher = (r: Report | null) => {
-    sw.innerHTML = switcher(month, r ?? cache.get(key) ?? null);
+    const yr = Number(month.slice(0, 4));
+    const yearLink = (!lacks("yearReview") && nav.yearReview)
+      ? `<div class="msw-sub"><a class="link" data-year-review="${yr}">${t("yr.openFromReport")}</a></div>` : "";
+    sw.innerHTML = switcher(month, r ?? cache.get(key) ?? null) + yearLink;
     sw.querySelectorAll<HTMLButtonElement>("button[data-m]").forEach(b => b.onclick = () => { if (!b.disabled) nav.month(b.dataset.m!); });
+    sw.querySelectorAll<HTMLElement>("[data-year-review]").forEach(a => a.onclick = (e) => { e.preventDefault(); nav.yearReview?.(Number(a.dataset.yearReview)); });
   };
   const fill = (r: Report) => {
     shown = r; setSwitcher(r);
