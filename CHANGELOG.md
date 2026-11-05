@@ -7,7 +7,7 @@ The API upgrades its own `drivelens` schema on start; no manual SQL is needed af
 ## [Unreleased]
 
 ### Added
-- **Year in review** (年度回顾): annual totals, monthly distance chart, highlights, and year-over-year when prior-year data exists. New `GET /api/cars/{id}/year-review` (API level 20). Entry from the monthly report; optional Home link in Dec–Jan. Partial years show “data since &lt;month&gt;”.
+- **Year in review** (年度回顾): annual totals, monthly distance chart, highlights, and year-over-year when prior-year data exists. New `GET /api/cars/{id}/year-review` (API level 20). Entry from the monthly report; optional Home link in Dec–Jan. Partial years show “data since &lt;month&gt;”. Demo year-review now uses the same drives/charges/`costOf` path as report and charging-costs (totals reconcile with Home lifetime and the 12-month cost card); costs use data currency via `fmtMoney` (JPY `¥`, no decimals); efficiency/cost tiles use the 2-column `ov` grid; highlight cards stack name + value without truncating at phone width.
 
 ## Unreleased
 

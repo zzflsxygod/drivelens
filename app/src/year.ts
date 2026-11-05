@@ -117,7 +117,11 @@ function yearHTML(r: YearReview) {
     return `<div class="yr-split-row"><span><i style="background:${COLORS[k]}"></i>${t(`mix.${k}`)}</span><b>${num(kwh, 1)} kWh</b><span class="muted">${pct}%</span></div>`;
   };
   const hl = (icon: string, label: string, title: string, val: string, attr = "") =>
-    `<div class="card best" ${attr}><div class="ic">${icon}</div><div class="t"><small>${label}</small><b>${title}</b></div><div class="v">${val}</div>${attr ? `<div class="chev">›</div>` : ""}</div>`;
+    `<div class="card best best-stack" ${attr}>
+      <div class="ic">${icon}</div>
+      <div class="t"><small>${label}</small><b class="best-title">${title}</b><div class="best-val">${val}</div></div>
+      ${attr ? `<div class="chev">›</div>` : ""}
+    </div>`;
 
   return `
     ${r.partial && r.data_from ? `<div class="muted small-note">${t("yr.partialSince", { m: monthLabel(r.data_from) })}</div>` : ""}
@@ -132,12 +136,10 @@ function yearHTML(r: YearReview) {
       <div><small>${t("yr.charges")}</small><b>${o.charge_count}<i>${t("rp.unitTimes")}</i></b></div>
     </div>
     <div class="section-title">${t("yr.effCost")}</div>
-    <div class="pane">
-      <div class="kpi">
-        <div><small>${t("yr.avgEff")}</small><b>${o.efficiency_wh_km != null ? num(o.efficiency_wh_km, 1) : "—"} <span class="muted">Wh/km</span></b></div>
-        <div><small>${t("yr.cost")}</small><b class="${o.costs.length > 1 ? "multi" : ""}">${costTxt(o.costs)}</b></div>
-        <div><small>${t("yr.per100")}</small><b>${per100.length ? per100.map(m => `${fmtMoney(m.amount, m.currency)}`).join(" + ") : "—"} <span class="muted">/100 km</span></b></div>
-      </div>
+    <div class="ov">
+      <div><small>${t("yr.avgEff")}</small><b>${o.efficiency_wh_km != null ? num(o.efficiency_wh_km, 1) : "—"}<i>Wh/km</i></b></div>
+      <div><small>${t("yr.cost")}</small><b class="${o.costs.length > 1 ? "multi" : ""}">${costTxt(o.costs)}</b></div>
+      <div><small>${t("yr.per100")}</small><b>${per100.length ? per100.map(m => fmtMoney(m.amount, m.currency)).join(" + ") : "—"}<i>/100 km</i></b></div>
     </div>
     <div class="section-title">${t("yr.byMonth")}</div>
     <div class="pane">${monthBars(r)}</div>
@@ -184,7 +186,7 @@ export async function showYear(view: HTMLElement, carId: number, year: number, n
   if (!Number.isFinite(year) || year < 2000 || year > 2100) year = nowYear();
   const g = ++gen;
   const canNext = year < nowYear();
-  view.innerHTML = `<div id="yr-shell">
+  view.innerHTML = `<div id="yr-shell" class="yr-page">
     <button class="back" data-title="${t("yr.pageTitle")}">${t("common.back")}</button>
     <div id="yr-sw">${switcher(year, true, canNext)}</div>
     <div id="yr-body"><div class="pane muted" style="text-align:center">${t("common.loading")}</div></div>
