@@ -438,12 +438,21 @@ function fmtHours(h: number) {
   return `${n(h, 1)} h`;
 }
 
-/** Pack-% lost for display. Never "−0%": tiny positive loss (API rounds to 0.0 with range evidence) → "<0.1%". */
+/** Pack-% body for display (no leading −, no % suffix). Spec: never show "−0%";
+ *  when API rounds to 0.0 but range_lost_km > 0 → "<0.1"; true zero → "0.0". */
 function fmtPctLost(pct: number | null | undefined, rangeLostKm?: number | null): string {
   if (pct == null) return "—";
   if (pct > 0) return n(pct, 1);
-  if ((rangeLostKm ?? 0) > 0) return t("vamp.ltPct"); // 0.0 after rounding but range dropped
-  return n(0, 1); // true zero → "0.0"
+  if ((rangeLostKm ?? 0) > 0) return t("vamp.ltPct");
+  return n(0, 1);
+}
+
+/** Per-segment loss label: "−1.0%" / "<0.1%" / "0.0%" / "—" — never "−0%" or "−<0.1%". */
+function fmtPctLostSeg(pct: number | null | undefined, rangeLostKm?: number | null): string {
+  if (pct == null) return "—";
+  const body = fmtPctLost(pct, rangeLostKm);
+  if (body === t("vamp.ltPct") || body === "0.0") return `${body}%`;
+  return `−${body}%`;
 }
 
 /** Same calendar day → "11/4 12:12 → 19:42"; ongoing → "… → now"; else full short datetimes. */
@@ -473,13 +482,14 @@ function ringPct(avg: number | null) {
 export function vampireCardHTML(v: Vampire) {
   const s = v.summary;
   const avg = s.avg_soc_per_day;
+  const avgLabel = avg == null ? "—" : fmtPctLost(avg, s.range_lost_km);
   const lost = lostSummary(s);
   return `<div class="section-title">${t("vamp.title")} <a class="link" data-vampire>${t("vamp.open")}</a></div>
     <div class="card bat-card vamp-card" data-vampire>
-      <div class="bat-ring" style="--p:${ringPct(avg)}"><b>${avg == null ? "—" : n(avg, 1)}<small>%/d</small></b></div>
+      <div class="bat-ring" style="--p:${ringPct(avg)}"><b>${avgLabel}<small>%/d</small></b></div>
       <div class="bat-info tm">
         <div class="bat-kv">
-          <div><small>${t("vamp.avgDay")}</small><b>${avg == null ? "—" : `${n(avg, 1)}%`}</b></div>
+          <div><small>${t("vamp.avgDay")}</small><b>${avg == null ? "—" : `${avgLabel}%`}</b></div>
           <div><small>${t("vamp.parked")}</small><b>${fmtHours(s.parked_hours)}</b></div>
           <div><small>${t("vamp.days", { n: v.days })}</small><b>${t("vamp.periods", { n: s.period_count })}</b></div>
           <div><small>${t("vamp.range")}</small><b>${s.range_lost_km == null ? "—" : `−${n(s.range_lost_km, 1)} km`}</b></div>
@@ -510,7 +520,7 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
   const rows = v.periods.length === 0
     ? `<div class="empty"><span>${t("vamp.empty")}</span></div>`
     : v.periods.map(p => {
-      const soc = p.soc_lost == null ? "—" : `−${fmtPctLost(p.soc_lost, p.range_lost_km)}%`;
+      const soc = fmtPctLostSeg(p.soc_lost, p.range_lost_km);
       const range = p.range_lost_km == null ? "" : ` · −${n(p.range_lost_km, 1)} km`;
       const socLine = (p.start_soc != null && p.end_soc != null)
         ? `${p.start_soc}% → ${p.end_soc}%`
@@ -527,9 +537,9 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
     <div class="pane" style="margin-top:12px">
       <div class="card bat-card vamp-card">
         <div class="bat-ring" style="--p:${ringPct(s.avg_soc_per_day)}">
-          <b>${s.avg_soc_per_day == null ? "—" : n(s.avg_soc_per_day, 1)}<small>%/d</small></b></div>
+          <b>${s.avg_soc_per_day == null ? "—" : fmtPctLost(s.avg_soc_per_day, s.range_lost_km)}<small>%/d</small></b></div>
         <div class="bat-info tm"><div class="bat-kv">
-          <div><small>${t("vamp.avgDay")}</small><b>${s.avg_soc_per_day == null ? "—" : `${n(s.avg_soc_per_day, 1)}%`}</b></div>
+          <div><small>${t("vamp.avgDay")}</small><b>${s.avg_soc_per_day == null ? "—" : `${fmtPctLost(s.avg_soc_per_day, s.range_lost_km)}%`}</b></div>
           <div><small>${t("vamp.parked")}</small><b>${fmtHours(s.parked_hours)}</b></div>
           <div><small>${t("vamp.days", { n: v.days })}</small><b>${t("vamp.periods", { n: s.period_count })}</b></div>
           <div><small>${t("vamp.range")}</small><b>${s.range_lost_km == null ? "—" : `−${n(s.range_lost_km, 1)} km`}</b></div>
