@@ -180,6 +180,9 @@ In demo mode each key is renamed by `skey()` to `drivelens-demo~battery-…`. (s
 - **AINS-115** When the TeslaMate page is shown, the footer SHALL explain the method and the 20–150 kWh sanity filter. (src: app/src/insights.ts:223; src: app/src/locales/en.ts:254, app/src/locales/en.ts:275-276)
 
 ### 3.13 Battery page — range-based fallback
+- **AINS-116** When `tm.trend` is present on the TeslaMate page, the system SHALL show a Trend pane with %/10,000 km and %/yr (or "No measurable degradation yet" / insufficient-data copy), projections at 100k/200k km when available, and the extrapolation note. (src: app/src/insights.ts `trendBlock`)
+- **AINS-117** When the home battery card has `tm.trend`, the system SHALL show a sparkline of `trend.spark` and a compact %/yr chip (or the no-degradation label). Servers without `tm.trend` (api_level < 19) SHALL keep the previous card layout. (src: app/src/insights.ts `batteryCardHTML`)
+
 - **AINS-120** When the baseline is computed, the system SHALL choose, in this order:
   - the device override (km);
   - otherwise the higher of the factory value and `max(initial_range100_km, current_range100_km)`.

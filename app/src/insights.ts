@@ -20,11 +20,19 @@ export interface Battery { points: BPoint[]; months: BMonth[]; n_points: number;
   initial_range100_km: number | null; current_range100_km: number | null; retained_pct: number | null;
   capacity_from_range_kwh: number | null; capacity_from_energy_kwh: number | null; tm?: TmHealth }
 /** api_level 14 — see tm_health() in api/src/insights.rs for the exact formulas. */
+export interface BatTrend {
+  enough_time: boolean; enough_odo: boolean;
+  pct_per_10k_km: number | null; pct_per_year: number | null;
+  no_measurable_degradation: boolean;
+  projections: { odometer_km: number; capacity_kwh: number; health_pct: number }[];
+  spark: number[]; months_span: number; km_span: number; n_halves: number;
+}
 export interface TmHealth { method: string; efficiency_kwh_100km: number | null; efficiency_source: "derived" | "car" | null;
   capacity_now_kwh: number | null; now_samples: number; capacity_max_kwh: number | null; capacity_new_kwh: number | null; new_source: string;
   health_pct: number | null; degradation_pct: number | null; cycles: number | null; energy_added_kwh: number | null; charges: number;
   points: { date: string; odometer_km: number | null; capacity_kwh: number }[];
-  half_months: { period: string; odometer_km: number | null; capacity_kwh: number; n: number }[] }
+  half_months: { period: string; odometer_km: number | null; capacity_kwh: number; n: number }[];
+  trend?: BatTrend | null }
 
 // ----- new capacity (kWh, TeslaMate "custom_kwh_new") -----
 const KWH_KEY = skey("drivelens-battery-new-kwh");
@@ -101,6 +109,7 @@ export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
       <div class="bat-info tm">
         <div class="bat-kv"><div><small>${t("bat.now")}</small><b>${n(v.now, 1)}<i>kWh</i></b></div><div><small>${t("bat.new")}${v.custom ? "*" : ""}</small><b>${n(v.newKwh, 1)}<i>kWh</i></b></div>
           <div><small>${t("bat.degr")}</small><b>${n(v.degradation, 1)}<i>%</i></b></div><div><small>${t("bat.cycles")}</small><b>${v.cycles == null ? "—" : n(v.cycles)}</b></div></div>
+        ${trendBlock(b.tm?.trend, "card")}
         <div class="muted small-note">${t("bat.tmSame")}</div></div>
     </div>`;
   const bl = baseline(b, car, carId);
@@ -112,6 +121,58 @@ export function batteryCardHTML(b: Battery, car: Car | null, carId: number) {
         <div><small>${t("bat.capacity")}</small><b>${n(b.capacity_from_range_kwh, 1)} kWh</b></div>
         <div class="muted small-note">${b.first_date ? t("bat.since", { m: monthLabel(b.first_date) }) : ""}${t("bat.nCharges", { n: b.n_points })}<br>${esc(t("bat.baselineIs", { s: bl.source }))}</div></div>
     </div>`;
+}
+
+
+function fmtRate(v: number | null | undefined): string {
+  if (v == null) return "—";
+  if (Math.abs(v) < 0.05) return "0";
+  const s = n(v, 1);
+  return v > 0 ? `+${s}` : s;
+}
+/** Compact sparkline for half-month capacity medians (home card). */
+function batSpark(vals: number[]): string {
+  if (vals.length < 2) return "";
+  const W = 120, H = 28, P = 2;
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = Math.max(0.2, hi - lo);
+  const X = (i: number) => P + (W - 2 * P) * i / (vals.length - 1);
+  const Y = (v: number) => H - P - (H - 2 * P) * (v - lo) / span;
+  const d = vals.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join("");
+  return `<svg class="bat-spark" viewBox="0 0 ${W} ${H}" width="120" height="28" aria-hidden="true"><path d="${d}" class="bat-spark-line"/></svg>`;
+}
+function trendBlock(tr: BatTrend | null | undefined, kind: "page" | "card"): string {
+  if (!tr) return "";
+  if (kind === "card") {
+    const spark = batSpark(tr.spark);
+    const chip = tr.no_measurable_degradation ? t("bat.noDegrade")
+      : tr.pct_per_year != null ? t("bat.rateChip", { v: fmtRate(tr.pct_per_year) })
+      : "";
+    if (!spark && !chip) return "";
+    return `<div class="bat-trend-row">${spark}${chip ? `<span class="bat-rate-chip">${esc(chip)}</span>` : ""}</div>`;
+  }
+  const hasRate = tr.enough_time || tr.enough_odo;
+  let body: string;
+  if (!hasRate) {
+    body = `<div class="muted">${t("bat.trendNeed")} · ${t("bat.trendShort")}</div>`;
+  } else if (tr.no_measurable_degradation) {
+    body = `<div class="bat-kv"><div><small>${t("bat.trend")}</small><b>${t("bat.noDegrade")}</b></div></div>`;
+  } else {
+    body = `<div class="bat-kv">
+      <div><small>${t("bat.rate10k")}</small><b>${tr.pct_per_10k_km == null ? "—" : fmtRate(tr.pct_per_10k_km)}</b></div>
+      <div><small>${t("bat.rateYear")}</small><b>${tr.pct_per_year == null ? "—" : fmtRate(tr.pct_per_year)}</b></div>
+    </div>`;
+  }
+  let proj = "";
+  if (tr.enough_odo && tr.projections.length) {
+    proj = `<div class="section-title" style="margin-top:10px">${t("bat.proj")}</div><div class="bat-kv">` +
+      tr.projections.map(p => {
+        const kmLabel = p.odometer_km >= 1000 ? `${n(p.odometer_km / 1000, 0)}k` : n(p.odometer_km);
+        return `<div><small>${t("bat.projAt", { km: kmLabel })}</small><b>${t("bat.projVal", { kwh: n(p.capacity_kwh, 1), pct: n(p.health_pct, 1) })}</b></div>`;
+      }).join("") + `</div>`;
+  }
+  return `<div class="pane bat-trend-pane"><div class="pane-t">${t("bat.trend")}</div>${body}${proj}
+    <div class="muted small-note">${hasRate ? t("bat.trendNote") : t("bat.trendShort")}</div></div>`;
 }
 
 /** least-squares line y = a + b·x */
@@ -215,6 +276,7 @@ function tmPage(view: HTMLElement, b: Battery, v: TmView, carId: number, back: (
       <div><small>${t("bat.cycles")}</small><b>${v.cycles == null ? "—" : n(v.cycles)}</b><div class="d neu">${t("bat.added", { v: n(tm.energy_added_kwh) })}</div></div>
       <div><small>${t("bat.eff")}</small><b>${n(tm.efficiency_kwh_100km, 1)}<i>kWh/100km</i></b><div class="d neu">${t(tm.efficiency_source === "car" ? "bat.effCar" : "bat.effDerived")}</div></div>
     </div>
+    ${trendBlock(tm.trend, "page")}
     <div class="pane bl-box"><div class="pane-t">${t("bat.newTitle")}</div>
       <div class="muted bl-src">${esc(v.custom ? t("bat.srcKwhManual", { v: n(v.newKwh, 1) }) : t("bat.srcKwhMax", { v: n(v.max, 1) }))}${v.migrated ? `<br>${esc(t("bat.migrated"))}` : ""}</div>
       <div class="bl-row"><input id="bl-kwh" type="number" inputmode="decimal" min="20" max="250" step="0.1" placeholder="${t("bat.newPh")}" value="${ovv ?? ""}" aria-label="${t("bat.newPh")}">

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Demo Mode data generator: a deterministic, TeslaMate-shaped dataset (~3 months ending "now") built from
+// Demo Mode data generator: a deterministic, TeslaMate-shaped dataset (~4 months ending "now") built from
 // real road geometry (routes.json: OSRM / OpenStreetMap, ODbL) — no network. Everything is computed in memory.
 import R from "./routes.json";
 
 export const DEMO_CAR_ID = 901;
 const EFF = 0.1345;              // kWh per rated km (car.efficiency)
 const TZ_OFF = 9 * 3600e3;       // the demo car lives in Tokyo (JST, no DST)
-const DAYS = 92;
+const DAYS = 150;
+const DIST_SCALE = 1.3; // stretch km so battery trend has ≥5k odo span
 
 export interface Addr { id: number; name: string; city: string; lat: number; lng: number; key: string }
 export interface Pos { date: number; lat: number; lng: number; speed: number | null; elevation: number | null; battery_level: number; power: number | null; odometer: number; ideal: number; rated: number; drive_id: number | null }
@@ -65,8 +66,8 @@ export function generate(nowMs: number = Date.now()): DB {
   const day0 = todayAbs - DAYS + 1;
   const localMs = (abs: number, hour: number) => abs * 864e5 - TZ_OFF + hour * 3600e3;
   // state
-  let level = 78, odo = 18240.0, place = "H";
-  const r100 = (t: number) => 440.6 - 4.2 * ((t - localMs(day0, 0)) / (DAYS * 864e5)); // gentle fade
+  let level = 78, odo = 14000.0, place = "H";
+  const r100 = (t: number) => 440.6 - 1.8 * ((t - localMs(day0, 0)) / (DAYS * 864e5)); // ~1%/yr-ish over the window
   const cap = (t: number) => r100(t) * EFF;
   let lastT = localMs(day0, 0);
   const rainy = (abs: number) => mulberry(abs * 7 + 3)() < 0.27;
@@ -86,7 +87,7 @@ export function generate(nowMs: number = Date.now()): DB {
     const push = (lat: number, lng: number, v: number | null, ele: number, pw: number | null) => {
       const lv = startLevel - e / cap(t) * 100;
       pos.push({ date: t, lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, speed: v == null ? null : Math.round(v), elevation: Math.round(ele),
-        battery_level: Math.max(1, Math.round(lv)), power: pw == null ? null : Math.round(pw), odometer: Math.round((odo + dist) * 100) / 100,
+        battery_level: Math.max(1, Math.round(lv)), power: pw == null ? null : Math.round(pw), odometer: Math.round((odo + dist * DIST_SCALE) * 100) / 100,
         ideal: r1(lv / 100 * r100(t) * 1.02), rated: r1(lv / 100 * r100(t)), drive_id: id });
     };
     push(rt.pts[0][0], rt.pts[0][1], 0, rt.ele[0], 0);
@@ -113,9 +114,9 @@ export function generate(nowMs: number = Date.now()): DB {
     const endLevel = startLevel - e / cap(end) * 100;
     const ele0 = rt.ele.reduce((s, x) => s + x, 0) / rt.ele.length;
     drives.push({ id, start, end, sa: addrOf(a).id, ea: addrOf(b).id, sg: a === "H" ? 901 : null, eg: b === "H" ? 901 : null,
-      distance: Math.round(dist * 100) / 100, duration_min: Math.round((end - start) / 60e3), speed_max: Math.round(vmax),
+      distance: Math.round(dist * DIST_SCALE * 100) / 100, duration_min: Math.round((end - start) / 60e3), speed_max: Math.round(vmax),
       srr: r1(startLevel / 100 * r100(start)), err: r1(endLevel / 100 * r100(end)), temp: r1(tempBase - ele0 * 0.0065), pos, route: key, precip: rainy(abs) ? r1(0.4 + rnd() * 3) : 0 });
-    level = endLevel; odo += dist; place = b; lastT = end;
+    level = endLevel; odo += dist * DIST_SCALE; place = b; lastT = end;
     return end;
   }
 

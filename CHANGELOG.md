@@ -5,6 +5,10 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
 ## Unreleased
+
+- **Server (unreleased, `api_level` 19):** `GET /api/cars/{id}/battery` adds `tm.trend` (rates, projections, spark) from half-month medians. No database migration.
+- **App:** battery detail Trend pane (%/10k km, %/yr, 100k/200k projections); home card sparkline + rate chip when the server is level ≥ 19.
+
 - **Charging cost stats:** Home shows a card with cost per 100 km over the last 12 months, total spent, average ¥/kWh and cost coverage; a detail page adds home / Supercharger / other unit prices and monthly spend / ¥/100 km charts. Uses manual costs when set, otherwise TeslaMate. Does not replace the monthly report (still the place for one-month MoM deltas).
 - **Server (unreleased, `api_level` 18):** `GET /api/cars/{id}/charging-costs?months=&tz=&currency=` (no database migration).
 - **Vampire drain (parking drain):** Home shows a card with average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes realistic sample periods.

@@ -47,7 +47,7 @@ Turn the raw TeslaMate tables into per-month and long-term summaries for one car
 | GET | `/api/cars/{id}/report` | yes | `month` (YYYY-MM, optional), `tz` (IANA, default `UTC`), `currency` (ISO 4217, default `JPY`) | Monthly report | 6 |
 | GET | `/api/cars/{id}/trends` | yes | `month`, `tz`, `currency` (same as report) | 12-month trends | 12 |
 | GET | `/api/cars/{id}/footprint` | yes | `month`, `tz` | Route lines of a month | 12 |
-| GET | `/api/cars/{id}/battery` | yes | `summary` (bool), `tz`, `new_kwh` (number) | Battery estimate + `tm` health | 12 (`tm`: 14) |
+| GET | `/api/cars/{id}/battery` | yes | `summary` (bool), `tz`, `new_kwh` (number) | Battery estimate + `tm` health (+ `tm.trend` ≥ 19) | 12 (`tm`: 14, `trend`: 19) |
 | GET | `/api/cars/{id}/vampire` | yes | `days` (1–90, default 30), `tz` | Vampire drain between drives | 17 |
 | GET | `/api/cars/{id}/charging-costs` | yes | `months` (1–24, default 12), `tz`, `currency` | Cross-month charging cost stats | 18 |
 
@@ -169,6 +169,14 @@ The formulas below are a port of TeslaMate's `grafana/dashboards/battery-health.
 - **INS-123** When aggregating, the system SHALL reuse the report charge-type classification and effective-cost rule (manual `drivelens.charge_costs` when present, else TeslaMate `cost`), and SHALL NOT write any row. (src: api/src/report.rs `charging_costs`; test: report::tests::charges_sql_classifies_tesla_fc_before_name_fallback)
 - **INS-124** When building the summary, `cost_per_kwh` SHALL divide each currency's total by priced kWh only (sessions with a cost); `cost_per_100km` SHALL divide by all driven distance in the window; `coverage_pct` SHALL be priced kWh ÷ energy added × 100. Sessions without a cost still count in `charge_count` / `energy_added_kwh`. (src: api/src/report.rs `build_charging_costs`; test: report::charging_cost_tests::aggregates_split_and_monthly_without_misleading_sums)
 - **INS-125** When the response is built, it SHALL include `summary`, `split` (home / supercharger / other with per-bucket unit prices) and `monthly` rows for every month in the window (including empty months). (src: api/src/report.rs `build_charging_costs`)
+
+
+### Battery trend (api_level ≥ 19)
+- **INS-190** When `/battery` returns a `tm` object with a positive new capacity, the system SHALL include `tm.trend` computed from half-month capacity medians (least-squares fit). Summary responses SHALL still compute half-months for the trend (and may omit the full `half_months` / daily `points` arrays). (src: api/src/insights.rs `compute_battery_trend`, `tm_health`)
+- **INS-191** The system SHALL set `enough_time` when there are at least 4 half-month points spanning ≥ 3 months, and `enough_odo` when at least 4 points with odometer span ≥ 5 000 km. (src: api/src/insights.rs)
+- **INS-192** When enough, `pct_per_10k_km` / `pct_per_year` SHALL be the capacity slope relative to new capacity, as percent; a slope ≥ −0.05 % per unit SHALL be reported as `0` and `no_measurable_degradation = true` when every available rate is non-degrading. (src: api/src/insights.rs; test: `battery_trend_tests`)
+- **INS-193** When `enough_odo`, the system SHALL project capacity (clamped to `[max(20, new×0.5), new]`) and health % at 100 000 km and 200 000 km, skipping targets the car has already reached. (src: api/src/insights.rs)
+- **INS-194** `tm.trend.spark` SHALL list the last up to 12 half-month median capacities (oldest first) for the home-card sparkline. (src: api/src/insights.rs)
 
 ## 4. Key design decisions
 
