@@ -494,26 +494,25 @@ function kindLabel(k: string) {
   return k === "home" ? t("mix.home") : k === "supercharger" ? t("mix.supercharger") : t("mix.other");
 }
 
+function fmtPerKwh(m: Money | null) {
+  return m ? `${fmtMoney(m.amount, m.currency, true)}<i>/kWh</i>` : "—";
+}
+
 export function chargingCostCardHTML(c: ChargingCosts) {
   const s = c.summary;
   const spent = mainMoney(s.costs);
   const per100 = mainMoney(s.cost_per_100km);
   const perKwh = mainMoney(s.cost_per_kwh);
-  const hero = per100 ? fmtMoney(per100.amount, per100.currency) : "—";
-  const fill = s.coverage_pct == null ? 12 : Math.max(8, Math.min(100, Math.round(s.coverage_pct)));
   return `<div class="section-title">${t("cc.title")} <a class="link" data-cc>${t("cc.open")}</a></div>
-    <div class="card bat-card cc-card" data-cc>
-      <div class="bat-ring cc-ring" style="--p:${fill}">
-        <b>${esc(hero)}<small>/100 km</small></b></div>
-      <div class="bat-info tm">
-        <div class="bat-kv">
-          <div><small>${t("cc.spent")}</small><b>${spent ? fmtMoney(spent.amount, spent.currency) : "—"}</b></div>
-          <div><small>${t("cc.perKwh")}</small><b>${perKwh ? fmtMoney(perKwh.amount, perKwh.currency, true) : "—"}</b></div>
-          <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)} kWh</b></div>
-          <div><small>${t("cc.coverage")}</small><b>${s.coverage_pct == null ? "—" : `${n(s.coverage_pct, 0)}%`}</b></div>
-        </div>
-        <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.hint")}</div>
+    <div class="card cc-card" data-cc>
+      <div class="ov cc-ov">
+        <div><small>${t("cc.spent")}</small><b>${spent ? fmtMoney(spent.amount, spent.currency) : "—"}</b></div>
+        <div><small>${t("cc.perKwh")}</small><b>${fmtPerKwh(perKwh)}</b></div>
+        <div><small>${t("cc.per100")}</small><b>${per100 ? fmtMoney(per100.amount, per100.currency) : "—"}</b></div>
+        <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)}<i>kWh</i></b></div>
+        <div><small>${t("cc.coverage")}</small><b>${s.coverage_pct == null ? "—" : `${n(s.coverage_pct, 0)}%`}</b></div>
       </div>
+      <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.hint")}</div>
     </div>`;
 }
 
@@ -555,7 +554,7 @@ export async function showChargingCosts(view: HTMLElement, carId: number, back: 
   const splitRows = c.split.map(b => {
     const u = mainMoney(b.cost_per_kwh);
     return `<tr><td>${esc(kindLabel(b.kind))}</td><td class="num">${b.count}</td><td class="num">${n(b.energy_kwh, 1)} kWh</td>
-      <td class="num">${moneyLine(b.costs)}</td><td class="num">${u ? fmtMoney(u.amount, u.currency, true) : "—"}</td></tr>`;
+      <td class="num">${moneyLine(b.costs)}</td><td class="num">${u ? `${fmtMoney(u.amount, u.currency, true)}/kWh` : "—"}</td></tr>`;
   }).join("");
   const monthly = c.monthly;
   const costOf = (m: ChargingCosts["monthly"][0]) => mainMoney(m.costs)?.amount ?? 0;
@@ -564,23 +563,19 @@ export async function showChargingCosts(view: HTMLElement, carId: number, back: 
     <div class="pane"><div class="pane-t">${t("cc.spent")}${spent ? ` · ${esc(spent.currency)}` : ""}</div>${ccBar(monthly, m => costOf(m) || null, spent?.currency ?? "", "var(--red)")}</div>
     <div class="pane"><div class="pane-t">${t("cc.per100")}</div>${ccBar(monthly, per100Of, spent?.currency ?? "", "var(--accent)", 0)}</div>`
     : `<div class="pane"><div class="chart-empty">${t("cc.noCost")}</div></div>`;
-  const fill = s.coverage_pct == null ? 12 : Math.max(8, Math.min(100, Math.round(s.coverage_pct)));
-  const hero = per100 ? fmtMoney(per100.amount, per100.currency) : "—";
   const body = s.charge_count === 0
     ? `<div class="empty"><span>${t("cc.empty")}</span></div>`
-    : `<div class="card bat-card cc-card" style="margin-top:12px">
-        <div class="bat-ring cc-ring" style="--p:${fill}">
-          <b>${esc(hero)}<small>/100 km</small></b></div>
-        <div class="bat-info tm"><div class="bat-kv">
-          <div><small>${t("cc.spent")}</small><b>${spent ? fmtMoney(spent.amount, spent.currency) : "—"}</b></div>
-          <div><small>${t("cc.perKwh")}</small><b>${perKwh ? fmtMoney(perKwh.amount, perKwh.currency, true) : "—"}</b></div>
-          <div><small>${t("cc.driven")}</small><b>${n(s.distance_km, 0)} km</b></div>
-          <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)} kWh</b></div>
-        </div>
-        <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.sessions", { n: s.charge_count })} · ${t("cc.priced", { n: s.priced_count })}</div>
-        ${s.coverage_pct != null ? `<div class="muted small-note">${t("cc.coverageHint", { pct: n(s.coverage_pct, 0), priced: n(s.priced_kwh, 0), total: n(s.energy_added_kwh, 0) })}</div>` : ""}
-        <div class="muted small-note">${t("cc.hint")}</div></div>
+    : `<div class="ov cc-ov" style="margin-top:12px">
+        <div><small>${t("cc.spent")}</small><b>${spent ? fmtMoney(spent.amount, spent.currency) : "—"}</b></div>
+        <div><small>${t("cc.perKwh")}</small><b>${fmtPerKwh(perKwh)}</b></div>
+        <div><small>${t("cc.per100")}</small><b>${per100 ? fmtMoney(per100.amount, per100.currency) : "—"}</b></div>
+        <div><small>${t("cc.driven")}</small><b>${n(s.distance_km, 0)}<i>km</i></b></div>
+        <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)}<i>kWh</i></b></div>
+        <div><small>${t("cc.coverage")}</small><b>${s.coverage_pct == null ? "—" : `${n(s.coverage_pct, 0)}%`}</b></div>
       </div>
+      <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.sessions", { n: s.charge_count })} · ${t("cc.priced", { n: s.priced_count })}</div>
+      ${s.coverage_pct != null ? `<div class="muted small-note">${t("cc.coverageHint", { pct: n(s.coverage_pct, 0), priced: n(s.priced_kwh, 0), total: n(s.energy_added_kwh, 0) })}</div>` : ""}
+      <div class="muted small-note">${t("cc.hintDetail")}</div>
       <div class="section-title" style="margin-top:16px"><span>${t("cc.split")}</span></div>
       <div class="card" style="padding:0;overflow:auto"><table class="cc-table">
         <thead><tr><th></th><th>#</th><th>kWh</th><th>${t("cc.spent")}</th><th>${t("cc.unit")}</th></tr></thead>
