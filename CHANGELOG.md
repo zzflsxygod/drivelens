@@ -4,10 +4,10 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 *no server update needed*, only the app changed. Release notes: [Releases](https://github.com/zzflsxygod/drivelens/releases).
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
-## [Unreleased]
-
-### Fixed
-- **Vampire drain on real TeslaMate data:** parked periods are split around charging sessions instead of dropping any gap that touched a charge (home overnight charging no longer zeroes the Home card). Stale open `charging_processes` rows (`end_date IS NULL` older than 48 hours) are ignored so they cannot extend to "now" and blank every park. Timestamps are formatted as naive UTC like the rest of the API. (API-only; needs a server update.)
+## v1.4.1 — 2026-11-05
+- **Vampire drain on real TeslaMate data:** parked periods are split around charging sessions instead of dropping any gap that touched a charge (home overnight charging no longer zeroes the Home card). Stale open `charging_processes` rows (`end_date IS NULL` older than 48 hours) are ignored so they cannot extend to "now" and blank every park. Timestamps are formatted as naive UTC like the rest of the API.
+- The setup screen now recommends server 0.16.1.
+- **Server 0.16.1** (`api_level` 21, unchanged). Watchtower updates it automatically; no database migration.
 
 ## v1.4.0 — 2026-11-05
 - **Vampire drain (parking drain):** Home shows average daily SoC lost while parked between drives (gaps that included a charge are excluded), with a detail page of recent parked periods. Settings → Notifications adds an optional alert (default off) when one parked period loses more than a threshold you set (default 5% SoC). Demo mode includes sample periods.
