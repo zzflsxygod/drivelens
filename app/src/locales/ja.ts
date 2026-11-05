@@ -659,6 +659,7 @@ const ja: Record<keyof typeof zh, string> = {
   "yr.avgEff": "平均電費",
   "yr.cost": "充電費用",
   "yr.per100": "100 kmあたり費用",
+  "yr.perKwh": "平均単価",
   "yr.byMonth": "月別走行距離",
   "yr.monthAria": "月別距離の棒グラフ",
   "yr.chargeMix": "充電の内訳",

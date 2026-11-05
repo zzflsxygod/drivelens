@@ -554,6 +554,7 @@ pub struct YearTotals {
     pub energy_used_kwh: f64,
     pub energy_added_kwh: f64,
     pub charge_count: i64,
+    pub priced_kwh: f64,
     pub costs: BTreeMap<String, f64>,
     pub home_kwh: f64,
     pub supercharger_kwh: f64,
@@ -570,6 +571,12 @@ fn year_per100(map: &BTreeMap<String, f64>, distance_km: f64) -> Vec<serde_json:
     }).collect()
 }
 
+fn year_per_kwh(map: &BTreeMap<String, f64>, priced_kwh: f64) -> Vec<serde_json::Value> {
+    map.iter().filter_map(|(c, a)| {
+        unit_rate(*a, priced_kwh).map(|v| serde_json::json!({"currency": c, "amount": v}))
+    }).collect()
+}
+
 fn totals_json(t: &YearTotals) -> serde_json::Value {
     let eff = (t.distance_km > 1.0).then(|| r1(t.energy_used_kwh * 1000.0 / t.distance_km));
     serde_json::json!({
@@ -580,7 +587,9 @@ fn totals_json(t: &YearTotals) -> serde_json::Value {
         "efficiency_wh_km": eff,
         "charge_count": t.charge_count,
         "energy_added_kwh": r1(t.energy_added_kwh),
+        "priced_kwh": r1(t.priced_kwh),
         "costs": year_money(&t.costs),
+        "cost_per_kwh": year_per_kwh(&t.costs, t.priced_kwh),
         "cost_per_100km": year_per100(&t.costs, t.distance_km),
         "home_kwh": r1(t.home_kwh),
         "supercharger_kwh": r1(t.supercharger_kwh),
@@ -650,6 +659,8 @@ pub fn build_year_review(
             _ => { m.other_kwh += e; totals.other_kwh += e; }
         }
         if let Some(a) = c.cost {
+            m.priced_kwh += e;
+            totals.priced_kwh += e;
             *m.costs.entry(c.currency.clone()).or_default() += a;
             *totals.costs.entry(c.currency.clone()).or_default() += a;
         }
@@ -898,6 +909,7 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
                     _ => t.other_kwh += e,
                 }
                 if let Some(a) = c.cost {
+                    t.priced_kwh += e;
                     *t.costs.entry(c.currency.clone().unwrap_or_else(|| def_cur.clone())).or_default() += a;
                 }
             }
@@ -957,6 +969,8 @@ mod year_review_tests {
         assert_eq!(v["totals"]["drive_count"], 4);
         assert_eq!(v["totals"]["charge_count"], 4);
         assert_eq!(v["totals"]["cost_per_100km"][0]["amount"], 1097.33); // 3980/362.7*100
+        assert_eq!(v["totals"]["priced_kwh"], 90.0); // unpriced mall session excluded
+        assert_eq!(v["totals"]["cost_per_kwh"][0]["amount"], 44.22); // 3980/90
         assert_eq!(v["highlights"]["superchargers_visited"], 2);
         assert_eq!(v["highlights"]["busiest_month"]["month"], "2026-06");
         assert_eq!(v["highlights"]["longest_drive"]["distance_km"], 200.0);

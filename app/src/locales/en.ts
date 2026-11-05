@@ -659,6 +659,7 @@ const en: Record<keyof typeof zh, string> = {
   "yr.avgEff": "Avg efficiency",
   "yr.cost": "Charging cost",
   "yr.per100": "Cost / 100 km",
+  "yr.perKwh": "Avg price",
   "yr.byMonth": "Distance by month",
   "yr.monthAria": "Monthly distance chart",
   "yr.chargeMix": "Charging mix",
