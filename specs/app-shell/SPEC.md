@@ -80,7 +80,7 @@ Tauri (Windows / Android) builds.
   | DOM | `header`, `#title`, `#car` (hidden select), `#carpill`, `#srv-banner`, `main#view`, `nav button[data-tab]` | Page skeleton (`app/index.html`) |
   | URL param | `view` = `charges`, `settings`, `drives`, `drive:<id>`, `charge:<id>`, `report[:YYYY-MM]`, `battery`, `journey:<id>`, `journeys` | Deep link / notification target |
   | URL param | `from=push` | Opened from a notification |
-  | Export (`nav.ts`) | `navPage(key, back)`, `navRoot()`, `popPage()`, `initHistory(back)` | Back stack |
+  | Export (`nav.ts`) | `navPage(key, back)`, `navRoot()`, `popPage()`, `initHistory(back)`, `settleScroll()`, `clearScrollRestore()` | Back stack + scroll restore on back |
   | Export (`platform.ts`) | `setRootBack(fn)`, `inAppBack()` | In-app back step |
   | Export (`links.ts`) | `PUBLIC_REPO`, `installGuideUrl()`, `RELEASES_URL`, `ISSUES_URL`, `SOURCE_URL`, `THIRD_PARTY_URL` | Public links |
   | localStorage | `drivelens-last-car` (demo: namespaced via `skey`) | Remembered car |
@@ -137,7 +137,12 @@ Tauri (Windows / Android) builds.
 - **SHELL-050** When a history move started by the app produces no `popstate` within 1.5 s, the system SHALL resume syncing from the current `history.state.dl`. (src: app/src/nav.ts:47-52; comment: app/src/nav.ts:49)
 - **SHELL-051** When a detail page is rendered with a key that is already on the stack, the system SHALL cut the stack back to that level and replace its back action; a new key SHALL add one level. (src: app/src/nav.ts:18-24)
 - **SHELL-052** When the user clicks a page back button inside `#view`, the system SHALL remove one detail-page level. (src: app/src/nav.ts:79-83)
-- **SHELL-053** When the browser-history back stack is enabled, the system SHALL set `history.scrollRestoration` to `manual`. (src: app/src/nav.ts:67; comment: app/src/nav.ts:67)
+- **SHELL-053** When the browser-history back stack is enabled, the system SHALL set `history.scrollRestoration` to `manual`. (src: app/src/nav.ts; comment: app/src/nav.ts)
+- **SHELL-054** When a new detail page is pushed onto the back stack (`navPage` with a new key), the system SHALL remember `window.scrollY` for the parent surface (the active tab root when the stack was empty, otherwise the previous detail page), keyed so a later back can restore it. (src: app/src/nav.ts `navPage`)
+- **SHELL-055** When a detail-page level is removed (in-app back button in `#view`, `popPage`, or cutting the stack back to an existing key), the system SHALL mark the revealed parent surface for scroll restore. (src: app/src/nav.ts `markRestoreAfterPop` / `navPage`)
+- **SHELL-056** When a parent screen finishes painting after a back navigation, the system SHALL restore the remembered `scrollY` for that surface, retrying on animation frames until the document height can accommodate it or about 2.5 s have elapsed, then clamping to the maximum scroll. Forward entry into a new screen SHALL start at the top. (src: app/src/nav.ts `settleScroll`; callers: `showHome`, `showCharges`, `openReport`, `showDriveList`, `showJourneys`, `showJourney`)
+- **SHELL-057** When the user switches bottom tabs, the system SHALL discard any pending scroll restore and open the tab root at the top. Re-tapping the active tab keeps the existing back-to-top behaviour (SHELL-012). (src: app/src/main.ts tab click; src: app/src/nav.ts `clearScrollRestore`)
+- **SHELL-058** For paged lists (`infiniteList`), the system SHALL keep restoring via the list's own saved `scrollY` on remount (`leave` / `restore`); when items below the saved offset are not yet loaded, restore SHALL clamp to the current document height (best effort). (src: app/src/infinite.ts; src: app/src/nav.ts `settleScroll`)
 
 ### 3.6 Deep links and notification targets
 - **SHELL-060** When the app starts with a stored server and `?view=<v>`, the system SHALL open: `charges` → Charges tab; `settings` → Settings tab; `drives` → Drives tab; `drive:<id>` → that drive's detail with the Drives tab marked active; `charge:<id>` → that charge's detail with the Charges tab marked; `report` or `report:<month>` → the monthly report; `battery` → the battery page of the current car; `journey:<id>` → that journey with the Drives tab marked; `journeys` → the journey list with the Drives tab marked; any other value → Home. (src: app/src/main.ts:934-951)
