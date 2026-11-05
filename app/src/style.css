@@ -938,6 +938,9 @@ html.touch * { -webkit-tap-highlight-color: transparent; }
 .tpms-leg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .tpms-leg i { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
 .tpms-leg.thr i { width: 14px; height: 0; border-top: 2px dashed var(--warn); border-radius: 0; background: transparent; }
-.tpms-chart-pane { padding-bottom: 12px; }
+.tpms-chart-pane { padding-bottom: 16px; margin-bottom: 12px; }
+.tpms-hist-page { padding-bottom: 72px; }
+.tpms-hist-page .tpms-legend { margin-bottom: 6px; }
+.tpms-hist-page .small-note { margin-bottom: 8px; }
 .tpms-tile.tpms-link { cursor: pointer; }
 .tpms-tile.tpms-link:active { opacity: .92; }

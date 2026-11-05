@@ -20,8 +20,12 @@ export type TpmsHistory = {
 
 const WHEELS = ["fl", "fr", "rl", "rr"] as const;
 type Wheel = typeof WHEELS[number];
+/** Four distinct Telemetry colours; never --warn/--amber (reserved for low pressure). */
 const COLORS: Record<Wheel, string> = {
-  fl: "var(--accent)", fr: "var(--ch-1)", rl: "var(--violet)", rr: "var(--amber)",
+  fl: "var(--accent)",   // cyan
+  fr: "#f472b6",         // pink (clearly ≠ cyan; not warn-orange)
+  rl: "var(--violet)",   // purple
+  rr: "var(--green)",    // green
 };
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const n = (v: number, d = 1) => fmtNum(v, d);
@@ -33,12 +37,105 @@ const unit = () => t("set.tpmsUnit");
 function avgOf(b: TpmsBucket, w: Wheel): number | null {
   return b[`${w}_avg` as keyof TpmsBucket] as number | null;
 }
-function minOf(b: TpmsBucket, w: Wheel): number | null {
-  return b[`${w}_min` as keyof TpmsBucket] as number | null;
+
+function parseBucketTime(raw: string): Date {
+  if (raw.includes("T") || /Z$|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(raw);
+  return new Date(raw.replace(" ", "T") + "Z");
+}
+
+/** Nice 0.2-bar y ticks covering data + threshold. */
+function yScale(vals: number[], thr: number | null) {
+  const all = thr != null ? [...vals, thr] : vals;
+  const rawLo = Math.min(...all), rawHi = Math.max(...all);
+  let lo = Math.floor((rawLo - 0.05) * 5) / 5; // step 0.2
+  let hi = Math.ceil((rawHi + 0.05) * 5) / 5;
+  if (hi - lo < 0.6) { const mid = (lo + hi) / 2; lo = Math.max(1.5, mid - 0.3); hi = Math.min(4.0, mid + 0.3); }
+  lo = Math.max(1.5, Math.round(lo * 10) / 10);
+  hi = Math.min(4.0, Math.round(hi * 10) / 10);
+  // snap to 0.2 grid
+  lo = Math.floor(lo * 5) / 5;
+  hi = Math.ceil(hi * 5) / 5;
+  if (hi <= lo) hi = lo + 0.6;
+  const ticks: number[] = [];
+  for (let v = lo; v <= hi + 1e-9; v = Math.round((v + 0.2) * 10) / 10) ticks.push(Math.round(v * 10) / 10);
+  return { lo, hi, ticks };
+}
+
+/** Local calendar date key YYYY-M-D for tick dedupe. */
+function localDayKey(d: Date) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function fmtDayTick(d: Date) {
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** Pick ~4 clean local-midnight (or nearest bucket) indices for x labels. */
+function dayTickIndices(series: TpmsBucket[], bucket: "hour" | "day"): number[] {
+  if (!series.length) return [];
+  if (series.length <= 4) return series.map((_, i) => i);
+  const midnights: number[] = [];
+  for (let i = 0; i < series.length; i++) {
+    const d = parseBucketTime(series[i].t);
+    if (bucket === "day") {
+      midnights.push(i);
+    } else if (d.getHours() === 0) {
+      midnights.push(i);
+    }
+  }
+  const pool = midnights.length >= 2 ? midnights : series.map((_, i) => i);
+  // evenly pick up to 4, always include first & last from pool
+  const n = Math.min(4, pool.length);
+  if (n === 1) return [pool[0]];
+  const out: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const idx = pool[Math.round(k * (pool.length - 1) / (n - 1))];
+    if (!out.includes(idx)) out.push(idx);
+  }
+  return out;
+}
+
+/** Split a continuous series into coloured path segments (wheel colour vs warn below thr). */
+function pathSegments(
+  pts: { x: number; y: number; v: number }[],
+  thr: number | null,
+  wheelColor: string,
+): { color: string; d: string }[] {
+  if (pts.length === 0) return [];
+  if (pts.length === 1 || thr == null) {
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    return [{ color: wheelColor, d }];
+  }
+  const segs: { color: string; d: string }[] = [];
+  let curColor = pts[0].v < thr ? "var(--warn)" : wheelColor;
+  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const aLow = a.v < thr, bLow = b.v < thr;
+    if (aLow === bLow) {
+      const col = bLow ? "var(--warn)" : wheelColor;
+      if (col !== curColor) {
+        segs.push({ color: curColor, d });
+        curColor = col;
+        d = `M${a.x.toFixed(1)},${a.y.toFixed(1)}`;
+      }
+      d += ` L${b.x.toFixed(1)},${b.y.toFixed(1)}`;
+    } else {
+      // cross threshold: interpolate crossing point
+      const t = (thr - a.v) / (b.v - a.v);
+      const cx = a.x + (b.x - a.x) * t;
+      const cy = a.y + (b.y - a.y) * t;
+      d += ` L${cx.toFixed(1)},${cy.toFixed(1)}`;
+      segs.push({ color: curColor, d });
+      curColor = bLow ? "var(--warn)" : wheelColor;
+      d = `M${cx.toFixed(1)},${cy.toFixed(1)} L${b.x.toFixed(1)},${b.y.toFixed(1)}`;
+    }
+  }
+  segs.push({ color: curColor, d });
+  return segs.filter(s => /\sL/.test(s.d) || s.d.includes(" L"));
 }
 
 function chartSVG(h: TpmsHistory, thr: number | null) {
-  const W = 392, H = 220, L = 36, R = 10, T = 14, B = 28;
+  const W = 392, H = 228, L = 34, R = 12, T = 12, B = 30;
   const iw = W - L - R, ih = H - T - B;
   const series = h.series;
   if (!series.length) return `<div class="muted" style="text-align:center;padding:24px 0">${t("tpmsHist.empty")}</div>`;
@@ -46,62 +143,56 @@ function chartSVG(h: TpmsHistory, thr: number | null) {
   const vals: number[] = [];
   for (const b of series) for (const w of WHEELS) {
     const a = avgOf(b, w); if (a != null) vals.push(a);
-    const m = minOf(b, w); if (m != null) vals.push(m);
   }
   if (thr != null) vals.push(thr);
   if (!vals.length) return `<div class="muted" style="text-align:center;padding:24px 0">${t("tpmsHist.empty")}</div>`;
-  let lo = Math.min(...vals), hi = Math.max(...vals);
-  const pad = Math.max(0.05, (hi - lo) * 0.15);
-  lo = Math.max(1.5, lo - pad); hi = Math.min(4.0, hi + pad);
-  if (hi - lo < 0.3) { lo = Math.max(1.5, lo - 0.15); hi = Math.min(4.0, hi + 0.15); }
+  const { lo, hi, ticks } = yScale(vals, thr);
   const y = (v: number) => T + ih * (1 - (v - lo) / (hi - lo));
   const x = (i: number) => L + (series.length <= 1 ? iw / 2 : iw * i / (series.length - 1));
 
   let g = "";
+  // faint band below threshold (low-pressure zone)
+  if (thr != null && thr > lo && thr < hi) {
+    const yThr = y(thr), yBot = y(lo);
+    g += `<rect x="${L}" y="${yThr}" width="${iw}" height="${Math.max(0, yBot - yThr)}" fill="var(--warn)" opacity="0.08"/>`;
+  }
   // grid + y labels
-  [0, 0.5, 1].forEach(f => {
-    const v = lo + (hi - lo) * f;
+  for (const v of ticks) {
     const yy = y(v);
     g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" class="cg"/>`;
     g += `<text class="ax" x="${L - 4}" y="${yy + 3}" text-anchor="end">${v.toFixed(1)}</text>`;
-  });
-  // threshold
+  }
+  // threshold dashed line + label
   if (thr != null && thr >= lo && thr <= hi) {
     const yy = y(thr);
     g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="var(--warn)" stroke-dasharray="4 3" stroke-width="1.2"/>`;
-    g += `<text class="ax" x="${W - R}" y="${yy - 3}" text-anchor="end" fill="var(--warn)">${thr.toFixed(1)}</text>`;
+    g += `<text class="ax" x="${W - R}" y="${yy - 4}" text-anchor="end" fill="var(--warn)">${thr.toFixed(1)}</text>`;
   }
-  // lines + low markers
+  // wheel lines (segments below thr drawn in warn colour)
   for (const w of WHEELS) {
-    const pts: string[] = [];
+    const pts: { x: number; y: number; v: number }[] = [];
     series.forEach((b, i) => {
       const v = avgOf(b, w);
       if (v == null) return;
-      pts.push(`${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+      pts.push({ x: x(i), y: y(v), v });
     });
-    if (pts.length >= 2) g += `<polyline fill="none" stroke="${COLORS[w]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(" ")}"/>`;
-    else if (pts.length === 1) g += `<circle cx="${pts[0].split(",")[0]}" cy="${pts[0].split(",")[1]}" r="2.5" fill="${COLORS[w]}"/>`;
-    if (thr != null) {
-      series.forEach((b, i) => {
-        const m = minOf(b, w) ?? avgOf(b, w);
-        if (m != null && m < thr) {
-          g += `<circle cx="${x(i).toFixed(1)}" cy="${y(m).toFixed(1)}" r="3.2" fill="var(--warn)" stroke="var(--card)" stroke-width="1"/>`;
-        }
-      });
+    for (const seg of pathSegments(pts, thr, COLORS[w])) {
+      if (pts.length === 1) {
+        g += `<circle cx="${pts[0].x.toFixed(1)}" cy="${pts[0].y.toFixed(1)}" r="2.5" fill="${COLORS[w]}"/>`;
+      } else {
+        g += `<path fill="none" stroke="${seg.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="${seg.d}"/>`;
+      }
     }
   }
-  // x labels: first / mid / last
-  const labelAt = (i: number) => {
-    const raw = series[i]?.t; if (!raw) return "";
-    try {
-      const d = new Date(raw.includes("T") || raw.includes("Z") ? raw : raw.replace(" ", "T") + "Z");
-      if (h.bucket === "hour") return d.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-      return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-    } catch { return raw.slice(5, 16); }
-  };
-  const idxs = series.length <= 2 ? series.map((_, i) => i) : [0, Math.floor((series.length - 1) / 2), series.length - 1];
-  for (const i of idxs) {
-    g += `<text class="ax" x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(labelAt(i))}</text>`;
+  // clean local-day x ticks
+  const tickIdx = dayTickIndices(series, h.bucket);
+  const seen = new Set<string>();
+  for (const i of tickIdx) {
+    const d = parseBucketTime(series[i].t);
+    const key = localDayKey(d);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    g += `<text class="ax" x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(fmtDayTick(d))}</text>`;
   }
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${t("tpmsHist.chartAria")}">${g}</svg>`;
 }
@@ -131,7 +222,7 @@ function rangeSwitcher(days: number) {
 export async function showTpmsHistory(view: HTMLElement, carId: number, back: () => void, days = 30) {
   if (![7, 30, 90].includes(days)) days = 30;
   view.innerHTML = `<button class="back" data-title="${t("tpmsHist.pageTitle")}">${t("common.back")}</button>
-    <div id="tpms-body"><div class="pane muted" style="text-align:center">${t("common.loading")}</div></div>`;
+    <div id="tpms-body" class="tpms-hist-page"><div class="pane muted" style="text-align:center">${t("common.loading")}</div></div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
   const body = view.querySelector("#tpms-body")!;
   if (lacks("tpmsHistory")) {

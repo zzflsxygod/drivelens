@@ -736,43 +736,62 @@ function tpmsHistory(q: URLSearchParams) {
   const bucket = days <= 7 ? "hour" : "day";
   const bucketMs = bucket === "hour" ? 3600e3 : 864e5;
   const t1 = db.now;
-  const t0 = t1 - days * 864e5;
-  // Current snapshot must match status().tpms (same date helper + FL low 2.3).
+  // Align window start to a clean local midnight / hour so x-axis ticks land on calendar days.
+  const partsNow = parts(db.now, tz);
+  const dayStart = zoned(partsNow.y, partsNow.m, partsNow.d, tz); // local midnight today
+  const t0 = dayStart - (days - 1) * 864e5;
   const st = status() as { tpms: { date: string; fl: number; fr: number; rl: number; rr: number } };
   const cur = { ...st.tpms };
+  const round01 = (v: number) => Math.round(v * 10) / 10;
   const series: {
     t: string; fl_avg: number | null; fr_avg: number | null; rl_avg: number | null; rr_avg: number | null;
     fl_min: number | null; fr_min: number | null; rl_min: number | null; rr_min: number | null;
     outside_temp_avg: number | null; n: number;
   }[] = [];
-  const nBuckets = Math.max(1, Math.floor((t1 - t0) / bucketMs));
+  const nPerBucket = bucket === "hour" ? 12 : 48; // many 0.1-bar samples → smooth averages
+  const nBuckets = Math.max(1, Math.round((Math.min(t1, dayStart + 864e5) - t0) / bucketMs));
   for (let i = 0; i < nBuckets; i++) {
     const start = t0 + i * bucketMs;
-    if (start >= t1) break;
-    // Progress 0→1 over the window; FL drops from ~2.85 to 2.3 in the last ~10 days.
-    const ageDays = (t1 - start) / 864e5;
-    const flBase = 2.85 - 0.55 * (ageDays < 14 ? (14 - ageDays) / 14 : 0);
-    // slight temp correlation: warmer → +0.02 bar-ish noise on healthy wheels
-    const temp = r1(12 + 10 * Math.sin((start / 864e5) * Math.PI * 2 / 7) + (i % 5) * 0.3);
-    const wobble = (seed: number) => ((Math.sin(start / 1e7 + seed) + Math.cos(i * 0.7 + seed)) * 0.02);
-    const fl = r1(Math.max(2.2, flBase + wobble(1) * 0.5));
-    const fr = r1(2.85 + wobble(2) + (temp - 15) * 0.002);
-    const rl = r1(2.78 + wobble(3) + (temp - 15) * 0.002);
-    const rr = r1(2.82 + wobble(4) + (temp - 15) * 0.002);
-    // Force last bucket to match current snapshot for cross-page consistency.
-    const isLast = i === nBuckets - 1 || start + bucketMs >= t1;
-    const row = isLast
-      ? { fl: cur.fl, fr: cur.fr, rl: cur.rl, rr: cur.rr }
-      : { fl, fr, rl, rr };
+    if (start >= t1 + bucketMs) break;
+    const end = Math.min(start + bucketMs, t1);
+    if (end <= start) continue;
+    const fls: number[] = [], frs: number[] = [], rls: number[] = [], rrs: number[] = [], temps: number[] = [];
+    for (let s = 0; s < nPerBucket; s++) {
+      const ts = start + (end - start) * (s + 0.5) / nPerBucket;
+      const ageDays = Math.max(0, (t1 - ts) / 864e5);
+      // Continuous model: healthy ~2.85 bar + temp coeff; FL gradual leak over last 14 days → 2.3.
+      // Slow weekly temp; keep healthy wheels away from .x5 boundaries so day averages
+      // do not flip-flop 2.8↔2.9. FL still drifts continuously through the leak.
+      const temp = 15 + 5 * Math.sin((ts / 864e5) * Math.PI * 2 / 7);
+      const tempCorr = (temp - 15) * 0.002; // ~±0.01 bar
+      // Healthy targets match home/current (2.8 / 2.7 / 2.8); FL starts ~2.86 then leaks to 2.3.
+      const flCont = 2.86 + tempCorr * 0.5 - 0.56 * (ageDays < 14 ? (14 - ageDays) / 14 : 0);
+      const frCont = 2.82 + tempCorr;
+      const rlCont = 2.72 + tempCorr;
+      const rrCont = 2.83 + tempCorr;
+      fls.push(round01(Math.max(2.15, flCont)));
+      frs.push(round01(frCont));
+      rls.push(round01(rlCont));
+      rrs.push(round01(rrCont));
+      temps.push(temp);
+    }
+    const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
+    const mn = (a: number[]) => Math.min(...a);
+    const isLast = end >= t1 - 60e3 || i === nBuckets - 1;
     series.push({
       t: TS(start),
-      fl_avg: row.fl, fr_avg: row.fr, rl_avg: row.rl, rr_avg: row.rr,
-      fl_min: r1(row.fl - (isLast ? 0 : 0.02)), fr_min: r1(row.fr - 0.01),
-      rl_min: r1(row.rl - 0.01), rr_min: r1(row.rr - 0.01),
-      outside_temp_avg: temp, n: bucket === "hour" ? 4 : 18,
+      fl_avg: isLast ? cur.fl : r2(avg(fls)),
+      fr_avg: isLast ? cur.fr : r2(avg(frs)),
+      rl_avg: isLast ? cur.rl : r2(avg(rls)),
+      rr_avg: isLast ? cur.rr : r2(avg(rrs)),
+      fl_min: isLast ? cur.fl : round01(mn(fls)),
+      fr_min: isLast ? cur.fr : round01(mn(frs)),
+      rl_min: isLast ? cur.rl : round01(mn(rls)),
+      rr_min: isLast ? cur.rr : round01(mn(rrs)),
+      outside_temp_avg: r1(avg(temps)),
+      n: nPerBucket,
     });
   }
-  // Ensure final values exactly match current
   if (series.length) {
     const last = series[series.length - 1];
     last.fl_avg = cur.fl; last.fr_avg = cur.fr; last.rl_avg = cur.rl; last.rr_avg = cur.rr;
@@ -783,6 +802,7 @@ function tpmsHistory(q: URLSearchParams) {
     current: cur, series,
   });
 }
+
 
 function vampire(q: URLSearchParams) {
   const days = Math.min(90, Math.max(1, Number(q.get("days") || 30) || 30));
