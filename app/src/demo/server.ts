@@ -2,6 +2,9 @@
 // Demo Mode "server": answers every DriveLens API endpoint from the generated dataset (gen.ts), mirroring the
 // Rust API's response shapes and rules (api/src/*.rs). Writes live in memory and are persisted per demo session.
 import { generate, hav, climate, DEMO_CAR_ID, type DB, type DDrive, type DCharge, type Pos } from "./gen";
+// Shared with scripts/check-demo-tpms.mjs (plain ESM, no DOM).
+// @ts-expect-error no .d.ts for sibling .mjs under bundler resolution
+import { buildTpmsDemoHistory, checkTpmsRangeAgreement, TPMS_DEMO_CURRENT } from "./tpms-demo.mjs";
 
 // Demo always reports the newest server the app knows (set by ../demo.ts from FEATURE_LEVEL / LATEST_SERVER)
 let DEMO_API_LEVEL = 12;
@@ -544,6 +547,8 @@ export function demoConsistencySnapshot(tz = "Asia/Tokyo") {
   if (yearCost > ccCost + 0.5) issues.push(`year cost ${yearCost} > 12m ${ccCost}`);
   if (Math.abs(novKm - thisMonthKm) >= 0.15) issues.push(`month bar ${novKm} != this_month ${thisMonthKm}`);
   for (const c of totals.costs) if (c.currency !== "JPY") issues.push(`unexpected currency ${c.currency}`);
+  const tpmsAgree = checkTpmsRangeAgreement({ nowMs: db.now, tz, current: { ...TPMS_DEMO_CURRENT } });
+  if (!tpmsAgree.ok) for (const i of tpmsAgree.issues) issues.push(`tpms: ${i}`);
   return {
     ok: issues.length === 0,
     issues,
@@ -729,84 +734,24 @@ function chargingCosts(q: URLSearchParams) {
 }
 
 
+
 function tpmsHistory(q: URLSearchParams) {
   const tz = q.get("tz") || "UTC"; if (!validTz(tz)) return err(400, "unknown tz");
   const raw = Number(q.get("days") || 30);
-  const days = raw === 7 || raw === 30 || raw === 90 ? raw : 30;
-  const bucket = days <= 7 ? "hour" : "day";
-  const bucketMs = bucket === "hour" ? 3600e3 : 864e5;
-  const t1 = db.now;
-  const partsNow = parts(db.now, tz);
-  const dayStart = zoned(partsNow.y, partsNow.m, partsNow.d, tz);
-  const t0 = dayStart - (days - 1) * 864e5;
   const st = status() as { tpms: { date: string; fl: number; fr: number; rl: number; rr: number } };
   const cur = { ...st.tpms };
-  const round01 = (v: number) => Math.round(v * 10) / 10;
-  // Baselines deliberately offset so FR/RR never sit on top of each other on the chart.
-  // Current tiles still show 1-decimal: FR~2.84→2.8, RR~2.78→2.8, RL 2.7, FL leak→2.3.
-  const BASE = { fl: 2.88, fr: 2.84, rl: 2.72, rr: 2.78 };
-  const series: {
-    t: string; fl_avg: number | null; fr_avg: number | null; rl_avg: number | null; rr_avg: number | null;
-    fl_min: number | null; fr_min: number | null; rl_min: number | null; rr_min: number | null;
-    outside_temp_avg: number | null; n: number;
-  }[] = [];
-  const nPerBucket = bucket === "hour" ? 16 : 64;
-  const nBuckets = Math.max(1, Math.round((Math.min(t1, dayStart + 864e5) - t0) / bucketMs));
-  for (let i = 0; i < nBuckets; i++) {
-    const startMs = t0 + i * bucketMs;
-    if (startMs >= t1 + bucketMs) break;
-    const endMs = Math.min(startMs + bucketMs, t1);
-    if (endMs <= startMs) continue;
-    const fls: number[] = [], frs: number[] = [], rls: number[] = [], rrs: number[] = [], temps: number[] = [];
-    for (let s = 0; s < nPerBucket; s++) {
-      const ts = startMs + (endMs - startMs) * (s + 0.5) / nPerBucket;
-      const p = parts(ts, tz);
-      const ageDays = Math.max(0, (t1 - ts) / 864e5);
-      const dayFrac = (p.h + p.mi / 60) / 24;
-      // Day-night swing ~±0.10 bar (cooler ~05:00, warmer mid-afternoon).
-      const dayNight = 0.10 * Math.sin((dayFrac - 0.2) * Math.PI * 2);
-      // Multi-day weather + slower week drift (~±0.11 combined).
-      const weather = 0.07 * Math.sin(ts / 864e5 * Math.PI * 2 / 5.5) + 0.04 * Math.sin(ts / 864e5 * Math.PI * 2 / 11);
-      // Brief drive warm-up bumps during commute windows.
-      const drive =
-        (p.h >= 7 && p.h < 9 ? 0.04 : 0) + (p.h >= 17 && p.h < 19 ? 0.05 : 0);
-      const temp = 12 + 10 * (0.55 + 0.45 * Math.sin((dayFrac - 0.2) * Math.PI * 2)) + 4 * Math.sin(ts / 864e5 * Math.PI * 2 / 5.5);
-      // Deterministic per-sample sensor noise so round01 samples don't all land on the same 0.1
-      // within a bucket — bucket averages then keep 2-decimal smoothness on the chart.
-      const noise = (seed: number) => {
-        const x = Math.sin(seed) * 43758.5453;
-        return (x - Math.floor(x)) * 0.08 - 0.04;
-      };
-      const flCont = BASE.fl + dayNight * 0.9 + weather * 0.85 + drive * 0.9 - 0.58 * (ageDays < 14 ? (14 - ageDays) / 14 : 0);
-      const frCont = BASE.fr + dayNight * 1.0 + weather * 1.05 + drive * 1.0 + 0.015 * Math.sin(ts / 1.7e7);
-      const rlCont = BASE.rl + dayNight * 0.95 + weather * 0.9 + drive * 0.95 + 0.018 * Math.sin(ts / 1.9e7 + 1.2);
-      const rrCont = BASE.rr + dayNight * 1.05 + weather * 1.0 + drive * 1.05 + 0.015 * Math.sin(ts / 2.1e7 + 2.1);
-      fls.push(round01(Math.max(2.15, flCont + noise(ts * 1.01 + 11))));
-      frs.push(round01(frCont + noise(ts * 1.03 + 23)));
-      rls.push(round01(rlCont + noise(ts * 1.07 + 37)));
-      rrs.push(round01(rrCont + noise(ts * 1.11 + 53)));
-      temps.push(temp);
-    }
-    const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
-    const mn = (a: number[]) => Math.min(...a);
-    // Keep 2-decimal averages (do NOT re-quantize to 0.1) so the chart can show smooth waves.
-    series.push({
-      t: TS(startMs),
-      fl_avg: r2(avg(fls)), fr_avg: r2(avg(frs)), rl_avg: r2(avg(rls)), rr_avg: r2(avg(rrs)),
-      fl_min: round01(mn(fls)), fr_min: round01(mn(frs)), rl_min: round01(mn(rls)), rr_min: round01(mn(rrs)),
-      outside_temp_avg: r1(avg(temps)),
-      n: nPerBucket,
-    });
-  }
-  // Snap only FL of the newest bucket toward the home-tile current (2.3) so the leak ends cleanly;
-  // keep FR/RR/RL chart averages offset so lines stay visually distinct.
-  if (series.length) {
-    const last = series[series.length - 1];
-    last.fl_avg = cur.fl; last.fl_min = cur.fl;
-  }
+  const built = buildTpmsDemoHistory({ days: raw, tz, nowMs: db.now, current: { fl: cur.fl, fr: cur.fr, rl: cur.rl, rr: cur.rr } });
+  const TSISO = (ms: number) => TS(ms);
+  const series = built.series.map((b: { tMs: number; fl_avg: number; fr_avg: number; rl_avg: number; rr_avg: number; fl_min: number; fr_min: number; rl_min: number; rr_min: number; outside_temp_avg: number; n: number }) => ({
+    t: TSISO(b.tMs),
+    fl_avg: b.fl_avg, fr_avg: b.fr_avg, rl_avg: b.rl_avg, rr_avg: b.rr_avg,
+    fl_min: b.fl_min, fr_min: b.fr_min, rl_min: b.rl_min, rr_min: b.rr_min,
+    outside_temp_avg: b.outside_temp_avg,
+    n: b.n,
+  }));
   return ok({
-    days, timezone: tz, from: TS(t0), to: TS(t1), bucket, unit: "bar",
-    current: cur, series,
+    days: built.days, timezone: tz, from: TSISO(built.t0), to: TSISO(built.t1),
+    bucket: built.bucket, unit: "bar", current: cur, series,
   });
 }
 
