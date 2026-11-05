@@ -397,8 +397,8 @@ async fn vampire_alert(s: &AppState, v: &Vapid, drive_id: i64) -> anyhow::Result
     }
     let cur: Option<Edge> = sqlx::query_as(&format!(
         "SELECT d.id::int8 AS id, d.car_id::int8 AS car_id, c.name AS car_name,
-                to_char(d.start_date AT TIME ZONE 'UTC', '{TS}') AS start_date,
-                to_char(d.end_date AT TIME ZONE 'UTC', '{TS}') AS end_date,
+                to_char(d.start_date, '{TS}') AS start_date,
+                to_char(d.end_date, '{TS}') AS end_date,
                 sp.battery_level::int4 AS start_soc, ep.battery_level::int4 AS end_soc,
                 d.start_rated_range_km::float8 AS start_rated_km, d.end_rated_range_km::float8 AS end_rated_km
          FROM drives d JOIN cars c ON c.id = d.car_id
@@ -409,8 +409,8 @@ async fn vampire_alert(s: &AppState, v: &Vapid, drive_id: i64) -> anyhow::Result
     // Previous completed drive for the same car (by end_date).
     let prev: Option<Edge> = sqlx::query_as(&format!(
         "SELECT d.id::int8 AS id, d.car_id::int8 AS car_id, c.name AS car_name,
-                to_char(d.start_date AT TIME ZONE 'UTC', '{TS}') AS start_date,
-                to_char(d.end_date AT TIME ZONE 'UTC', '{TS}') AS end_date,
+                to_char(d.start_date, '{TS}') AS start_date,
+                to_char(d.end_date, '{TS}') AS end_date,
                 sp.battery_level::int4 AS start_soc, ep.battery_level::int4 AS end_soc,
                 d.start_rated_range_km::float8 AS start_rated_km, d.end_rated_range_km::float8 AS end_rated_km
          FROM drives d JOIN cars c ON c.id = d.car_id
@@ -427,14 +427,22 @@ async fn vampire_alert(s: &AppState, v: &Vapid, drive_id: i64) -> anyhow::Result
         (prev.id, prev.start_date.clone(), prev.end_date.clone(), prev.start_soc, prev.end_soc, prev.start_rated_km, prev.end_rated_km),
         (cur.id, cur.start_date.clone(), cur.end_date.clone(), cur.start_soc, cur.end_soc, cur.start_rated_km, cur.end_rated_km),
     ];
-    let charges: Vec<(String, String)> = sqlx::query_as(&format!(
-        "SELECT to_char(start_date AT TIME ZONE 'UTC', '{TS}'),
-                to_char(COALESCE(end_date, now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', '{TS}')
+    let charges: Vec<crate::insights::VampireCharge> = sqlx::query_as(&format!(
+        "SELECT to_char(start_date, '{TS}'),
+                to_char(COALESCE(end_date, now() AT TIME ZONE 'UTC'), '{TS}'),
+                start_battery_level::int4, end_battery_level::int4,
+                start_rated_range_km::float8, end_rated_range_km::float8
          FROM charging_processes
          WHERE car_id = $1
            AND start_date < replace(replace($3, 'T', ' '), 'Z', '')::timestamp
-           AND COALESCE(end_date, now() AT TIME ZONE 'UTC') > replace(replace($2, 'T', ' '), 'Z', '')::timestamp"))
-        .bind(cur.car_id as i16).bind(&prev.end_date).bind(&cur.start_date).fetch_all(&s.db).await?;
+           AND COALESCE(end_date, now() AT TIME ZONE 'UTC') > replace(replace($2, 'T', ' '), 'Z', '')::timestamp
+           AND (
+             end_date IS NOT NULL
+             OR start_date >= (now() AT TIME ZONE 'UTC') - make_interval(hours => $4)
+           )"))
+        .bind(cur.car_id as i16).bind(&prev.end_date).bind(&cur.start_date)
+        .bind(crate::insights::VAMPIRE_ACTIVE_CHARGE_HOURS)
+        .fetch_all(&s.db).await?;
     let Some(gap) = crate::insights::gap_before_drive(&drives, &charges, drive_id) else { return Ok(()) };
     let lost = gap.soc_lost.unwrap_or(0);
     if lost <= 0 { return Ok(()); }
