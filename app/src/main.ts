@@ -27,7 +27,7 @@ import { mountNotifications, initNotificationClicks } from "./notify";
 import { initOverlayScrollbar } from "./scrollbar";
 import { DriveMap, effectiveTheme, speedColorToolsHtml, bindSpeedColorToggle, speedColorMax, clampSpeedColorMax } from "./map";
 import { showReport as renderReport, nowMonth } from "./report";
-import { batteryCardHTML, showBattery, vampireCardHTML, showVampire, type Battery, type Vampire } from "./insights";
+import { batteryCardHTML, showBattery, vampireCardHTML, showVampire, chargingCostCardHTML, showChargingCosts, type Battery, type Vampire, type ChargingCosts } from "./insights";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList } from "./infinite";
 import { initBackToTop, backToTop, isJumped } from "./totop";
@@ -809,6 +809,7 @@ async function showHome() {
       <div id="sec-month"><div class="section-title">${sk("30%")}</div>${skGrid(6)}</div>
       <div id="sec-battery"></div>
       <div id="sec-vampire"></div>
+      <div id="sec-cc"></div>
       <div id="sec-drive"><div class="section-title">${sk("25%")}</div>${skCard()}</div>
       <div id="sec-charge"><div class="section-title">${sk("25%")}</div>${skCard()}</div>
       <div id="sec-totals"><div class="section-title">${sk("20%")}</div>${skGrid(3)}</div>
@@ -918,11 +919,22 @@ async function showHome() {
       sec("vampire").querySelectorAll<HTMLElement>("[data-vampire]").forEach(el => el.onclick = () => openVampire(id));
     }).catch(() => { /* optional card */ });
   });
+  // 充电费用 card (api_level ≥ 18)
+  serverReady().then(() => {
+    if (lacks("chargingCost") || !alive()) return;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    api<ChargingCosts>(`/api/cars/${id}/charging-costs?months=12&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`).then(c => {
+      if (!alive()) return;
+      sec("cc").innerHTML = chargingCostCardHTML(c);
+      sec("cc").querySelectorAll<HTMLElement>("[data-cc]").forEach(el => el.onclick = () => openChargingCosts(id));
+    }).catch(() => { /* optional card */ });
+  });
 }
 
 async function carInfo(id: number): Promise<Car | null> { try { return (await api<Car[]>("/api/cars")).find(c => c.id === id) ?? null; } catch { return null; } }
 async function openBattery(id: number) { navPage("battery", showHome); destroyMap(); ++homeGen; showBattery(view, id, showHome, await carInfo(id)); window.scrollTo(0, 0); }
 async function openVampire(id: number) { navPage("vampire", showHome); destroyMap(); ++homeGen; showVampire(view, id, showHome); window.scrollTo(0, 0); }
+async function openChargingCosts(id: number) { navPage("charging-costs", showHome); destroyMap(); ++homeGen; showChargingCosts(view, id, showHome); window.scrollTo(0, 0); }
 
 /** Monthly report (opened from the 首页 month card; back returns to 首页). */
 async function openReport(month: string, carId?: number) {
@@ -1072,6 +1084,7 @@ function openView(v: string | null) {
   else if (v?.startsWith("report")) { const m = v.slice(7); openReport(/^\d{4}-(0[1-9]|1[0-2])$/.test(m) ? m : nowMonth()); }   // only YYYY-MM reaches the report HTML
   else if (v === "battery") currentCarId().then(id => { if (id != null) openBattery(id); });
   else if (v === "vampire") currentCarId().then(id => { if (id != null) openVampire(id); });
+  else if (v === "charging-costs" || v === "chargingCosts") currentCarId().then(id => { if (id != null) openChargingCosts(id); });
   else if (v?.startsWith("journey:")) { mark("drives"); serverReady().then(() => import("./journey").then(m => m.showJourney(journeyCtx, Number(v.slice(8))))); }
   else if (v === "journeys") { mark("drives"); serverReady().then(() => import("./journey").then(m => m.showJourneys(journeyCtx))); }
   else if (v === "drives") tab("drives").click();

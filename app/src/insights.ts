@@ -2,6 +2,7 @@
 // api_level 12: battery degradation page + home card, report footprint map + 12-month trends.
 // api_level 14: battery health with TeslaMate's "Battery Health" dashboard method (`tm` in /battery); older servers / too
 // little data fall back to the range-based estimate below.
+// api_level 18: charging cost stats (cross-month unit economics).
 import { skey } from "./demo";
 import { ic } from "./icons";
 import { api, fmtMoney, defaultCurrency, type Car } from "./api";
@@ -452,5 +453,142 @@ export async function showVampire(view: HTMLElement, carId: number, back: () => 
       <div class="section-title" style="margin-top:16px"><span>${t("vamp.periods", { n: s.period_count })}</span></div>
       ${rows}
     </div>`;
+  (view.querySelector(".back") as HTMLElement).onclick = back;
+}
+
+
+// ---------------- Charging costs (api_level ≥ 18) ----------------
+export type ChargingCosts = {
+  months: number;
+  timezone: string;
+  from_month: string;
+  to_month: string;
+  summary: {
+    distance_km: number;
+    energy_added_kwh: number;
+    charge_count: number;
+    priced_count: number;
+    priced_kwh: number;
+    costs: Money[];
+    cost_per_kwh: Money[];
+    cost_per_100km: Money[];
+    coverage_pct: number | null;
+  };
+  split: { kind: string; count: number; energy_kwh: number; costs: Money[]; cost_per_kwh: Money[] }[];
+  monthly: {
+    month: string; distance_km: number; energy_added_kwh: number; charge_count: number; priced_count: number;
+    costs: Money[]; cost_per_kwh: Money[]; cost_per_100km: Money[];
+  }[];
+};
+
+function mainMoney(list: Money[]): Money | null {
+  if (!list.length) return null;
+  const pref = defaultCurrency();
+  return list.find(m => m.currency === pref) ?? [...list].sort((a, b) => b.amount - a.amount)[0];
+}
+function moneyLine(list: Money[]) {
+  if (!list.length) return "—";
+  return list.map(m => fmtMoney(m.amount, m.currency)).join(" + ");
+}
+function kindLabel(k: string) {
+  return k === "home" ? t("mix.home") : k === "supercharger" ? t("mix.supercharger") : t("mix.other");
+}
+
+export function chargingCostCardHTML(c: ChargingCosts) {
+  const s = c.summary;
+  const spent = mainMoney(s.costs);
+  const per100 = mainMoney(s.cost_per_100km);
+  const perKwh = mainMoney(s.cost_per_kwh);
+  const hero = per100 ? fmtMoney(per100.amount, per100.currency) : "—";
+  const fill = s.coverage_pct == null ? 12 : Math.max(8, Math.min(100, Math.round(s.coverage_pct)));
+  return `<div class="section-title">${t("cc.title")} <a class="link" data-cc>${t("cc.open")}</a></div>
+    <div class="card bat-card cc-card" data-cc>
+      <div class="bat-ring cc-ring" style="--p:${fill}">
+        <b>${esc(hero)}<small>/100 km</small></b></div>
+      <div class="bat-info tm">
+        <div class="bat-kv">
+          <div><small>${t("cc.spent")}</small><b>${spent ? fmtMoney(spent.amount, spent.currency) : "—"}</b></div>
+          <div><small>${t("cc.perKwh")}</small><b>${perKwh ? fmtMoney(perKwh.amount, perKwh.currency, true) : "—"}</b></div>
+          <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)} kWh</b></div>
+          <div><small>${t("cc.coverage")}</small><b>${s.coverage_pct == null ? "—" : `${n(s.coverage_pct, 0)}%`}</b></div>
+        </div>
+        <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.hint")}</div>
+      </div>
+    </div>`;
+}
+
+function ccBar(ms: ChargingCosts["monthly"], val: (m: ChargingCosts["monthly"][0]) => number | null, unit: string, color: string, d = 0) {
+  const W = 392, H = 150, L = 6, R = 6, T = 18, B = 20, iw = W - L - R, ih = H - T - B;
+  const vs = ms.map(val), max = Math.max(...vs.map(v => v ?? 0), 1e-9);
+  const bw = iw / Math.max(ms.length, 1);
+  const cur = ms.length ? ms[ms.length - 1].month : "";
+  const bars = ms.map((m, i) => {
+    const v = vs[i] ?? 0, h = ih * v / max, x = L + i * bw + bw * 0.18, on = m.month === cur;
+    return `<rect x="${x.toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${Math.max(h, v ? 1 : 0).toFixed(1)}" rx="3" style="fill:${color}" opacity="${on ? 1 : 0.45}"/>
+      <text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" class="ct${on ? " on" : ""}">${Number(m.month.slice(5))}</text>
+      ${on && vs[i] != null ? `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${(T + ih - h - 4).toFixed(1)}" text-anchor="middle" class="ct on">${n(vs[i], d)}</text>` : ""}`;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%">${bars}</svg><div class="muted small-note" style="text-align:right">${unit}</div>`;
+}
+
+export async function showChargingCosts(view: HTMLElement, carId: number, back: () => void) {
+  view.innerHTML = `<button class="back" data-title="${t("cc.pageTitle")}">${t("common.back")}</button><div class="muted">${t("common.loading")}</div>`;
+  (view.querySelector(".back") as HTMLElement).onclick = back;
+  await serverReady();
+  if (lacks("chargingCost")) {
+    view.insertAdjacentHTML("beforeend", `<div class="error card-error">${ic("alert")} ${esc(featureText("chargingCost"))}</div><div class="muted">${t("cc.needServer")}</div>`);
+    return;
+  }
+  let c: ChargingCosts;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    c = await api<ChargingCosts>(`/api/cars/${carId}/charging-costs?months=12&tz=${encodeURIComponent(tz)}&currency=${defaultCurrency()}`);
+  } catch (e) {
+    view.insertAdjacentHTML("beforeend", `<div class="error">${ic("alert")} ${esc(t("cc.err", { e: (e as Error).message }))}</div>`);
+    return;
+  }
+  const s = c.summary;
+  const spent = mainMoney(s.costs);
+  const per100 = mainMoney(s.cost_per_100km);
+  const perKwh = mainMoney(s.cost_per_kwh);
+  const hasCost = s.costs.length > 0;
+  const splitRows = c.split.map(b => {
+    const u = mainMoney(b.cost_per_kwh);
+    return `<tr><td>${esc(kindLabel(b.kind))}</td><td class="num">${b.count}</td><td class="num">${n(b.energy_kwh, 1)} kWh</td>
+      <td class="num">${moneyLine(b.costs)}</td><td class="num">${u ? fmtMoney(u.amount, u.currency, true) : "—"}</td></tr>`;
+  }).join("");
+  const monthly = c.monthly;
+  const costOf = (m: ChargingCosts["monthly"][0]) => mainMoney(m.costs)?.amount ?? 0;
+  const per100Of = (m: ChargingCosts["monthly"][0]) => mainMoney(m.cost_per_100km)?.amount ?? null;
+  const charts = hasCost ? `
+    <div class="pane"><div class="pane-t">${t("cc.spent")}${spent ? ` · ${esc(spent.currency)}` : ""}</div>${ccBar(monthly, m => costOf(m) || null, spent?.currency ?? "", "var(--red)")}</div>
+    <div class="pane"><div class="pane-t">${t("cc.per100")}</div>${ccBar(monthly, per100Of, spent?.currency ?? "", "var(--accent)", 0)}</div>`
+    : `<div class="pane"><div class="chart-empty">${t("cc.noCost")}</div></div>`;
+  const fill = s.coverage_pct == null ? 12 : Math.max(8, Math.min(100, Math.round(s.coverage_pct)));
+  const hero = per100 ? fmtMoney(per100.amount, per100.currency) : "—";
+  const body = s.charge_count === 0
+    ? `<div class="empty"><span>${t("cc.empty")}</span></div>`
+    : `<div class="card bat-card cc-card" style="margin-top:12px">
+        <div class="bat-ring cc-ring" style="--p:${fill}">
+          <b>${esc(hero)}<small>/100 km</small></b></div>
+        <div class="bat-info tm"><div class="bat-kv">
+          <div><small>${t("cc.spent")}</small><b>${spent ? fmtMoney(spent.amount, spent.currency) : "—"}</b></div>
+          <div><small>${t("cc.perKwh")}</small><b>${perKwh ? fmtMoney(perKwh.amount, perKwh.currency, true) : "—"}</b></div>
+          <div><small>${t("cc.driven")}</small><b>${n(s.distance_km, 0)} km</b></div>
+          <div><small>${t("cc.charged")}</small><b>${n(s.energy_added_kwh, 0)} kWh</b></div>
+        </div>
+        <div class="muted small-note">${t("cc.months", { n: c.months })} · ${t("cc.sessions", { n: s.charge_count })} · ${t("cc.priced", { n: s.priced_count })}</div>
+        ${s.coverage_pct != null ? `<div class="muted small-note">${t("cc.coverageHint", { pct: n(s.coverage_pct, 0), priced: n(s.priced_kwh, 0), total: n(s.energy_added_kwh, 0) })}</div>` : ""}
+        <div class="muted small-note">${t("cc.hint")}</div></div>
+      </div>
+      <div class="section-title" style="margin-top:16px"><span>${t("cc.split")}</span></div>
+      <div class="card" style="padding:0;overflow:auto"><table class="cc-table">
+        <thead><tr><th></th><th>#</th><th>kWh</th><th>${t("cc.spent")}</th><th>${t("cc.unit")}</th></tr></thead>
+        <tbody>${splitRows}</tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:16px"><span>${t("cc.monthly")}</span></div>
+      ${charts}`;
+  view.innerHTML = `<button class="back" data-title="${t("cc.pageTitle")}">${t("common.back")}</button>
+    <div class="pane">${body}</div>`;
   (view.querySelector(".back") as HTMLElement).onclick = back;
 }
