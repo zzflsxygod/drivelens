@@ -68,12 +68,12 @@ pub struct Report {
 }
 
 #[derive(FromRow)]
-pub(crate) struct DriveRow { pub(crate) id: i64, start_date: Option<String>, day: Option<String>, start_address: Option<String>, end_address: Option<String>,
-    distance_km: Option<f64>, duration_min: Option<i32>, speed_max: Option<i32>, energy_kwh: Option<f64>, cur: bool }
+pub(crate) struct DriveRow { pub(crate) id: i64, start_date: Option<String>, pub(crate) day: Option<String>, start_address: Option<String>, end_address: Option<String>,
+    pub(crate) distance_km: Option<f64>, duration_min: Option<i32>, speed_max: Option<i32>, energy_kwh: Option<f64>, cur: bool }
 
 #[derive(FromRow)]
-pub(crate) struct ChargeRow { id: i64, start_date: Option<String>, day: Option<String>, address: Option<String>, energy_kwh: Option<f64>,
-    cost: Option<f64>, currency: Option<String>, kind: String, peak_kw: Option<f64>, start_battery_level: Option<i32>,
+pub(crate) struct ChargeRow { id: i64, start_date: Option<String>, pub(crate) day: Option<String>, address: Option<String>, pub(crate) energy_kwh: Option<f64>,
+    pub(crate) cost: Option<f64>, pub(crate) currency: Option<String>, pub(crate) kind: String, peak_kw: Option<f64>, start_battery_level: Option<i32>,
     end_battery_level: Option<i32>, duration_min: Option<i32>, cur: bool }
 
 #[derive(FromRow)]
@@ -293,6 +293,272 @@ pub async fn car_trends(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
         round_money(&mut m.costs); m }).collect();
     Ok(Json(serde_json::json!({"months": out, "timezone": tz})).into_response())
 }
+
+// ---------------- api_level 18: charging cost stats (cross-month unit economics) ----------------
+
+#[derive(Deserialize)]
+pub struct ChargingCostParams {
+    /// Look-back window in calendar months ending with the current local month (default 12, clamped 1..=24).
+    months: Option<i32>,
+    tz: Option<String>,
+    currency: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CostSession {
+    pub month: String,
+    pub kind: String,
+    pub energy_kwh: f64,
+    pub cost: Option<f64>,
+    pub currency: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DriveMonthDist {
+    pub month: String,
+    pub distance_km: f64,
+}
+
+fn r1(v: f64) -> f64 { (v * 10.0).round() / 10.0 }
+fn r2(v: f64) -> f64 { (v * 100.0).round() / 100.0 }
+
+/// Amount ÷ divisor, rounded to 0.01. None when the divisor is not positive.
+pub fn unit_rate(amount: f64, divisor: f64) -> Option<f64> {
+    if divisor > 0.0 { Some(r2(amount / divisor)) } else { None }
+}
+
+/// Cost per 100 km = amount ÷ distance × 100. None when distance is not positive.
+pub fn cost_per_100km(amount: f64, distance_km: f64) -> Option<f64> {
+    if distance_km > 0.0 { Some(r2(amount / distance_km * 100.0)) } else { None }
+}
+
+/// Share of charged energy that has a recorded cost, 0–100. None when no energy.
+pub fn coverage_pct(priced_kwh: f64, energy_kwh: f64) -> Option<f64> {
+    if energy_kwh > 0.0 { Some(r1(priced_kwh.max(0.0) / energy_kwh * 100.0)) } else { None }
+}
+
+fn money_list(map: &std::collections::BTreeMap<String, f64>) -> Vec<serde_json::Value> {
+    map.iter().map(|(c, a)| serde_json::json!({"currency": c, "amount": r2(*a)})).collect()
+}
+
+fn rate_list(costs: &std::collections::BTreeMap<String, f64>, divisor: f64) -> Vec<serde_json::Value> {
+    costs.iter().filter_map(|(c, a)| unit_rate(*a, divisor).map(|r| serde_json::json!({"currency": c, "amount": r}))).collect()
+}
+
+fn per100_list(costs: &std::collections::BTreeMap<String, f64>, distance_km: f64) -> Vec<serde_json::Value> {
+    costs.iter().filter_map(|(c, a)| cost_per_100km(*a, distance_km).map(|r| serde_json::json!({"currency": c, "amount": r}))).collect()
+}
+
+/// Aggregate sessions + drive distances into the charging-costs payload (pure; unit-tested).
+pub fn build_charging_costs(
+    month_keys: &[String],
+    sessions: &[CostSession],
+    drives: &[DriveMonthDist],
+) -> serde_json::Value {
+    let mut distance = 0.0f64;
+    let mut by_month_dist: std::collections::BTreeMap<String, f64> =
+        month_keys.iter().map(|m| (m.clone(), 0.0)).collect();
+    for d in drives {
+        if let Some(v) = by_month_dist.get_mut(&d.month) { *v += d.distance_km; distance += d.distance_km; }
+    }
+
+    let mut energy = 0.0f64;
+    let mut charge_count = 0i64;
+    let mut priced_count = 0i64;
+    let mut priced_kwh = 0.0f64;
+    let mut totals: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+    let mut split: std::collections::BTreeMap<&'static str, (i64, f64, std::collections::BTreeMap<String, f64>, f64)> =
+        ["home", "supercharger", "other"].into_iter().map(|k| (k, (0, 0.0, std::collections::BTreeMap::new(), 0.0))).collect();
+
+    struct MonthAgg {
+        energy: f64,
+        charge_count: i64,
+        priced_count: i64,
+        priced_kwh: f64,
+        costs: std::collections::BTreeMap<String, f64>,
+    }
+    let mut months: std::collections::BTreeMap<String, MonthAgg> = month_keys.iter().map(|m| (m.clone(), MonthAgg {
+        energy: 0.0, charge_count: 0, priced_count: 0, priced_kwh: 0.0, costs: std::collections::BTreeMap::new(),
+    })).collect();
+
+    for s in sessions {
+        let Some(m) = months.get_mut(&s.month) else { continue };
+        let e = s.energy_kwh.max(0.0);
+        energy += e; charge_count += 1;
+        m.energy += e; m.charge_count += 1;
+        let kind = match s.kind.as_str() { "home" => "home", "supercharger" => "supercharger", _ => "other" };
+        let bk = split.get_mut(kind).unwrap();
+        bk.0 += 1; bk.1 += e;
+        if let Some(a) = s.cost {
+            priced_count += 1; priced_kwh += e;
+            m.priced_count += 1; m.priced_kwh += e;
+            *totals.entry(s.currency.clone()).or_default() += a;
+            *m.costs.entry(s.currency.clone()).or_default() += a;
+            *bk.2.entry(s.currency.clone()).or_default() += a;
+            bk.3 += e; // priced energy in this bucket
+        }
+    }
+
+    let monthly: Vec<_> = month_keys.iter().map(|k| {
+        let m = months.get(k).unwrap();
+        let dist = *by_month_dist.get(k).unwrap_or(&0.0);
+        serde_json::json!({
+            "month": k,
+            "distance_km": r1(dist),
+            "energy_added_kwh": r1(m.energy),
+            "charge_count": m.charge_count,
+            "priced_count": m.priced_count,
+            "costs": money_list(&m.costs),
+            "cost_per_kwh": rate_list(&m.costs, m.priced_kwh),
+            "cost_per_100km": per100_list(&m.costs, dist),
+        })
+    }).collect();
+
+    let split_json: Vec<_> = ["home", "supercharger", "other"].iter().map(|k| {
+        let (count, e, costs, priced_e) = split.get(k).unwrap();
+        serde_json::json!({
+            "kind": k,
+            "count": count,
+            "energy_kwh": r1(*e),
+            "costs": money_list(costs),
+            "cost_per_kwh": rate_list(costs, *priced_e),
+        })
+    }).collect();
+
+    serde_json::json!({
+        "summary": {
+            "distance_km": r1(distance),
+            "energy_added_kwh": r1(energy),
+            "charge_count": charge_count,
+            "priced_count": priced_count,
+            "priced_kwh": r1(priced_kwh),
+            "costs": money_list(&totals),
+            "cost_per_kwh": rate_list(&totals, priced_kwh),
+            "cost_per_100km": per100_list(&totals, distance),
+            "coverage_pct": coverage_pct(priced_kwh, energy),
+        },
+        "split": split_json,
+        "monthly": monthly,
+    })
+}
+
+/// GET /api/cars/:id/charging-costs?months=12&tz=&currency=
+/// Cross-month charging spend with ¥/kWh, ¥/100 km and home / Supercharger / other unit prices.
+pub async fn charging_costs(State(s): State<AppState>, Path(id): Path<i64>, Query(p): Query<ChargingCostParams>) -> Result<Response, ApiError> {
+    let bad = |m: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response();
+    let n_months = p.months.unwrap_or(12).clamp(1, 24);
+    let tz = p.tz.unwrap_or_else(|| "UTC".into());
+    let def_cur = p.currency.map(|c| c.trim().to_ascii_uppercase())
+        .filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase())).unwrap_or_else(|| "JPY".into());
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM cars WHERE id = $1)").bind(id as i16).fetch_one(&s.db).await?;
+    if !exists { return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "car not found"}))).into_response()); }
+
+    // Window: n_months local months ending with the current month (same shape as trends).
+    let r: Result<(String, String, Vec<String>, String, String), _> = sqlx::query_as(
+        "WITH x AS (SELECT (to_char(now() AT TIME ZONE $1, 'YYYY-MM') || '-01')::timestamp AS lm0)
+         SELECT to_char(((lm0 - make_interval(months => $2::int - 1)) AT TIME ZONE $1) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                to_char(((lm0 + interval '1 month') AT TIME ZONE $1) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                ARRAY(SELECT to_char(lm0 - make_interval(months => g), 'YYYY-MM') FROM generate_series($2::int - 1, 0, -1) g),
+                to_char(lm0 - make_interval(months => $2::int - 1), 'YYYY-MM'),
+                to_char(lm0, 'YYYY-MM')
+         FROM x").bind(&tz).bind(n_months).fetch_one(&s.db).await;
+    let (t0, t1, months, from_month, to_month) = match r {
+        Ok(v) => v,
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22023") => return Ok(bad("unknown tz")),
+        Err(e) => return Err(e.into()),
+    };
+
+    let costs = costs_ok(&s).await?;
+    let (cc_amount, cc_cur, cc_join) = if costs {
+        ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
+    } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
+    let (dsql, csql) = (report::drives_sql(), report::charges_sql(cc_amount, &cc_cur, cc_join));
+    // drives_sql / charges_sql bind: $1 car, $2 from (prev for report), $3 cur0, $4 to, $5 tz
+    // For a single window we set prev = cur0 = t0 so every row is "current".
+    let (drives, charges) = tokio::try_join!(
+        sqlx::query_as::<_, report::DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
+        sqlx::query_as::<_, report::ChargeRow>(&csql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
+    )?;
+
+    let sessions: Vec<CostSession> = charges.iter().filter_map(|c| {
+        let month = c.day.as_ref()?.get(..7)?.to_string();
+        Some(CostSession {
+            month,
+            kind: c.kind.clone(),
+            energy_kwh: c.energy_kwh.unwrap_or(0.0),
+            cost: c.cost,
+            currency: c.currency.clone().unwrap_or_else(|| def_cur.clone()),
+        })
+    }).collect();
+    let drive_months: Vec<DriveMonthDist> = drives.iter().filter_map(|d| {
+        let month = d.day.as_ref()?.get(..7)?.to_string();
+        Some(DriveMonthDist { month, distance_km: d.distance_km.unwrap_or(0.0) })
+    }).collect();
+
+    let mut body = build_charging_costs(&months, &sessions, &drive_months);
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("months".into(), serde_json::json!(n_months));
+        obj.insert("timezone".into(), serde_json::json!(tz));
+        obj.insert("from_month".into(), serde_json::json!(from_month));
+        obj.insert("to_month".into(), serde_json::json!(to_month));
+    }
+    Ok(Json(body).into_response())
+}
+
+#[cfg(test)]
+mod charging_cost_tests {
+    use super::*;
+
+    fn sess(month: &str, kind: &str, kwh: f64, cost: Option<f64>, cur: &str) -> CostSession {
+        CostSession { month: month.into(), kind: kind.into(), energy_kwh: kwh, cost, currency: cur.into() }
+    }
+
+    #[test]
+    fn unit_rates_and_coverage() {
+        assert_eq!(unit_rate(2140.0, 100.0), Some(21.4));
+        assert_eq!(unit_rate(100.0, 0.0), None);
+        assert_eq!(cost_per_100km(3645.0, 1000.0), Some(364.5));
+        assert_eq!(cost_per_100km(100.0, 0.0), None);
+        assert_eq!(coverage_pct(90.0, 100.0), Some(90.0));
+        assert_eq!(coverage_pct(0.0, 0.0), None);
+    }
+
+    #[test]
+    fn aggregates_split_and_monthly_without_misleading_sums() {
+        let months = vec!["2026-09".into(), "2026-10".into()];
+        let sessions = vec![
+            sess("2026-09", "home", 40.0, Some(800.0), "JPY"),
+            sess("2026-09", "supercharger", 30.0, Some(1980.0), "JPY"),
+            sess("2026-10", "home", 50.0, Some(1000.0), "JPY"),
+            sess("2026-10", "other", 20.0, None, "JPY"), // unpriced — counted in energy, not in unit rates
+        ];
+        let drives = vec![
+            DriveMonthDist { month: "2026-09".into(), distance_km: 500.0 },
+            DriveMonthDist { month: "2026-10".into(), distance_km: 600.0 },
+        ];
+        let v = build_charging_costs(&months, &sessions, &drives);
+        let s = &v["summary"];
+        assert_eq!(s["charge_count"], 4);
+        assert_eq!(s["priced_count"], 3);
+        assert_eq!(s["energy_added_kwh"], 140.0);
+        assert_eq!(s["priced_kwh"], 120.0);
+        assert_eq!(s["coverage_pct"], 85.7); // 120/140
+        assert_eq!(s["costs"][0]["amount"], 3780.0);
+        // ¥/kWh uses priced kWh only (3780 / 120 = 31.5), not total energy
+        assert_eq!(s["cost_per_kwh"][0]["amount"], 31.5);
+        // ¥/100km uses all distance in the window (3780 / 1100 * 100)
+        assert_eq!(s["cost_per_100km"][0]["amount"], 343.64);
+        let home = v["split"].as_array().unwrap().iter().find(|b| b["kind"] == "home").unwrap();
+        assert_eq!(home["count"], 2);
+        assert_eq!(home["cost_per_kwh"][0]["amount"], 20.0); // 1800 / 90
+        let other = v["split"].as_array().unwrap().iter().find(|b| b["kind"] == "other").unwrap();
+        assert_eq!(other["count"], 1);
+        assert!(other["cost_per_kwh"].as_array().unwrap().is_empty()); // no priced energy
+        assert_eq!(v["monthly"].as_array().unwrap().len(), 2);
+        assert_eq!(v["monthly"][1]["priced_count"], 1);
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
