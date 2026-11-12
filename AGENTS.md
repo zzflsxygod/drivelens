@@ -14,7 +14,7 @@ data only in the `drivelens` schema of the same database.
 |------|----------|
 | `api/` | drivelens-api: Rust, axum 0.8, sqlx 0.8 (PostgreSQL). Routes, auth, migration and tests mostly in `api/src/main.rs`; modules `auth.rs`, `summary.rs`, `report.rs`, `insights.rs`, `journey.rs`, `phase2.rs`, `push.rs`. `Dockerfile`, `deny.toml` |
 | `app/` | Web app / PWA: Vite + TypeScript + MapLibre GL. `src/locales/{en,ja,zh}.ts` texts, `src/demo/` demo mode, `src-tauri/` Tauri 2 shell (Windows/Android, builds paused) |
-| `deploy/` | `setup.sql` (database role, grants, `drivelens` schema), `docker-compose.drivelens.yml`; `drivelens-*.sql` are legacy upgrade scripts for old installs |
+| `deploy/` | `setup.sql` (database role, grants, `drivelens` schema), `docker-compose.drivelens.yml` |
 | `docs/` | Install guide ([en](docs/install.md) · [zh](docs/install.zh.md) · [ja](docs/install.ja.md)), [DEVELOPMENT.md](docs/DEVELOPMENT.md) (English), screenshots |
 | `specs/` | Behavior specs per module — **read these first** (section 2) |
 | `scripts/` | `pr.sh`, `release.sh` (maintainer only), `third-party-licenses.sh` |

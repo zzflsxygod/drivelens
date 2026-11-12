@@ -17,7 +17,7 @@ drivelens/
 │   ├── web-public/       # Static files for the web build only (_headers, icons)
 │   ├── scripts/          # check-i18n.mjs, demo/fetch-routes.py (generates demo routes)
 │   └── src-tauri/        # Tauri 2 shell (Windows / Android / iOS; publishing currently paused)
-├── deploy/               # setup.sql (DB role + drivelens schema), docker-compose.drivelens.yml; drivelens-*.sql are upgrade scripts for old installs
+├── deploy/               # setup.sql (DB role + drivelens schema), docker-compose.drivelens.yml
 ├── docs/                 # Install guide (en/zh/ja), this development guide (English), screenshots
 ├── scripts/              # release.sh (maintainer releases), third-party-licenses.sh
 ├── testdata/             # TeslaMate-compatible schema subset + scripts that generate sample data (tests only)
@@ -91,7 +91,7 @@ Everything except `/health` and `POST /api/auth/pair` needs `Authorization: Bear
 
 - **Never modify TeslaMate's tables.** TeslaMate access is SELECT only. DriveLens' own data (place aliases, manual costs, journeys, weather cache, push subscriptions, …) lives only in the `drivelens` schema.
 - `deploy/setup.sql` creates the read-only role `drivelens_ro` and the `drivelens` schema (safe to re-run). On start, the API creates / upgrades tables in `drivelens` (`migrate()` in `main.rs`, `journey::try_create_tables`, `phase2::try_migrate`, `push::try_migrate`, `auth::try_migrate`). Missing privileges or tables only turn that feature off and log `disabled features: …`.
-- `deploy/drivelens-init.sql` and `drivelens-v*.sql` are upgrade scripts from early installs that created tables by hand; new installs do not need them.
+- The legacy `deploy/drivelens-init.sql` / `drivelens-v*.sql` scripts from early installs were removed; `setup.sql` replaces them (for old installs, see git history or an older release tag).
 - Energy use follows TeslaMate Grafana's formula: `(start rated range − end rated range) × cars.efficiency`.
 
 ## Frontend notes
