@@ -5,6 +5,9 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
 ## [Unreleased]
+- **Setup hints point to `setup.sql`:** when notifications aren't enabled on the server, Settings → Notifications now says to run `deploy/setup.sql` once as the TeslaMate DB admin and restart drivelens-api, instead of the old `deploy/drivelens-v0.16.0.sql`.
+- **Legacy files removed:** `deploy/drivelens-init.sql`, `drivelens-v0.6.0.sql`, `drivelens-v0.6.1.sql`, `drivelens-v0.7.0.sql`, `drivelens-v0.16.0.sql` and the unused systemd unit `api/drivelens-api.service` are gone; `setup.sql` (plus the API's own startup migration) replaces the SQL files, and Docker is the only supported deployment. Very old installs that still need them can find them in git history and older release tags.
+- **Server** (`api_level` unchanged): the 503 hints for missing web-push tables and the dismissed-suggestions table now say to run `deploy/setup.sql` and restart the API, like the other features. Text only; no database migration.
 
 ## v1.4.3 — 2026-11-05
 - **Year in review HTTP 500:** opening the annual report no longer fails on every car. The handler had decoded TeslaMate `cars.id` (`smallint`) as `i64`, which sqlx rejects before any aggregation — including partial years with only a few months of data. Uses the same `SELECT 1` existence check as the monthly report. `api_level` unchanged (21).
