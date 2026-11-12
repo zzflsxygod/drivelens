@@ -9,7 +9,7 @@ DriveLens 由两部分组成：
 
 > DriveLens **绝不修改 TeslaMate 的表**，它的数据库账号对这些表只有读取权限。DriveLens 自己的数据（地点名称、手动录入的充电费用、旅程、封面、推送订阅、天气缓存、已连接的设备）放在独立的 `drivelens` schema 里。
 
-目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载) · [附录：只在局域网内使用](#lan-selfhost) · [认证代理（非官方）](#auth-proxy)
+目录：[前提条件](#前提条件) · [1. 下载文件](#1-下载两个文件) · [2. 密码和 Token](#2-生成密码和-token) · [3. 数据库账号](#3-创建数据库账号只需一次) · [4. 启动](#4-启动-drivelens-api) · [5. https](#5-给服务器配-https-地址) · [6. 连接](#6-在网页版里连接) · [设备](#devices) · [7. 通知](#7-通知) · [8. 更新](#8-更新) · [环境变量](#环境变量) · [常见问题](#常见问题) · [卸载](#卸载) · [附录：只在局域网内使用](#lan-selfhost) · [附录：在登录网关后面使用](#auth-proxy)
 
 ## 前提条件
 
@@ -100,7 +100,7 @@ compose 文件默认只把 API 发布在 `127.0.0.1:8080`，其他机器访问�
 3. 添加一个 Public Hostname，例如 `drivelens.你的域名`，服务填 `http://drivelens-api:8080`（cloudflared 在 compose 里）或 `http://127.0.0.1:8080`（cloudflared 在宿主机上）。
 4. 服务器地址就是 `https://drivelens.你的域名`。
 
-使用**官方网页版**（[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)）时，不要在 API 前面加 Cloudflare Access 之类的登录页：官方网页版在另一个源上，浏览器不会把 Access 的 Cookie 带给 API，请求会被拦截。API 本身由 Token 保护。**同源自行托管**（网页版和 API 在同一主机）不一样——见[认证代理后面](#auth-proxy)（非官方、未测试）。
+使用**官方网页版**（[https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)）时，不要在 API 前面加 Cloudflare Access 之类的登录页：官方网页版在另一个源上，浏览器不会把 Access 的 Cookie 带给 API，请求会被拦截。API 本身由 Token 保护。**同源自行托管**（网页版和 API 在同一主机）不一样——见[附录：在登录网关后面使用](#auth-proxy)（非官方、未测试）。
 
 <a id="tailscale"></a>
 ### 方式 B：Tailscale（不需要域名，只有自己的设备能访问）
@@ -233,6 +233,7 @@ API 读取的可选变量（`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_OWNER_KEY_MODE
 - **`cannot read TeslaMate tables`** 或 **`disabled features: …`**：数据库账号设置不完整。重新执行 `setup.sql`（第 3 步）并重启 drivelens-api。如果只是 `disabled features`，行程、充电和报告在此期间仍然可用。
 - **设置页提示连不上服务器**：先在服务器上确认 `curl http://127.0.0.1:8080/health` 正常，再检查 Tunnel（`docker compose … logs cloudflared`）或 `tailscale serve status`。
 - **`/health` 正常但读取数据失败**：中间如果有反向代理，必须原样转发 `Authorization` 请求头。
+- **「……看起来它在 Cloudflare Access、oauth2-proxy 之类的登录网关后面」**：代替 drivelens-api 响应的是登录页面。网页版（官方网页版，或部署在别的地址上的自托管网页版）无法穿过这种网关。请把网关从 API 的地址上去掉、依靠 DriveLens 自己的 Token 保护，或者按[附录：在登录网关后面使用](#auth-proxy)配置。
 - **403 `owner_key_pair_only`**：服务器设置了 `DRIVELENS_OWNER_KEY_MODE=pair-only`，服务器 Token 只能添加和管理设备。App 1.2.0 以上会自动处理；如果是脚本，用 `POST /api/auth/devices` 换一个设备 Token，或者去掉这个变量。
 - **429（失败次数过多）**：同一地址 10 分钟内失败 10 次。等 10 分钟再试。已连接的设备不受影响；`pair-only` 模式下这段时间内不检查服务器 Token（所有地址合计失败 50 次时也一样）。
 - **收不到通知**：检查该设备上的「设置 → 通知」、浏览器的通知权限，以及容器能否通过 https 访问互联网。
@@ -270,7 +271,7 @@ API 读取的可选变量（`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_OWNER_KEY_MODE
 - **分享卡片**：不显示「复制图片」和「分享…」，「保存图片」可以用。
 - **不加密**：Token 和行车数据在局域网内明文传输，同一网络里的人可能看到。只在可信的家庭网络里使用。
 - **地图**：地图瓦片（OpenFreeMap / OpenStreetMap）需要从互联网加载。
-- **不要把端口暴露到互联网**（不要在路由器上做端口转发）。
+- **不要把端口暴露到互联网**（不要在路由器上做端口转发）。想在前面加登录网关并从互联网访问，见[附录：在登录网关后面使用](#auth-proxy)。
 - 网页版不会自动更新（见下面的「更新」）。
 
 ### 构建网页版
@@ -365,11 +366,20 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 不要删除 `drivelens-web` 文件夹本身（容器的挂载会失效；如果已经删了，执行 `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`）。刷新页面就是新版本。网页版比服务器旧或新时一般也能用，需要更新服务器的功能应用会提示。
 
 <a id="auth-proxy"></a>
-### 认证代理后面（同源，非官方）
+## 附录：在登录网关后面使用（公网访问、同源、非官方）
 
-> ⚠️ **非官方、不在支持范围内、DriveLens 未测试。** 下面给的是：已经按本附录把网页版和 API 放在**同一源**上，并想在前面再加一层 oauth2-proxy 或 Cloudflare Access 之类登录的人看的。DriveLens 不测试这类配置，风险自负。
+> ⚠️ **非官方、不在支持范围内、DriveLens 未测试。** 下面给的是：把网页版和 API 自行托管在**同一源**上，在前面加一层 oauth2-proxy 或 Cloudflare Access 之类的交互式登录网关，并**通过互联网**访问的人看的。DriveLens 不测试这类配置，风险自负。
 
-[第 5 步](#cloudflare-tunnel)里「不要在 API 前面加 Cloudflare Access」针对的是**官方网页版**（另一个源）。自行托管时网页版和 `drivelens-api` 共用一个主机，浏览器会把代理的会话 Cookie 既带给页面，也带给 `/api/`，所以可以在这台主机前面放认证代理。DriveLens 仍然校验自己的设备令牌（`Authorization: Bearer …`）；代理是额外门槛，不能代替设备令牌。
+[第 5 步](#cloudflare-tunnel)里「不要在 API 前面加 Cloudflare Access」针对的是**官方网页版**（另一个源）。自行托管时网页版和 `drivelens-api` 共用一个主机，浏览器会把网关的会话 Cookie 既带给页面，也带给 `/api/`，所以可以在这台主机前面放登录网关。DriveLens 仍然校验自己的设备令牌（`Authorization: Bearer …`）；网关是额外的一层，不能代替设备令牌。
+
+构建网页版和准备 `drivelens-web`（Caddy）容器的方法与[局域网附录](#lan-selfhost)（「构建网页版」「Caddy 配置」）相同。和那里不同的是，这台主机通过 https 从互联网可达，挡住陌生人靠的是登录网关。
+
+**前提条件**
+
+- **固定的主机名**（自己的域名，例如 `https://drivelens.example.com`，通过命名 Cloudflare Tunnel 或自己的反向代理）。**Quick Tunnel**（`*.trycloudflare.com`）**不适用**：每次启动都会换一个随机主机名，而网关的 OAuth 回调地址、网关的会话 Cookie 和应用保存的连接（按地址分别保存）都和主机名绑定。
+- **在应用里填的服务器地址必须和页面地址完全相同**（协议和主机，例如 `https://drivelens.example.com`，不带路径）。其他地址（包括官方网页版或别的主机名）属于另一个源：浏览器不会把网关的 Cookie 发过去，请求会被网关拦下。这时应用会提示服务器「看起来在登录网关后面」。
+- **隧道或代理要指向网页服务器**（`drivelens-web`，负责提供应用并转发 `/api/*` 和 `/health`），**不要直接指向 API 端口**（`drivelens-api:8080`）。指向 API 端口时，页面本身不是从这个地址提供的，也就不是同源。
+- **缺少会话时，网关对 `/api/*` 返回 401 而不是重定向**，并原样转发 `Authorization` 请求头（详见下文）。
 
 **推荐做法：ForwardAuth（只做会话检查）**
 
@@ -452,8 +462,10 @@ drivelens.example.com {
 }
 ```
 
+在命名 Cloudflare Tunnel 后面时，TLS 在 Cloudflare 终止：Caddyfile 里用 `:80 {` 代替主机名，并把隧道公共主机名的目标设为 `http://drivelens-web:80`。
+
 同一主机名上的 **Cloudflare Access** 思路相同（该主机上的会话）。尽量让 Access 在缺少会话时对 API 返回 401，而不是 HTML 登录跳转，并且不要剥掉或替换 `Authorization`。
 
-**代理会话过期时应用的行为**
+**网关会话过期时应用的行为**
 
-代理返回的 401 **不会**登出设备。只有 **drivelens-api** 自己返回 `401` 且 JSON 为 `{"error":"unauthorized"}`（设备令牌被吊销或过期）时，应用才会清除已保存的连接。代理的 401/5xx 或网络错误只会提示错误并保留连接；重新登录 IdP 后刷新页面即可。
+网关返回的 401 **不会**登出设备。只有 **drivelens-api** 自己返回 `401` 且 JSON 为 `{"error":"unauthorized"}`（设备令牌被吊销或过期）时，应用才会清除已保存的连接。网关的 401（或网关重定向到 HTML 登录页）会保留连接，并提示「服务器前面的登录网关……代替 DriveLens 做了响应」；网关的 5xx 或网络错误同样保留连接。**刷新页面即可**：刷新会走网络，所以会出现网关的登录页（或它跳转到 IdP），登录后应用就会重新打开。（此修复之前的网页版会显示缓存的应用而不是登录页；如果刷新后仍然看不到登录页，请在浏览器里清除本站数据后重新打开地址——重新连接需要配对码或服务器 Token。）

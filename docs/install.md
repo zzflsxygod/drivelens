@@ -9,7 +9,7 @@ DriveLens has two parts:
 
 > DriveLens **never modifies TeslaMate's tables**. Its database account can only read them. DriveLens' own data (place names, manual charging costs, journeys, covers, push subscriptions, weather cache, connected devices) lives in a separate `drivelens` schema.
 
-Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) · [Appendix: LAN only](#lan-selfhost) · [Auth proxy (unofficial)](#auth-proxy)
+Contents: [Requirements](#requirements) · [1. Files](#1-download-two-files) · [2. Password and token](#2-create-a-password-and-a-token) · [3. Database account](#3-create-the-database-account-once) · [4. Start](#4-start-drivelens-api) · [5. https](#5-give-the-server-an-https-address) · [6. Connect](#6-connect-the-web-app) · [Devices](#devices) · [7. Notifications](#7-notifications) · [8. Updates](#8-updates) · [Reference](#environment-variables) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) · [Appendix: LAN only](#lan-selfhost) · [Appendix: Behind a login gate](#auth-proxy)
 
 ## Requirements
 
@@ -100,7 +100,7 @@ The web app is served over https, so browsers block `http://` server addresses (
 3. Add a public hostname, e.g. `drivelens.your-domain`, with the service `http://drivelens-api:8080` (cloudflared in compose) or `http://127.0.0.1:8080` (cloudflared on the host).
 4. Your server address is `https://drivelens.your-domain`.
 
-When you use the **official web app** ([https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)), don't put a login page such as Cloudflare Access in front of the API: that app is on a different origin, so the browser would not send the Access cookie with API requests and they would be blocked. The API is protected by the token. **Same-origin self-hosting** (web app and API on one host) is different — see [Behind an auth proxy](#auth-proxy) (unofficial, untested).
+When you use the **official web app** ([https://drivelens-app.oharuru.com](https://drivelens-app.oharuru.com)), don't put a login page such as Cloudflare Access in front of the API: that app is on a different origin, so the browser would not send the Access cookie with API requests and they would be blocked. The API is protected by the token. **Same-origin self-hosting** (web app and API on one host) is different — see [Appendix: Behind a login gate](#auth-proxy) (unofficial, untested).
 
 <a id="tailscale"></a>
 ### Option B: Tailscale (no domain, private to your devices)
@@ -233,6 +233,7 @@ Optional variables that the API reads (`DRIVELENS_CORS_ORIGINS`, `DRIVELENS_OWNE
 - **`cannot read TeslaMate tables`** or **`disabled features: …`**: the database account is incomplete. Run `setup.sql` again (step 3) and restart drivelens-api. With only `disabled features`, drives, charging and reports keep working meanwhile.
 - **The setup screen says the server is unreachable**: on the server, `curl http://127.0.0.1:8080/health` must work. Then check the tunnel (`docker compose … logs cloudflared`) or `tailscale serve status`.
 - **`/health` works but loading data fails**: a reverse proxy in between must pass the `Authorization` header unchanged.
+- **"… seems to be behind a login gate such as Cloudflare Access or oauth2-proxy"**: a login page answered instead of drivelens-api. The web app (official or self-hosted on another address) cannot pass such a gate; remove the gate from the API's address and rely on DriveLens' own token, or follow [Appendix: Behind a login gate](#auth-proxy).
 - **403 `owner_key_pair_only`**: the server runs with `DRIVELENS_OWNER_KEY_MODE=pair-only`, so the server token only adds and manages devices. Apps 1.2.0+ handle this by themselves; for scripts, create a device token with `POST /api/auth/devices` or remove the variable.
 - **429 (too many failed attempts)**: 10 failures within 10 minutes from one address. Wait 10 minutes. Connected devices keep working; with `pair-only` the server token is not checked during that time (also after 50 failures from all addresses together).
 - **No notifications**: check Settings → Notifications on that device, the browser's notification permission, and that the container can reach the internet over https.
@@ -270,7 +271,7 @@ If you only use DriveLens on your home LAN and want neither Cloudflare Tunnel no
 - **Share card:** "Copy image" and "Share…" are not shown; "Save image" works.
 - **No encryption:** your token and driving data travel in plain text on the LAN, so anyone on the same network could read them. Use it only on a home network you trust.
 - **Map:** map tiles (OpenFreeMap / OpenStreetMap) are loaded from the internet.
-- **Never expose the ports to the internet** (no port forwarding on your router).
+- **Never expose the ports to the internet** (no port forwarding on your router). For access from the internet with a login gate in front, see [Appendix: Behind a login gate](#auth-proxy).
 - The web app does not update itself (see Updating below).
 
 ### Build the web app
@@ -365,11 +366,20 @@ rm -rf drivelens-web/* && cp -a drivelens-src/app/dist-web/. drivelens-web/
 Do not delete the `drivelens-web` folder itself (the container would lose its mount; if you did, run `docker compose -f docker-compose.yml -f docker-compose.drivelens.yml restart drivelens-web`). Reload the page to get the new version. A web app older or newer than the server generally still works, and the app tells you when a feature needs a server update.
 
 <a id="auth-proxy"></a>
-### Behind an auth proxy (same-origin, unofficial)
+## Appendix: Behind a login gate (internet-facing, same-origin, unofficial)
 
-> ⚠️ **Unofficial, unsupported and untested by DriveLens.** The notes below are for people who already self-host the web app and API on the **same origin** (as in this appendix) and want an extra login such as oauth2-proxy or Cloudflare Access in front. DriveLens does not test these setups; use them at your own risk.
+> ⚠️ **Unofficial, unsupported and untested by DriveLens.** The notes below are for people who self-host the web app and API on the **same origin** and reach it **over the internet** with an interactive login gate in front, such as oauth2-proxy or Cloudflare Access. DriveLens does not test these setups; use them at your own risk.
 
-The warning in [step 5](#cloudflare-tunnel) ("don't put Cloudflare Access in front of the API") applies to the **official web app**, which lives on a different origin. When the self-hosted web app and `drivelens-api` share one host, the browser sends the proxy's session cookie with page loads **and** with `/api/` requests, so an auth proxy in front of that host can work. DriveLens still checks its own device token (`Authorization: Bearer …`); the proxy is an extra gate, not a replacement.
+The warning in [step 5](#cloudflare-tunnel) ("don't put Cloudflare Access in front of the API") applies to the **official web app**, which lives on a different origin. When the self-hosted web app and `drivelens-api` share one host, the browser sends the gate's session cookie with page loads **and** with `/api/` requests, so a login gate in front of that host can work. DriveLens still checks its own device token (`Authorization: Bearer …`); the gate is an extra layer, not a replacement.
+
+Build the web app and set up the `drivelens-web` Caddy container as in the [LAN appendix](#lan-selfhost) ("Build the web app", "Caddy"). Unlike there, this host is reachable from the internet over https, and the login gate is what keeps strangers out.
+
+**Requirements**
+
+- **A fixed hostname** (your own domain, e.g. `https://drivelens.example.com`, through a named Cloudflare Tunnel or your own reverse proxy). A **Quick Tunnel** (`*.trycloudflare.com`) is **not suitable**: it gets a new random hostname on every start, and the gate's OAuth callback URL, its session cookie and the app's saved connection (stored per address) are all tied to the hostname.
+- **The Server URL entered in the app must be exactly the address of the page** (scheme and host, e.g. `https://drivelens.example.com`, no path). Any other address, including the official web app or another hostname, is a different origin: the browser does not send the gate's cookie there and the gate blocks the requests. The app then says the server "seems to be behind a login gate".
+- **The tunnel or proxy points at the web server** (`drivelens-web`, which serves the app and forwards `/api/*` and `/health`), **not directly at the API port** (`drivelens-api:8080`). With the tunnel on the API port, the page itself is not served from that address and the setup is not same-origin.
+- **The gate answers `/api/*` with 401, not a redirect** when the session is missing, and passes the `Authorization` header through unchanged (details below).
 
 **Recommended pattern: ForwardAuth (session check only)**
 
@@ -452,8 +462,10 @@ drivelens.example.com {
 }
 ```
 
+Behind a named Cloudflare Tunnel, TLS ends at Cloudflare: use `:80 {` instead of the hostname in the Caddyfile and point the tunnel's public hostname at `http://drivelens-web:80`.
+
 **Cloudflare Access** on the same hostname is the same idea (a session on that host). Prefer an Access policy that answers API clients with 401 rather than an HTML login redirect when the session is missing, and do not strip or replace `Authorization`.
 
-**What the app does when the proxy session expires**
+**What the app does when the gate session expires**
 
-A 401 from the proxy does **not** sign the device out. The app only clears the saved connection when **drivelens-api** itself answers `401` with JSON `{"error":"unauthorized"}` (revoked or expired device token). A proxy 401/5xx or a network error keeps the connection and shows an error; sign in to the IdP again and reload the page.
+A 401 from the gate does **not** sign the device out. The app only clears the saved connection when **drivelens-api** itself answers `401` with JSON `{"error":"unauthorized"}` (revoked or expired device token). A gate 401 (or a gate redirect to an HTML login page) keeps the connection and shows "The login gate in front of your server … answered instead of DriveLens"; a gate 5xx or a network error keeps it as well. **Reload the page**: the reload goes to the network, so the gate's login page (or its redirect to the IdP) appears; sign in and the app opens again. (Web app versions before this fix showed the cached app instead of the login page; if a reload still does not reach the login page, clear this site's data in the browser and open the address again — you will need a pairing code or the server token to reconnect.)
