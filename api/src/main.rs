@@ -561,7 +561,9 @@ async fn put_alias(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json
 }
 
 async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    let r = sqlx::query("DELETE FROM drivelens.address_aliases WHERE address_id = $1").bind(id as i32).execute(&s.db).await?;
+    // an id outside i32 matches no address; `as i32` would wrap onto another row
+    let Ok(id) = i32::try_from(id) else { return Ok(bad(StatusCode::NOT_FOUND, "no alias")) };
+    let r = sqlx::query("DELETE FROM drivelens.address_aliases WHERE address_id = $1").bind(id).execute(&s.db).await?;
     Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no alias") } else { StatusCode::NO_CONTENT.into_response() })
 }
 
@@ -602,7 +604,9 @@ async fn put_cost(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json<
 
 async fn delete_cost(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
     if !costs_ok(&s).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, COSTS_MISSING)); }
-    sqlx::query("DELETE FROM drivelens.charge_costs WHERE charging_process_id = $1").bind(id as i32).execute(&s.db).await?;
+    // an id outside i32 matches no session; `as i32` would wrap onto another row
+    let Ok(cid) = i32::try_from(id) else { return Ok(bad(StatusCode::NOT_FOUND, "charge not found")) };
+    sqlx::query("DELETE FROM drivelens.charge_costs WHERE charging_process_id = $1").bind(cid).execute(&s.db).await?;
     // idempotent: returns the charge with the TeslaMate cost (if any) now in effect
     charge_response(&s, id).await
 }
@@ -923,6 +927,47 @@ mod auth_tests {
         assert_eq!(res.status(), StatusCode::OK);
         let v: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap()).unwrap();
         assert_eq!(v, serde_json::json!({"kind": "owner", "device": null, "device_auth": false, "owner_key_mode": "full"}));
+    }
+
+    /// api-records CB-1: a DELETE id outside i32 answers 404 before any query (the pool here is never connected).
+    #[tokio::test]
+    async fn delete_out_of_range_id_is_404() {
+        let key = "k".repeat(32);
+        let state = test_state(PgPoolOptions::new().connect_lazy("postgres://nobody@127.0.0.1:1/none").unwrap(),
+            auth::AuthState::for_tests(&key, auth::OwnerKeyMode::Full, false));
+        state.costs_ok.store(true, std::sync::atomic::Ordering::Relaxed);
+        let app = router(state);
+        for id in [4294967297i64, -4294967295, i64::MAX] {
+            let (st, v) = send(&app, "DELETE", &format!("/api/addresses/{id}/alias"), Some(&key), None).await;
+            assert_eq!((st, v), (StatusCode::NOT_FOUND, serde_json::json!({"error": "no alias"})), "alias {id}");
+            let (st, v) = send(&app, "DELETE", &format!("/api/charges/{id}/cost"), Some(&key), None).await;
+            assert_eq!((st, v), (StatusCode::NOT_FOUND, serde_json::json!({"error": "charge not found"})), "cost {id}");
+        }
+    }
+
+    /// Needs DRIVELENS_TEST_DATABASE_URL (see db_device_flow). api-records CB-1: DELETE with id + 2^32 must not
+    /// remove the cost / alias of record `id`.
+    #[tokio::test]
+    async fn db_delete_out_of_range_keeps_other_rows() {
+        let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_delete_out_of_range_keeps_other_rows skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
+        let db = PgPoolOptions::new().max_connections(3).connect(&url).await.unwrap();
+        migrate(&db).await.unwrap();
+        let key = "test-owner-key-range-0123456789abcdef";
+        let app = router(test_state(db.clone(), auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await));
+        let charge: i64 = sqlx::query_scalar("SELECT id::int8 FROM charging_processes ORDER BY id LIMIT 1").fetch_one(&db).await.unwrap();
+        let (st, c) = send(&app, "PUT", &format!("/api/charges/{charge}/cost"), Some(key), Some(serde_json::json!({"amount": 12.5, "currency": "EUR"}))).await;
+        assert_eq!((st, c["cost_source"].as_str()), (StatusCode::OK, Some("manual")), "{c}");
+        assert_eq!(send(&app, "DELETE", &format!("/api/charges/{}/cost", charge + (1 << 32)), Some(key), None).await.0, StatusCode::NOT_FOUND);
+        let (_, c) = send(&app, "GET", &format!("/api/charges/{charge}"), Some(key), None).await;
+        assert_eq!(c["cost_source"], "manual", "cost kept");
+        assert_eq!(send(&app, "DELETE", &format!("/api/charges/{charge}/cost"), Some(key), None).await.0, StatusCode::OK);
+
+        let addr: i64 = sqlx::query_scalar("SELECT id::int8 FROM addresses ORDER BY id LIMIT 1").fetch_one(&db).await.unwrap();
+        assert_eq!(send(&app, "PUT", &format!("/api/addresses/{addr}/alias"), Some(key), Some(serde_json::json!({"name": "range test"}))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, "DELETE", &format!("/api/addresses/{}/alias", addr + (1 << 32)), Some(key), None).await.0, StatusCode::NOT_FOUND);
+        let (_, list) = send(&app, "GET", "/api/addresses/aliases", Some(key), None).await;
+        assert!(list.as_array().unwrap().iter().any(|a| a["address_id"] == addr), "alias kept: {list}");
+        assert_eq!(send(&app, "DELETE", &format!("/api/addresses/{addr}/alias"), Some(key), None).await.0, StatusCode::NO_CONTENT);
     }
 
     /// Needs DRIVELENS_TEST_DATABASE_URL (see db_device_flow). api-journeys CB-1: PATCH `note: null` / "" clears the note,
