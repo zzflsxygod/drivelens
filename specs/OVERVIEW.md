@@ -72,7 +72,7 @@ flowchart LR
 | # | Module | Prefix | Responsibility | Main sources | SHALL | TO CONFIRM (resolved) | CB |
 |---|--------|--------|----------------|--------------|------:|------:|---:|
 | 1 | [api-core](api-core/SPEC.md) | CORE | Process startup and env config, route table, CORS, JSON error format, `/health` and `/api/health`, `API_LEVEL`, startup feature log | `api/src/main.rs` | 39 | 9 | 4 |
-| 2 | [api-storage](api-storage/SPEC.md) | STOR | `drivelens_ro` role and privileges, the API's own schema migration, per-feature availability checks that turn a feature off instead of failing | `deploy/*.sql`, `migrate()` and each module's migration hook | 46 | 7 (1 owner question open) | 6 |
+| 2 | [api-storage](api-storage/SPEC.md) | STOR | `drivelens_ro` role and privileges, the API's own schema migration, per-feature availability checks that turn a feature off instead of failing | `deploy/setup.sql`, `migrate()` and each module's migration hook | 46 | 7 | 6 |
 | 3 | [api-auth](api-auth/SPEC.md) | AUTH | Owner key, `dlt_` device tokens, pairing codes, full/read scopes, owner-key mode, failure limits, client-IP keys, auth middleware, `/api/auth/*` | `api/src/auth.rs` | 69 | 5 | 3 |
 | 4 | [api-records](api-records/SPEC.md) | REC | Cars, drives, charges (cursor paging, charging-power fallback, currency guess), drive paths, month totals, place aliases, manual costs | `api/src/main.rs` | 56 | 10 | 5 |
 | 5 | [api-summary](api-summary/SPEC.md) | SUM | Home data: car status, last activity, stats | `api/src/summary.rs` | 24 | 7 | 3 |
@@ -90,8 +90,8 @@ flowchart LR
 | 17 | [app-i18n](app-i18n/SPEC.md) | I18N | zh/en/ja strings, formatting, language choice, `check-i18n` build check | `i18n.ts`, `locales/*.ts`, `scripts/check-i18n.mjs` | 40 | 8 | 2 |
 | 18 | [app-demo](app-demo/SPEC.md) | DEMO | Demo mode: fixed fictional dataset, in-browser mock API, request interception, separate storage keys | `demo.ts`, `demo/*` | 74 | 10 | 5 |
 | 19 | [app-platforms](app-platforms/SPEC.md) | PLAT | PWA (service worker, manifest, install, update) and Tauri shells (CSP, Android bridge) | `pwa.ts`, `platform.ts`, `vite.config.ts`, `src-tauri/**` | 52 | 5 | 2 |
-| 20 | [ops-delivery](ops-delivery/SPEC.md) | OPS | Docker image, compose, systemd unit, CI, release scripts, license checks, test fixtures | `api/Dockerfile`, `deploy/`, `.github/`, `scripts/`, `testdata/` | 58 | 9 (1 owner question open) | 5 |
-| | **Total** | | | | **1210** | **161 (2 owner questions open)** | **83** |
+| 20 | [ops-delivery](ops-delivery/SPEC.md) | OPS | Docker image, compose, CI, release scripts, license checks, test fixtures | `api/Dockerfile`, `deploy/`, `.github/`, `scripts/`, `testdata/` | 58 | 9 | 5 |
+| | **Total** | | | | **1210** | **161** | **83** |
 
 Module boundaries on the app side are **logical, not file boundaries**. `app/src/main.ts` holds code for `app-shell`, `app-home`, `app-records`, `app-insights` and `app-notifications`. Each spec names the functions it covers.
 
@@ -261,14 +261,14 @@ Demo mode answers API requests in the browser from a generated dataset, with its
 
 ## 6. Issues that span modules
 
-These summarize section 7 rows that appear in more than one spec or affect more than one module, plus one notable single-module finding of the review (X-11). The second column is the review verdict at 9b1c39c; X-2, X-8 and X-11 were fixed in v1.2.3 / API 0.14.1 and X-10 in the docs on 2026-10-26; the others are open. Each item links to the rows that hold the evidence.
+These summarize section 7 rows that appear in more than one spec or affect more than one module, plus one notable single-module finding of the review (X-11). The second column is the review verdict at 9b1c39c; X-2, X-8 and X-11 were fixed in v1.2.3 / API 0.14.1, X-10 in the docs on 2026-10-26, and X-4 in Unreleased; the others are open. Each item links to the rows that hold the evidence.
 
 | # | Summary | Review verdict | Rows |
 |---|---------|-----------|------|
 | X-1 | Queries for drives, charges, the report, trends and journeys always join `drivelens.address_aliases`. Without that table they return 500, although docs say the read features keep working. `api-push` checks for the table first. | real, rare in practice | api-storage CB-1, api-insights CB-8 |
 | X-2 | A database error in the table probe (`tables_ok`) of the 5-minute device reload marks device auth unavailable and clears the device index. Every device token then gets 401, and the app deletes its saved connection on 401, so a short outage can sign out every device. This contradicts the comment at `api/src/auth.rs:342`. The next successful reload restores the index, but apps that saw the 401 have already deleted their credentials. | real, notable (`api/src/auth.rs:96-102`, `:344-349`); **fixed in v1.2.3 / API 0.14.1** | api-auth CB-1 |
 | X-3 | `DELETE /api/charges/{id}/cost` and `DELETE /api/addresses/{id}/alias` cast the id with `as i32` without an existence check. An id above 2^31 wraps around and can delete another record's cost or alias. | real, low severity (needs an authenticated full-scope client) | api-records CB-1 |
-| X-4 | Setup hints in API errors and in the app still point to legacy `deploy/drivelens-v0.x.sql` files instead of `setup.sql`. | real, text only | api-storage CB-4, api-push CB-1, api-journeys CB-7, app-notifications CB-1 |
+| X-4 | Setup hints in API errors and in the app still point to legacy `deploy/drivelens-v0.x.sql` files instead of `setup.sql`. | real, text only; **fixed in Unreleased** (hints point to `deploy/setup.sql`; the legacy `deploy/drivelens-*.sql` files and `api/drivelens-api.service` were removed by owner decision) | api-storage CB-4, CB-6; api-push CB-1; api-journeys CB-7; app-notifications CB-1; ops-delivery CB-2 |
 | X-5 | Some paths that need missing tables return 500 instead of 503: speed bands and the alias endpoints. | real, minor | api-storage CB-2, CB-3; api-journeys CB-4 |
 | X-6 | Trip notifications carry `&car=<id>`, but the app never reads it, so tapping one does not switch the selected car. | real, minor (multi-car only) | app-shell CB-1, app-notifications CB-2 |
 | X-7 | On a cold start with several cars, list requests use the car selector (still empty) while cache keys and totals use the remembered car. | real, minor (multi-car cold start only) | app-records CB-4, app-journeys CB-4 |
@@ -284,7 +284,7 @@ These summarize section 7 rows that appear in more than one spec or affect more 
   - Server: the automated tests cover CORS, the public/protected route table, the auth helpers and the device flow, and push message texts and encryption. The device flow test runs only when `DRIVELENS_TEST_DATABASE_URL` is set.
   - App: no tests, apart from the `check-i18n` build check.
   - As a result, most app statements are backed by `src:` evidence only.
-- **Former `TO CONFIRM` marks (161 counted in the table, 189 occurrences including inline ones).** All were resolved in the 2026-10-26 review; 2 questions remain open for the owner (api-storage CB-6, ops-delivery CB-2 / OPS-030). The original marks clustered in four areas, which remain the least certain parts of the specs:
+- **Former `TO CONFIRM` marks (161 counted in the table, 189 occurrences including inline ones).** All were resolved in the 2026-10-26 review; the 2 questions left open for the owner (api-storage CB-6, ops-delivery CB-2 / OPS-030) were decided on 2026-11-12 (delete the files; see X-4). The original marks clustered in four areas, which remain the least certain parts of the specs:
   - design rationale (why a limit or method was chosen)
   - behavior that depends on TeslaMate, PostgreSQL, browsers or libraries
   - claims of equivalence to TeslaMate's battery-health dashboard
