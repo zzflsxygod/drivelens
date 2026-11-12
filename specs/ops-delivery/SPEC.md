@@ -163,7 +163,7 @@ ops-delivery turns the repository into things people run: a multi-architecture D
 - Pushing updates to users' servers: users pull the image themselves or enable Watchtower. (doc: docs/install.md "8. Updates")
 - Publishing native installers while packaging is paused. (src: scripts/release.conf:9)
 - Attaching a web-app zip to releases; the web app is only offered at the official URL. (comment: scripts/release.sh:12; doc: CHANGELOG.md v0.16.0)
-- Supporting self-hosted web app deployments (the LAN appendix and the auth-proxy subsection are unofficial / untested). (doc: README.md "Quick start (server)"; doc: docs/install.md "Appendix: LAN-only use", "Behind an auth proxy")
+- Supporting self-hosted web app deployments (the LAN appendix and the login-gate appendix are unofficial / untested). (doc: README.md "Quick start (server)"; doc: docs/install.md "Appendix: LAN-only use", "Appendix: Behind a login gate")
 - Running database-backed tests or `cargo clippy` in CI; both are left to contributors. Confirmed (current scope): CI has no database and stays fast; contributors run them locally. (src: .github/workflows/ci.yml:21; doc: CONTRIBUTING.md "Pull request checklist")
 
 ## 7. Current behavior vs. intended behavior
