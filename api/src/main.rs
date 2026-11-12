@@ -66,6 +66,24 @@ pub(crate) async fn costs_ok(s: &AppState) -> Result<bool, ApiError> {
     Ok(ok)
 }
 
+/// Does the role hold `privs` on drivelens.address_aliases? Checked on every call (like api-push), so read
+/// queries follow the table appearing or disappearing. `false` when the table or schema is missing.
+pub(crate) async fn aliases_ok(s: &AppState, privs: &str) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT to_regclass('drivelens.address_aliases') IS NOT NULL AND has_table_privilege('drivelens.address_aliases'::text, $1::text)")
+        .bind(privs).fetch_one(&s.db).await
+        .or_else(|e| match &e { sqlx::Error::Database(_) => Ok(false), _ => Err(e) })?)
+}
+
+/// Empty stand-in with the alias table's columns: joined instead of drivelens.address_aliases when that
+/// is not readable, so place names fall back to geofence / address and the reads keep working.
+const NO_ALIASES: &str = "(SELECT NULL::int4 AS address_id, NULL::text AS name WHERE false)";
+
+/// The relation that read queries join for place aliases (`LEFT JOIN {al} sal ON …`).
+pub(crate) async fn alias_table(s: &AppState) -> Result<&'static str, ApiError> {
+    Ok(if aliases_ok(s, "SELECT").await? { "drivelens.address_aliases" } else { NO_ALIASES })
+}
+
 /// Currency guessed from the charge location: TeslaMate's addresses.country (localized name
 /// or English), then a Japan bounding box on the position. NULL = unknown (client default).
 pub(crate) const LOC_CURRENCY: &str = r#"(CASE
@@ -316,7 +334,8 @@ struct PathPoint {
     battery_level: Option<i32>,
 }
 
-pub(crate) fn charge_select(costs: bool) -> String {
+/// Charge columns + joins (no WHERE). `al` is the alias relation from `alias_table`.
+pub(crate) fn charge_select(costs: bool, al: &str) -> String {
     let (cost_cols, cost_join) = if costs {
         ("COALESCE(cc.amount, cp.cost)::float8 AS cost,
           CASE WHEN cc.amount IS NOT NULL THEN cc.currency::text WHEN cp.cost IS NOT NULL THEN LOCCUR END AS currency,
@@ -342,7 +361,7 @@ pub(crate) fn charge_select(costs: bool) -> String {
           cp.duration_min::int4 AS duration_min, cp.outside_temp_avg::float8 AS outside_temp_avg
         FROM charging_processes cp
         LEFT JOIN addresses a ON a.id = cp.address_id
-        LEFT JOIN drivelens.address_aliases al ON al.address_id = cp.address_id
+        LEFT JOIN {al} al ON al.address_id = cp.address_id
         LEFT JOIN geofences g ON g.id = cp.geofence_id
         LEFT JOIN positions p ON p.id = cp.position_id
         {cost_join}"#
@@ -425,7 +444,7 @@ async fn list_charges(State(s): State<AppState>, Query(q): Query<ListParams>) ->
         "{} WHERE ($1::int8 IS NULL OR cp.car_id = $1) AND cp.end_date IS NOT NULL
            AND ($4::timestamptz IS NULL OR (cp.start_date, cp.id) < (($4::timestamptz AT TIME ZONE 'UTC'), $5::int4))
          ORDER BY cp.start_date DESC, cp.id DESC LIMIT $2 OFFSET $3",
-        charge_select(costs_ok(&s).await?)
+        charge_select(costs_ok(&s).await?, alias_table(&s).await?)
     );
     let (before, bid) = q.cursor();
     let rows = sqlx::query_as::<_, ChargeSummary>(&sql)
@@ -435,7 +454,7 @@ async fn list_charges(State(s): State<AppState>, Query(q): Query<ListParams>) ->
 }
 
 async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(&s).await?));
+    let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(&s).await?, alias_table(&s).await?));
     let Some(summary) = sqlx::query_as::<_, ChargeSummary>(&sql).bind(id).fetch_optional(&s.db).await? else {
         return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
     };
@@ -452,8 +471,8 @@ async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Re
     Ok(Json(ChargeDetail { summary, points }).into_response())
 }
 
-/// Drive columns + joins (no WHERE). With `journeys`, also the journey id/name of each drive.
-pub(crate) fn drive_select(journeys: bool) -> String {
+/// Drive columns + joins (no WHERE). With `journeys`, also the journey id/name of each drive. `al` as in `charge_select`.
+pub(crate) fn drive_select(journeys: bool, al: &str) -> String {
     let (jcols, jjoin) = if journeys {
         (", jd.journey_id::int8 AS journey_id, j.name AS journey_name",
          "LEFT JOIN drivelens.journey_drives jd ON jd.drive_id = d.id LEFT JOIN drivelens.journeys j ON j.id = jd.journey_id")
@@ -476,8 +495,8 @@ pub(crate) fn drive_select(journeys: bool) -> String {
            JOIN cars c ON c.id = d.car_id
            LEFT JOIN addresses sa ON sa.id = d.start_address_id
            LEFT JOIN addresses ea ON ea.id = d.end_address_id
-           LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
-           LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
+           LEFT JOIN {al} sal ON sal.address_id = d.start_address_id
+           LEFT JOIN {al} eal ON eal.address_id = d.end_address_id
            LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
            LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
            LEFT JOIN positions sp ON sp.id = d.start_position_id
@@ -495,7 +514,7 @@ async fn list_drives(State(s): State<AppState>, Query(q): Query<ListParams>) -> 
                 COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) ILIKE $7 ESCAPE '!'
              OR COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) ILIKE $7 ESCAPE '!')
            ORDER BY d.start_date DESC, d.id DESC LIMIT $2 OFFSET $3",
-        drive_select(journey::tables_ok(&s).await?)
+        drive_select(journey::tables_ok(&s).await?, alias_table(&s).await?)
     );
     let (before, bid) = q.cursor();
     let pat = q.search_pattern();
@@ -534,10 +553,14 @@ fn alias_select() -> String {
     )
 }
 
-async fn list_aliases(State(s): State<AppState>) -> ApiResult<Vec<AliasRow>> {
+const ALIASES_MISSING: &str = "place alias table drivelens.address_aliases is missing or not writable; run deploy/setup.sql and restart the API (see docs/install.md)";
+const ALIAS_PRIVS: &str = "SELECT,INSERT,UPDATE,DELETE";
+
+async fn list_aliases(State(s): State<AppState>) -> Result<Response, ApiError> {
+    if !aliases_ok(&s, "SELECT").await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, ALIASES_MISSING)); }
     let rows = sqlx::query_as::<_, AliasRow>(&format!("{} ORDER BY al.name", alias_select()))
         .fetch_all(&s.db).await?;
-    Ok(Json(rows))
+    Ok(Json(rows).into_response())
 }
 
 fn bad(code: StatusCode, msg: &str) -> Response {
@@ -545,6 +568,7 @@ fn bad(code: StatusCode, msg: &str) -> Response {
 }
 
 async fn put_alias(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json<AliasBody>) -> Result<Response, ApiError> {
+    if !aliases_ok(&s, ALIAS_PRIVS).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, ALIASES_MISSING)); }
     let name = b.name.trim();
     if name.is_empty() || name.chars().count() > 200 {
         return Ok(bad(StatusCode::BAD_REQUEST, "name must be 1-200 characters"));
@@ -561,8 +585,9 @@ async fn put_alias(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json
 }
 
 async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    // an id outside i32 matches no address; `as i32` would wrap onto another row
+    // an id outside i32 matches no address; `as i32` would wrap onto another row (range check first: it needs no table)
     let Ok(id) = i32::try_from(id) else { return Ok(bad(StatusCode::NOT_FOUND, "no alias")) };
+    if !aliases_ok(&s, ALIAS_PRIVS).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, ALIASES_MISSING)); }
     let r = sqlx::query("DELETE FROM drivelens.address_aliases WHERE address_id = $1").bind(id).execute(&s.db).await?;
     Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no alias") } else { StatusCode::NO_CONTENT.into_response() })
 }
@@ -573,7 +598,7 @@ struct CostBody { amount: f64, currency: String, note: Option<String> }
 const COSTS_MISSING: &str = "manual cost table drivelens.charge_costs is missing or not writable; run deploy/setup.sql and restart the API (see docs/install.md)";
 
 async fn charge_response(s: &AppState, id: i64) -> Result<Response, ApiError> {
-    let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(s).await?));
+    let sql = format!("{} WHERE cp.id = $1", charge_select(costs_ok(s).await?, alias_table(s).await?));
     Ok(match sqlx::query_as::<_, ChargeSummary>(&sql).bind(id).fetch_optional(&s.db).await? {
         Some(c) => Json(c).into_response(),
         None => bad(StatusCode::NOT_FOUND, "charge not found"),
@@ -659,9 +684,7 @@ async fn log_features(s: &AppState) {
     let teslamate: bool = sqlx::query_scalar("SELECT to_regclass('public.drives') IS NOT NULL AND has_table_privilege('public.drives', 'SELECT')")
         .fetch_one(&s.db).await.unwrap_or(false);
     if !teslamate { tracing::error!("cannot read TeslaMate tables (public.drives); {SETUP_HINT}"); }
-    let aliases: bool = sqlx::query_scalar("SELECT to_regclass('drivelens.address_aliases') IS NOT NULL AND has_table_privilege('drivelens.address_aliases', 'SELECT,INSERT,UPDATE,DELETE')")
-        .fetch_one(&s.db).await.unwrap_or(false);
-    let f = [("teslamate read", teslamate), ("place aliases", aliases),
+    let f = [("teslamate read", teslamate), ("place aliases", aliases_ok(s, ALIAS_PRIVS).await.unwrap_or(false)),
         ("manual costs", costs_ok(s).await.unwrap_or(false)), ("journeys", journey::tables_ok(s).await.unwrap_or(false)),
         ("suggestion dismissal", journey::dismiss_ok(s).await.unwrap_or(false)),
         ("journey cover", phase2::cover_ok(s).await.unwrap_or(false)), ("weather cache", phase2::weather_ok(s).await.unwrap_or(false)),
