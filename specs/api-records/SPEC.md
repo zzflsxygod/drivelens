@@ -41,7 +41,7 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 
 - **Depends on:**
   - `ext:TeslaMate DB` — read-only: `cars`, `drives`, `charging_processes`, `charges`, `positions`, `addresses`, `geofences` (testdata/schema.sql).
-  - `api-storage` — `drivelens.address_aliases`, `drivelens.charge_costs`, `drivelens.journeys`, `drivelens.journey_drives` tables and the probes `costs_ok` (src: api/src/main.rs:57-65) and `journey::tables_ok` (src: api/src/main.rs:442).
+  - `api-storage` — `drivelens.address_aliases`, `drivelens.charge_costs`, `drivelens.journeys`, `drivelens.journey_drives` tables and the probes `costs_ok` (src: api/src/main.rs:57-65) and `journey::tables_ok` (src: api/src/main.rs:442), and since Unreleased `aliases_ok` / `alias_table` (src: `api/src/main.rs` `aliases_ok`, `alias_table`).
   - `api-core` — router, `ApiError` → HTTP 500 envelope (src: api/src/main.rs:86-96), `bad()` helper (src: api/src/main.rs:486-488).
   - `api-auth` — every route is behind the auth middleware (test: api/src/main.rs auth_tests::only_pair_is_public).
 - **Used by:**
@@ -143,6 +143,7 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 - **REC-094** When `DELETE /api/addresses/{id}/alias` removes an alias, the system SHALL respond HTTP 204; when there was no alias, HTTP 404 with `{"error": "no alias"}`. (src: api/src/main.rs:506-509)
 - **REC-095** When an alias exists for an address, the system SHALL show it as the place name of every drive and charge at that address (REC-003). (src: api/src/main.rs:283, 412-413; doc: app/src/locales/en.ts:20 "alias.hint")
 - **REC-096** When `DELETE /api/addresses/{id}/alias` is called with an `id` outside the 32-bit integer range, the system SHALL respond HTTP 404 with `{"error": "no alias"}` and delete nothing (the id is never narrowed onto another address). (src: `api/src/main.rs` `delete_alias`; test: `api/src/main.rs` `delete_out_of_range_id_is_404`, `db_delete_out_of_range_keeps_other_rows`)
+- **REC-109** When `drivelens.address_aliases` is not readable, the system SHALL list drives and charges without aliases (place name from geofence or TeslaMate address, `alias` fields `null`) instead of failing, and the alias endpoints SHALL answer HTTP 503 with the setup hint: `GET /api/addresses/aliases` when the table is not readable, `PUT` / `DELETE /api/addresses/{id}/alias` when it is not writable. Details in api-storage STOR-069. (src: `api/src/main.rs` `alias_table`, `list_aliases`, `put_alias`, `delete_alias`; added in Unreleased, X-1 / X-5)
 
 ### 3.10 Manual charging costs
 
