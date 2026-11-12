@@ -50,7 +50,8 @@ document.documentElement.dataset.theme = effectiveTheme();
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const n = (v: number | null, d = 1) => v == null ? "—" : v.toFixed(d);
-const carQ = () => carSel.value ? `&car_id=${carSel.value}` : "";
+/** `&car_id=` for an id from `currentCarId()`, the id the list cache keys and month totals use (the selector is still empty on a cold start). */
+const carQ = (car: number | null) => car != null ? `&car_id=${car}` : "";
 
 /** Clickable place name; opens rename dialog when it has an address id. */
 function place(name: string | null, addressId: number | null, alias: string | null) {
@@ -157,7 +158,10 @@ function destroyMap() { map?.destroy(); map = null; }
 function showError(e: unknown) { view.innerHTML = `<div class="error">${ic("alert")}${esc((e as Error).message)}</div>`; }
 function loading() { destroyMap(); view.innerHTML = `<div class="muted">${t("common.loading")}</div>`; }
 
-async function loadCars() {
+let carsReq: Promise<void> | null = null;
+/** Concurrent callers (start-up, notification target, `currentCarId`) share one /api/cars request. */
+function loadCars() { return carsReq ??= fetchCars().finally(() => { carsReq = null; }); }
+async function fetchCars() {
   try {
     const cars = await api<Car[]>("/api/cars");
     carList = cars;
@@ -238,9 +242,9 @@ async function showCharges(restore = false) {
     <div class="export-msg" id="x-msg" hidden></div><div id="clist"></div>`;
   // CSV of every session of the selected car, not only the loaded pages
   const xb = view.querySelector<HTMLButtonElement>("#c-export");
-  if (xb) xb.onclick = () => runExport(xb, view.querySelector<HTMLElement>("#x-msg"), chargesCsv(`/api/charges?x=1${carQ()}`));
+  if (xb) xb.onclick = () => runExport(xb, view.querySelector<HTMLElement>("#x-msg"), chargesCsv(`/api/charges?x=1${carQ(car)}`));
   const list = infiniteList<Charge>({
-    container: document.getElementById("clist")!, toolbar: document.getElementById("c-tb")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ()}`,
+    container: document.getElementById("clist")!, toolbar: document.getElementById("c-tb")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ(car)}`,
     paging: !lacks("paging"), carId: car, monthsSupported: !lacks("paging"), restore,
     dateOf: c => c.start_date, empty: t("charges.empty"),
     header: (m, tot, loaded) => {
@@ -662,7 +666,8 @@ async function currentCarId(): Promise<number | null> {
   if (last) {
     loadCars().then(() => {
       if (!carSel.options.length) return;
-      if ([...carSel.options].some(o => o.value === String(last))) { carSel.value = String(last); syncCarPill(); return; }
+      const want = localStorage.getItem(LAST_CAR_KEY) || String(last);   // re-read: a notification may have picked a car meanwhile
+      if ([...carSel.options].some(o => o.value === want)) { carSel.value = want; syncCarPill(); return; }
       // the remembered car is not on this server (removed, other server): switch to the first one and re-render
       localStorage.setItem(LAST_CAR_KEY, carSel.value); syncCarPill();
       (document.querySelector("nav button.active") as HTMLElement | null)?.click();
@@ -671,6 +676,17 @@ async function currentCarId(): Promise<number | null> {
   }
   await loadCars();
   return carSel.value ? Number(carSel.value) : null;
+}
+
+/** Notification targets name their car (`&car=<id>`): select it (only if it is one of this server's cars), then open the target.
+ *  Opens synchronously when there is nothing to switch (no `car`, or it is already the selected / remembered car). */
+function openWithCar(v: string | null, raw: string | null | undefined) {
+  const id = Number(raw);
+  const same = String(id) === (carSel.value || localStorage.getItem(LAST_CAR_KEY));
+  if (!Number.isInteger(id) || id <= 0 || same) { openView(v); return; }
+  void (carList.length ? Promise.resolve() : loadCars()).then(() => {
+    if (carList.some(c => c.id === id)) { carSel.value = String(id); localStorage.setItem(LAST_CAR_KEY, String(id)); syncCarPill(); }
+  }).finally(() => openView(v));
 }
 
 const sk = (w = "60%", h = "14px") => `<span class="sk" style="width:${w};height:${h}"></span>`;
@@ -1147,13 +1163,17 @@ function openView(v: string | null) {
   else if (v === "drives") tab("drives").click();
   else { mark("home"); showHome(); }
 }
-initNotificationClicks(v => { if (loadSettings().apiUrl && !document.body.classList.contains("setup-mode")) { closeMenus(); document.querySelector(".modal")?.remove(); openView(v); } });
+initNotificationClicks((v, car) => {
+  if (!loadSettings().apiUrl || document.body.classList.contains("setup-mode")) return;
+  closeMenus(); document.querySelector(".modal")?.remove();
+  openWithCar(v, car);
+});
 // a later reload must not reopen the notification target (but keep it while the first service-worker install may still reload the page)
 if (qp.get("from") === "push" && navigator.serviceWorker?.controller) history.replaceState(null, "", location.pathname);
 const startServer = () => checkServer().then(i => initDeviceAuth(i.level ?? 0));
 if (!loadSettings().apiUrl) {
   const notice = sessionStorage.getItem(LEFT_NOTICE) ?? ""; sessionStorage.removeItem(LEFT_NOTICE);
   showSetupWizard(view, () => { void startServer(); loadCars(); showHome(); }, notice);
-} else { void startServer(); loadCars(); openView(start); }
+} else { void startServer(); loadCars(); openWithCar(start, qp.get("car")); }
 // browser / Android PWA back button: close the topmost sheet → leave the detail page → 首页 → leave the app
 if (isWeb()) initHistory(inAppBack);
