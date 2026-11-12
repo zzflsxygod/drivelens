@@ -838,12 +838,79 @@ mod auth_tests {
         (st, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
     }
 
-    /// Needs a throwaway database with the testdata schema: DRIVELENS_TEST_DATABASE_URL=postgres://… cargo test
-    /// (skipped otherwise). Migration twice (idempotent), owner key → device → pairing → read device → revoke.
+    /// Minimal stand-in for the TeslaMate tables the db_* tests reach: only the columns read by /api/cars, the
+    /// drive / charge / address selects (journey detail, charge cost, place alias) and get_charge. Idempotent:
+    /// existing tables (e.g. testdata/schema.sql) are left alone, and the seed rows (TM_SEED, obviously fictional) are
+    /// only added when no usable row exists. Test databases only — DriveLens itself never writes to these tables.
+    const TM_TABLES: [&str; 7] = [
+        "CREATE TABLE IF NOT EXISTS public.cars (id smallserial PRIMARY KEY, name text, model varchar(255), marketing_name varchar(255),
+            vin text, efficiency double precision, display_priority smallint NOT NULL DEFAULT 1)",
+        "CREATE TABLE IF NOT EXISTS public.addresses (id serial PRIMARY KEY, display_name varchar(512), name varchar(255),
+            house_number varchar(255), road varchar(255), city varchar(255), country varchar(255))",
+        "CREATE TABLE IF NOT EXISTS public.geofences (id serial PRIMARY KEY, name varchar(255) NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS public.positions (id serial PRIMARY KEY, date timestamp NOT NULL, latitude numeric(8,6) NOT NULL,
+            longitude numeric(9,6) NOT NULL, battery_level smallint, car_id smallint NOT NULL REFERENCES public.cars(id))",
+        "CREATE TABLE IF NOT EXISTS public.drives (id serial PRIMARY KEY, start_date timestamp NOT NULL, end_date timestamp,
+            outside_temp_avg numeric(4,1), speed_max smallint, distance double precision, duration_min smallint,
+            car_id smallint NOT NULL REFERENCES public.cars(id), start_address_id int REFERENCES public.addresses(id),
+            end_address_id int REFERENCES public.addresses(id), start_rated_range_km numeric(6,2), end_rated_range_km numeric(6,2),
+            start_position_id int, end_position_id int, start_geofence_id int REFERENCES public.geofences(id),
+            end_geofence_id int REFERENCES public.geofences(id))",
+        "CREATE TABLE IF NOT EXISTS public.charging_processes (id serial PRIMARY KEY, start_date timestamp NOT NULL, end_date timestamp,
+            charge_energy_added numeric(8,2), start_battery_level smallint, end_battery_level smallint, duration_min smallint,
+            outside_temp_avg numeric(4,1), car_id smallint NOT NULL REFERENCES public.cars(id),
+            position_id int NOT NULL REFERENCES public.positions(id), address_id int REFERENCES public.addresses(id),
+            geofence_id int REFERENCES public.geofences(id), charge_energy_used numeric(8,2), cost numeric(6,2))",
+        "CREATE TABLE IF NOT EXISTS public.charges (id serial PRIMARY KEY, date timestamp NOT NULL, battery_level smallint,
+            charge_energy_added numeric(8,2) NOT NULL, charger_actual_current smallint, charger_phases smallint,
+            charger_power smallint NOT NULL, charger_voltage smallint, fast_charger_present boolean,
+            ideal_battery_range_km numeric(6,2) NOT NULL, charging_process_id int NOT NULL REFERENCES public.charging_processes(id))",
+    ];
+    const TM_SEED: [&str; 6] = [
+        "INSERT INTO public.cars (name, model, efficiency) SELECT 'Test Car', '3', 0.15 WHERE NOT EXISTS (SELECT 1 FROM public.cars)",
+        "INSERT INTO public.addresses (display_name, name, city, country) SELECT 'Test Place, Testville', 'Test Place', 'Testville', 'Testland'
+            WHERE NOT EXISTS (SELECT 1 FROM public.addresses)",
+        "INSERT INTO public.positions (date, latitude, longitude, battery_level, car_id)
+            SELECT '2001-01-01 10:00:00', 0.0001, 0.0001, 80, min(id) FROM public.cars HAVING NOT EXISTS (SELECT 1 FROM public.positions)",
+        // a finished drive that is in no journey (db_journey_note_and_auth_reload deletes its journey at the end)
+        "INSERT INTO public.drives (start_date, end_date, distance, duration_min, speed_max, start_rated_range_km, end_rated_range_km, car_id,
+                start_address_id, end_address_id, start_position_id, end_position_id)
+            SELECT '2001-01-01 10:00:00', '2001-01-01 10:30:00', 20.5, 30, 90, 300, 280, c.id, a.id, a.id, p.id, p.id
+            FROM (SELECT min(id) AS id FROM public.cars) c, (SELECT min(id) AS id FROM public.addresses) a, (SELECT min(id) AS id FROM public.positions) p
+            WHERE NOT EXISTS (SELECT 1 FROM public.drives d WHERE d.end_date IS NOT NULL
+                AND d.id NOT IN (SELECT drive_id FROM drivelens.journey_drives))",
+        "INSERT INTO public.charging_processes (start_date, end_date, charge_energy_added, charge_energy_used, start_battery_level,
+                end_battery_level, duration_min, car_id, position_id, address_id)
+            SELECT '2001-01-01 11:00:00', '2001-01-01 12:00:00', 10.5, 11.2, 60, 80, 60, c.id, p.id, a.id
+            FROM (SELECT min(id) AS id FROM public.cars) c, (SELECT min(id) AS id FROM public.addresses) a, (SELECT min(id) AS id FROM public.positions) p
+            WHERE NOT EXISTS (SELECT 1 FROM public.charging_processes)",
+        "INSERT INTO public.charges (date, battery_level, charge_energy_added, charger_power, charger_voltage, charger_actual_current,
+                charger_phases, fast_charger_present, ideal_battery_range_km, charging_process_id)
+            SELECT '2001-01-01 11:30:00', 70, 5.2, 11, 230, 16, 3, false, 290, min(id) FROM public.charging_processes
+            HAVING NOT EXISTS (SELECT 1 FROM public.charges)",
+    ];
+
+    /// Pool for the db_* tests (DRIVELENS_TEST_DATABASE_URL, a throwaway database; may start empty): creates the
+    /// TeslaMate tables above, runs the first migration (its foreign keys need those tables) and seeds the rows. All
+    /// under an advisory lock, because the tests run in parallel and concurrent DDL on a fresh database can fail.
+    async fn test_db(url: &str) -> PgPool {
+        let db = PgPoolOptions::new().max_connections(3).connect(url).await.unwrap();
+        let mut lock = db.acquire().await.unwrap();
+        sqlx::query("SELECT pg_advisory_lock(72620078)").execute(&mut *lock).await.unwrap();
+        for q in TM_TABLES { sqlx::query(q).execute(&mut *lock).await.unwrap_or_else(|e| panic!("test fixture: {e}\n{q}")); }
+        migrate(&db).await.unwrap();
+        for q in TM_SEED { sqlx::query(q).execute(&mut *lock).await.unwrap_or_else(|e| panic!("test seed: {e}\n{q}")); }
+        sqlx::query("SELECT pg_advisory_unlock(72620078)").execute(&mut *lock).await.unwrap();
+        db
+    }
+
+    /// Needs DRIVELENS_TEST_DATABASE_URL=postgres://… pointing at a throwaway database (skipped otherwise); an empty
+    /// database is enough, `test_db` creates the TeslaMate tables it reads. Migration twice more (idempotent),
+    /// owner key → device → pairing → read device → revoke.
     #[tokio::test]
     async fn db_device_flow() {
         let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_device_flow skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
-        let db = PgPoolOptions::new().max_connections(3).connect(&url).await.unwrap();
+        let db = test_db(&url).await;
         migrate(&db).await.unwrap();
         migrate(&db).await.unwrap();
         let key = "test-owner-key-0123456789abcdef";
@@ -973,7 +1040,7 @@ mod auth_tests {
     #[tokio::test]
     async fn db_delete_out_of_range_keeps_other_rows() {
         let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_delete_out_of_range_keeps_other_rows skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
-        let db = PgPoolOptions::new().max_connections(3).connect(&url).await.unwrap();
+        let db = test_db(&url).await;
         migrate(&db).await.unwrap();
         let key = "test-owner-key-range-0123456789abcdef";
         let app = router(test_state(db.clone(), auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await));
@@ -999,7 +1066,7 @@ mod auth_tests {
     #[tokio::test]
     async fn db_journey_note_and_auth_reload() {
         let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_journey_note_and_auth_reload skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
-        let db = PgPoolOptions::new().max_connections(3).connect(&url).await.unwrap();
+        let db = test_db(&url).await;
         migrate(&db).await.unwrap();
         let key = "test-owner-key-note-0123456789abcdef";
         let a = auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await;
