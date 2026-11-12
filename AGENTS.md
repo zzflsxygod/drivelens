@@ -107,8 +107,8 @@ API (`api/`, Rust stable 1.85+):
 cd api
 cargo test --locked          # what CI runs; database tests are skipped without the variable below
 cargo clippy                 # no new warnings
-# Database tests (migration, device auth, journeys) need a THROWAWAY PostgreSQL 14+ loaded with
-# testdata/schema.sql and testdata/sample_data.sql (see CONTRIBUTING.md "Running DriveLens locally"):
+# Database tests (migration, device auth, journeys) need a THROWAWAY PostgreSQL 14+ database. It may be
+# empty: the tests create the few TeslaMate tables and rows they read (a testdata/ database works too):
 DRIVELENS_TEST_DATABASE_URL=postgres://user:pass@localhost/throwaway cargo test --locked
 ```
 
