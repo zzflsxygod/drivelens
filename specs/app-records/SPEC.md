@@ -24,6 +24,7 @@ place when the user comes back from a detail page (doc: CHANGELOG.md v0.6.0 – 
 - Place names that open a rename dialog (`place`, `bindPlaces`, `renameDialog`) on the detail pages.
 - The charging-cost badge and the cost dialog.
 - The client helpers for these writes (`setAlias`, `resetAlias`, `setCost`, `resetCost`) and money formatting (`fmtMoney`, `CURRENCIES`, `localeCurrency`, `defaultCurrency`) in `api.ts`.
+- Data export (`export.ts`, `exportfmt.ts`): CSV / GPX formats, fetching all pages, busy / status feedback, download; the Charges CSV and drive GPX entry points (issue #70).
 
 ### 2.2 Out of scope
 
@@ -55,6 +56,7 @@ place when the user comes back from a detail page (doc: CHANGELOG.md v0.6.0 – 
   - `infiniteList<T>(opts)` → `{state, rebind(), leave()}`; `getState`, `dropState`, `MonthRow` (src: app/src/infinite.ts:13-47, 171-176).
   - Storage keys `drivelens-list-<listKey>` (first page; demo: `drivelens-demo~list-<listKey>`) (src: app/src/infinite.ts:45).
   - `fmtMoney(v, cur?, unit?)`, `CURRENCIES`, `localeCurrency()`, `defaultCurrency()` (src: app/src/api.ts:103-126).
+  - Export helpers for `app-journeys`: `canExportCsv`, `runExport`, `drivesCsv`, `journeyGpx`, `downloadBlob` (`app/src/export.ts`); pure formatters `toCsv`, `toGpx`, `journeyGpxName` (`app/src/exportfmt.ts`).
 
 ## 3. External behavior
 
@@ -146,6 +148,20 @@ place when the user comes back from a detail page (doc: CHANGELOG.md v0.6.0 – 
 - **AREC-111** When formatting a per-kWh price, the system SHALL use 1 decimal for the zero-decimal currencies (e.g. "¥36.4/kWh"). (src: app/src/api.ts:119, 123)
 - **AREC-112** When no currency is set in Settings, the system SHALL derive the default currency from the device locale: by region first (e.g. `en-GB` → GBP), then by language (`ja` → JPY, `zh-Hant` → TWD, `zh` → CNY, …), else USD. (src: app/src/api.ts:104-115)
 
+### 3.12 Data export (issue #70; client-side, no API level)
+
+Shared by the Drives CSV and journey GPX entry points in `app-journeys` (AJRN-140 – AJRN-142). Files are built in the browser from the user's own server answers (or the demo mock); nothing is sent anywhere else.
+
+- **AREC-120** When the server is known to lack keyset paging (API level < 10), the system SHALL hide the CSV export buttons (Charges tab here, Drives tab in AJRN-140), so that no export is silently cut off. Drive and journey GPX need no level beyond the journey screens themselves. (src: `app/src/export.ts` `canExportCsv`)
+- **AREC-121** When a CSV export runs, the system SHALL request the current view's list path with `limit=500&paged=true`, following each `next_cursor` as `before` until it is `null` (or a page is empty), and SHALL export every record found — not only the pages loaded on screen. If the server answers with a plain array (no paging), the system SHALL accept it only when it is shorter than 500 rows, and otherwise fail with the "server too old" text for paging. (src: `app/src/export.ts` `fetchAll`)
+- **AREC-122** When more than 50,000 records have been loaded during a CSV export, the system SHALL stop requesting, download nothing and show "More than 50,000 records: too many to export at once. …". (src: `app/src/export.ts` `EXPORT_CAP`, `fetchAll`; doc: `app/src/locales/en.ts` `export.tooMany`)
+- **AREC-123** When writing a CSV file, the system SHALL use UTF-8 with a byte-order mark, CRLF line ends, a header row, and RFC 4180 quoting (a field holding a comma, double quote, CR or LF is quoted, with quotes doubled). Text fields that start with `=`, `+`, `-`, `@`, tab or CR SHALL get a leading `'` so spreadsheet apps do not run them as formulas. Missing values SHALL be empty fields; numbers SHALL use `.` decimals without grouping. (src: `app/src/exportfmt.ts` `csvCell`, `toCsv`, `num`)
+- **AREC-124** When writing `start_time` / `end_time`, the system SHALL render the time in the device time zone with the app's own helpers as `fmtDay` + space + `fmtTime` (full date in the UI language's numeric format and 24-hour `HH:mm`). `fmtDateTime` alone is not used because it has no year. (src: `app/src/export.ts` `when`; `app/src/i18n.ts` `fmtDay`, `fmtTime`) [TO CONFIRM] whether the owner prefers another of the app's formats.
+- **AREC-125** When the Charges tab is shown and CSV export is available (AREC-120), the system SHALL show an "Export CSV" download button in the list toolbar; tapping it SHALL export every completed session of the selected car (all cars when none is selected, same `car_id` as the list) to `drivelens-charges-YYYYMMDD-HHmm.csv` (local export time) with the columns `id, start_time, end_time, place, energy_added_kwh, duration_min, start_battery_pct, end_battery_pct, cost, currency, cost_source`. `place` is the alias when set, else the address; `energy_added_kwh` and `cost` have 2 decimals; `currency` is the session's currency, or the app's default currency when a cost has none (as AREC-052 shows it), and empty without a cost; `cost_source` is `manual`, `teslamate` or empty. (src: `app/src/main.ts` `showCharges`; `app/src/export.ts` `chargesCsv`, `chargeRow`, `CHARGE_COLS`)
+- **AREC-126** When the drive detail page is shown, the system SHALL show an "Export GPX" download button in its page header; tapping it SHALL write the full-resolution points already loaded from `GET /api/drives/{id}/path` as `drivelens-drive-<id>.gpx`: GPX 1.1, one track named "start place → end place" (alias when set), one `<trkseg>`, each point with `lat`/`lon`, `<ele>` when the point has an elevation, and `<time>` in UTC ISO 8601 with `Z` (a naive server time is read as UTC). Points without a valid time or position SHALL be left out. (src: `app/src/main.ts` `showDrive`; `app/src/export.ts` `driveGpx`; `app/src/exportfmt.ts` `toGpx`, `utcIso`)
+- **AREC-127** When an export finds no records (CSV) or no track point (GPX), the system SHALL download nothing and show the empty-state style message "Nothing to export" (CSV) or "No track data" (GPX) under the toolbar / title. (src: `app/src/export.ts` `drivesCsv`, `chargesCsv`, `driveGpx`, `journeyGpx`, `setStatus`)
+- **AREC-128** While an export runs, the system SHALL disable its button (busy style, `aria-busy`), ignore further taps on it and show progress in a status line ("Exporting… {n} loaded" for CSV pages, "Loading tracks… {i}/{n}" for journeys). On success it SHALL download the file with the share card's Blob + `a.download` pattern and show "Saved as {file} (Downloads folder)"; on failure it SHALL show "Export failed: {error}" in an error box. Success and empty messages SHALL clear after a few seconds; errors stay until the next export. (src: `app/src/export.ts` `runExport`, `downloadBlob`; `app/src/journey2.ts` `shareDialog`)
+
 ## 4. Key design decisions
 
 - **D-1 One list component for drives and charges.** Keyset paging, sticky month headers, month jump, first-page cache and scroll restore live in `infinite.ts` and are shared. (comment: app/src/infinite.ts:5-6; doc: CHANGELOG.md v0.6.0 – v0.6.3)
@@ -155,6 +171,7 @@ place when the user comes back from a detail page (doc: CHANGELOG.md v0.6.0 – 
 - **D-5 Show what TeslaMate recorded next to the manual value.** The cost dialog states TeslaMate's own cost and that a manual cost takes priority without changing TeslaMate's data. (doc: app/src/locales/en.ts:24-26)
 - **D-6 Edit entry points hidden on read-only devices.** Rename and cost controls are not rendered when `canWrite()` is false, instead of failing on save. (comment: app/src/main.ts:54; comment: app/src/auth.ts:43; doc: CHANGELOG.md v1.2.0)
 - **D-7 Costs never converted.** Month headers and badges show amounts in their own currency; mixed currencies are joined with " + ". (src: app/src/main.ts:224-226) Rationale (confirmed, design: no exchange rates); matches the server's per-currency approach (`api-records` D-4).
+- **D-8 Exports are built on the device.** CSV and GPX files come from the same endpoints the screens use (`/api/drives`, `/api/charges` with keyset paging, `/api/drives/{id}/path`), so no server update is needed and demo mode works unchanged. Journey GPX uses each drive's full path, not `/api/journeys/{id}/path`, which is downsampled and has no per-point time. (doc: issue #70)
 
 ## 5. Constraints
 
@@ -172,6 +189,7 @@ place when the user comes back from a detail page (doc: CHANGELOG.md v0.6.0 – 
 - Renaming places from list cards or from Home (only from detail pages). (src: app/src/main.ts:231, 667, 677) Confirmed from code.
 - Persisting list scroll state across reloads. (src: app/src/infinite.ts:21) Confirmed from code: scroll state is kept for the session only.
 - Currency conversion. Confirmed (current scope) (see D-7).
+- Server-side export endpoints or an `api_level` bump for exports: files are built on the device from existing endpoints, so they work with every deployed server. Confirmed (owner decision, issue #70).
 
 ## 7. Current behavior vs. intended behavior
 
