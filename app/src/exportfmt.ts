@@ -56,6 +56,13 @@ export const gpxPointCount = (segments: readonly GpxPoint[][]) =>
 const p2 = (v: number) => String(v).padStart(2, "0");
 /** YYYYMMDD in local time. */
 export const ymd = (d: Date) => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
+/** CSV time cell: "YYYY-MM-DD HH:mm:ss" in the device time zone (fixed format, independent of the UI language); null when unparsable. */
+export function localDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
 /** YYYYMMDD-HHmm in local time (export time stamp in CSV file names). */
 export const stamp = (d: Date) => `${ymd(d)}-${p2(d.getHours())}${p2(d.getMinutes())}`;
 /** File-name part: \ / : * ? " < > | and control characters and whitespace runs → "_", no leading/trailing "." or "_", ≤ max characters. */
