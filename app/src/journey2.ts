@@ -3,6 +3,7 @@
 import { ic } from "./icons";
 import { canNativeShare, canNativeSave, nativeShareImage, nativeSaveImage } from "./platform";
 import { api, fmtMoney } from "./api";
+import { downloadBlob } from "./export";
 import type { DriveMap } from "./map";
 import { t, currentLang, fmtDateTime } from "./i18n";
 
@@ -186,9 +187,7 @@ export function shareDialog(canvas: HTMLCanvasElement, fileName: string) {
       if (r !== "unsupported") return msg(t("share.fail", { e: r }));
       const r2 = await nativeShareImage(await blob(), fileName, t("share.title")); if (r2) msg(t("share.fail", { e: r2 })); return;
     }
-    const b = await blob(); const u = URL.createObjectURL(b);
-    const a = document.createElement("a"); a.href = u; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(u), 10000); msg(t("share.saved", { f: fileName }));
+    downloadBlob(await blob(), fileName); msg(t("share.saved", { f: fileName }));
   };
   const cp = dlg.querySelector<HTMLElement>("#sh-copy");
   if (cp) cp.onclick = async () => {
