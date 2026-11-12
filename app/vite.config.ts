@@ -88,11 +88,13 @@ self.addEventListener("fetch", e => {
     e.respondWith(caches.match("/").then(hit => hit || fetch("/")));
     return;
   }
-  // SPA: network first, so updates show up. Any answer from the network is passed through, including a non-OK one, so a
-  // login gate in front of the site (401 page, redirect to its sign-in) still reaches the user; the cached shell only
-  // stands in when the network fails (offline).
+  // SPA: network first, so updates show up. A 2xx-4xx answer is passed through, so a login gate in front of the site
+  // (401/403 page, redirect to its sign-in) still reaches the user; a 5xx (tunnel or proxy 502 while the web server is
+  // down) and a network failure (offline) get the cached shell instead, the 5xx itself only when nothing is cached.
   if (r.mode === "navigate") {
-    e.respondWith(fetch(r).catch(() => caches.match("/").then(hit => hit || Response.error())));
+    e.respondWith(fetch(r).then(
+      res => res.status >= 500 ? caches.match("/").then(hit => hit || res) : res,
+      () => caches.match("/").then(hit => hit || Response.error())));
     return;
   }
   if (!SHELL.includes(u.pathname)) return;
