@@ -11,6 +11,7 @@ import { navPage, navRoot, settleScroll } from "./nav";
 import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { focusField } from "./sheets";
 import { lacks } from "./version";
+import { canExportCsv, drivesCsv, journeyGpx, runExport } from "./export";
 
 export interface Ctx {
   view: HTMLElement;
@@ -135,9 +136,11 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   const car = await ctx.carId();
   const canSelect = ctx.journeysAvailable() && ctx.canWrite();   // multi-select exists to create journeys
   const canSearch = !lacks("driveSearch");
-  v.innerHTML = `<div class="list-toolbar">${segHTML("drives", ctx) || `<h2 class="tb-title">${t("seg.drives")}</h2>`}
-      <div class="tb-right" id="d-tb">${canSearch ? `<button id="d-search" class="tb-btn" type="button" aria-pressed="false"></button>` : ""}${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
+  const canExport = canExportCsv();
+  v.innerHTML = `<div class="list-toolbar${canExport && canSearch && canSelect ? " tb-4" : ""}">${segHTML("drives", ctx) || `<h2 class="tb-title">${t("seg.drives")}</h2>`}
+      <div class="tb-right" id="d-tb">${canSearch ? `<button id="d-search" class="tb-btn" type="button" aria-pressed="false"></button>` : ""}${canExport ? `<button id="d-export" class="tb-btn" type="button" title="${t("export.csv")}" aria-label="${t("export.csv")}">${ICON.download}</button>` : ""}${canSelect ? `<button id="selmode" class="tb-btn tb-sel" aria-pressed="false"></button>` : ""}</div></div>
     ${canSearch ? searchBarHTML() : ""}
+    <div class="export-msg" id="x-msg" hidden></div>
     ${canSelect ? `<div class="sel-tip muted" id="seltip" hidden></div>` : ""}
     <div id="dlist"></div><div id="abar"></div>`;
   bindSeg(ctx);
@@ -207,6 +210,11 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
 
   mountList(restore);
   settleScroll({ forwardTop: false });
+
+  // CSV of every drive in the current view (car + active place search), not only the loaded pages
+  const xb = v.querySelector<HTMLButtonElement>("#d-export");
+  if (xb) xb.onclick = () => runExport(xb, v.querySelector<HTMLElement>("#x-msg"),
+    drivesCsv(`/api/drives?x=1${ctx.carQ()}${placeQ ? `&q=${encodeURIComponent(placeQ)}` : ""}`));
 
   const sm = v.querySelector<HTMLElement>("#selmode");
   if (sm) sm.onclick = () => {
@@ -387,15 +395,16 @@ export async function showJourney(ctx: Ctx, id: number) {
   const rw = ctx.canWrite();
   const pen = rw ? `<span class="pen" id="jedit" title="${t("j.editTitle")}">✎</span>` : "";
   const heroOn = p2 && !!j.has_cover;
-  v.innerHTML = `<div class="jtop"><button class="back">${t("common.back")}</button>${p2 ? `<div class="jtop-r">
+  v.innerHTML = `<div class="jtop"><button class="back">${t("common.back")}</button><div class="jtop-r">
+      <button id="j-gpx" class="tb-btn" type="button" title="${t("export.gpx")}" aria-label="${t("export.gpx")}">${ICON.download}</button>${p2 ? `
       <button id="j-share" class="icon-btn" title="${t("share.title")}" aria-label="${t("share.title")}">📤</button>
       ${rw ? `<button id="j-more" class="icon-btn" title="${t("j.more")}" aria-label="${t("j.more")}">⋯</button>
-      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">${t("j.photoCover")}</button><button data-act="setcover">${t("j.mapCover")}</button>${j.has_cover ? `<button data-act="rmcover">${t("j.rmCover")}</button>` : ""}</div>` : ""}</div>` : ""}</div>
+      <div id="j-menu" class="pop-menu" hidden><button data-act="photo">${t("j.photoCover")}</button><button data-act="setcover">${t("j.mapCover")}</button>${j.has_cover ? `<button data-act="rmcover">${t("j.rmCover")}</button>` : ""}</div>` : ""}` : ""}</div></div>
     ${heroOn ? `<div class="jhero sk" id="j-hero"><div class="jhero-in">
         <h2>${esc(j.name)} ${pen}</h2><div class="jhero-meta">${meta}</div>
         <div class="jhero-stats"><span>${n(s.distance_km, 0)} km</span><span>${n(s.energy_used_kwh, 1)} kWh</span><span>${n(s.efficiency_wh_km, 0)} Wh/km</span>${s.costs.length ? `<span>${costTxt(s.costs)}</span>` : ""}</div></div></div>`
       : `<h2 class="jtitle">${ic("compass")} ${esc(j.name)} ${pen}</h2><div class="muted">${meta}</div>`}
-    <div id="j-msg" class="muted"></div>
+    <div id="j-msg" class="muted"></div><div class="export-msg" id="x-msg" hidden></div>
     ${j.note ? `<div class="jnote">${esc(j.note)}</div>` : ""}
     ${p2 ? "" : `<div class="muted small-note">${esc(t("j.p2Missing", { m: ctx.journey2Message() }))}</div>`}
     ${speedColorToolsHtml(speedOn)}
@@ -419,6 +428,8 @@ export async function showJourney(ctx: Ctx, id: number) {
     ${rw ? `<div class="btn-row"><button id="jdrives" class="ghost">${t("j.editDrives")}</button><button id="jdel" class="ghost" style="color:var(--red)">${t("j.delete")}</button></div>` : ""}`;
   (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx);
   settleScroll();   // forward → top; back from drive-edit → restore journey scroll
+  const gx = v.querySelector<HTMLButtonElement>("#j-gpx")!;
+  gx.onclick = () => runExport(gx, v.querySelector<HTMLElement>("#x-msg"), journeyGpx(j));
   v.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => ctx.showDrive(Number(el.dataset.drive), self));
   v.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => ctx.showCharge(Number(el.dataset.charge), self));
   const edit = () => nameDialog({ title: t("j.edit"), name: j.name, note: j.note ?? "", ok: t("common.save"),

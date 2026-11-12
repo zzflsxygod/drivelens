@@ -32,6 +32,7 @@ import { batteryCardHTML, showBattery, vampireCardHTML, showVampire, chargingCos
 import { showTpmsHistory } from "./tpms";
 import { showDrivesTab, restoreDismissed, type Ctx as JourneyCtx } from "./journey";
 import { infiniteList } from "./infinite";
+import { canExportCsv, chargesCsv, driveGpx, runExport } from "./export";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
 import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, SIGNED_OUT_EVENT, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
@@ -200,9 +201,11 @@ async function showDrive(id: number, back: () => void = showDrives) {
       ? [{ coords: pts.map(p => [p.lng, p.lat] as [number, number]), speeds: pts.map(p => p.speed) }]
       : [];
     view.innerHTML = `
-      <button class="back">${t("common.back")}</button>
+      <div class="jtop"><button class="back">${t("common.back")}</button><div class="jtop-r">
+        <button id="d-gpx" class="tb-btn" type="button" title="${t("export.gpx")}" aria-label="${t("export.gpx")}">${ICON.download}</button></div></div>
       <h2>${place(d.start_address, d.start_address_id, d.start_alias)} → ${place(d.end_address, d.end_address_id, d.end_alias)}</h2>
       <div class="muted">${fmtDate(d.start_date)} – ${fmtDate(d.end_date)}${canWrite() ? ` · ${t("common.tapPlace")}` : ""}</div>
+      <div class="export-msg" id="x-msg" hidden></div>
       ${lines.length ? speedColorToolsHtml(speedOn) : ""}
       <div id="map"></div>
       <div class="grid">
@@ -214,6 +217,8 @@ async function showDrive(id: number, back: () => void = showDrives) {
         <div><small>${t("f.battery")}</small><b>${d.start_battery_level ?? "—"}% → ${d.end_battery_level ?? "—"}%</b></div>
       </div>`;
     (view.querySelector(".back") as HTMLElement).onclick = back;
+    const gx = view.querySelector<HTMLButtonElement>("#d-gpx")!;
+    gx.onclick = () => runExport(gx, view.querySelector<HTMLElement>("#x-msg"), driveGpx(d, pts));
     bindPlaces(() => showDrive(id, back));
     const mapEl = document.getElementById("map")!;
     if (lines.length) {
@@ -228,7 +233,12 @@ async function showDrive(id: number, back: () => void = showDrives) {
 async function showCharges(restore = false) {
   navRoot(); destroyMap();
   const car = await currentCarId().catch(() => null);
-  view.innerHTML = `<div class="list-toolbar"><h2 class="tb-title">${t("charges.title")}</h2><div class="tb-right" id="c-tb"></div></div><div id="clist"></div>`;
+  view.innerHTML = `<div class="list-toolbar"><h2 class="tb-title">${t("charges.title")}</h2><div class="tb-right" id="c-tb">${canExportCsv()
+      ? `<button id="c-export" class="tb-btn" type="button" title="${t("export.csv")}" aria-label="${t("export.csv")}">${ICON.download}</button>` : ""}</div></div>
+    <div class="export-msg" id="x-msg" hidden></div><div id="clist"></div>`;
+  // CSV of every session of the selected car, not only the loaded pages
+  const xb = view.querySelector<HTMLButtonElement>("#c-export");
+  if (xb) xb.onclick = () => runExport(xb, view.querySelector<HTMLElement>("#x-msg"), chargesCsv(`/api/charges?x=1${carQ()}`));
   const list = infiniteList<Charge>({
     container: document.getElementById("clist")!, toolbar: document.getElementById("c-tb")!, key: `charges:${car ?? "all"}`, path: `/api/charges?x=1${carQ()}`,
     paging: !lacks("paging"), carId: car, monthsSupported: !lacks("paging"), restore,

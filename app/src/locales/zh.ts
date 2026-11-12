@@ -686,5 +686,13 @@ const zh = {
   "yr.yoyTitle": "对比 {y}",
   "yr.yoyNote": "上年：{dist} km · {drives} 次行程",
   "yr.loadErr": "无法加载年度回顾：{e}",
+  "export.csv": "导出 CSV",
+  "export.gpx": "导出 GPX",
+  "export.busy": "正在导出…",
+  "export.loaded": "正在导出… 已读取 {n} 条",
+  "export.tracks": "正在读取轨迹… {i}/{n}",
+  "export.empty": "没有可导出的记录",
+  "export.tooMany": "超过 {n} 条记录，无法一次导出。请用地点搜索或选择车辆缩小范围。",
+  "export.fail": "导出失败：{e}",
 } as const;
 export default zh;

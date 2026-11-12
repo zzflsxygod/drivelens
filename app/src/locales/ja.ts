@@ -687,5 +687,13 @@ const ja: Record<keyof typeof zh, string> = {
   "yr.yoyTitle": "{y}年との比較",
   "yr.yoyNote": "前年：{dist} km · {drives} 回",
   "yr.loadErr": "年間振り返りを読み込めませんでした：{e}",
+  "export.csv": "CSV をエクスポート",
+  "export.gpx": "GPX をエクスポート",
+  "export.busy": "エクスポート中…",
+  "export.loaded": "エクスポート中… {n} 件読み込み済み",
+  "export.tracks": "軌跡を読み込み中… {i}/{n}",
+  "export.empty": "エクスポートする記録がありません",
+  "export.tooMany": "{n} 件を超えるため一度にエクスポートできません。地点検索や車両の選択で絞り込んでください。",
+  "export.fail": "エクスポートに失敗しました：{e}",
 };
 export default ja;

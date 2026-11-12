@@ -687,5 +687,13 @@ const en: Record<keyof typeof zh, string> = {
   "yr.yoyTitle": "Compared with {y}",
   "yr.yoyNote": "Prior year: {dist} km · {drives} drives",
   "yr.loadErr": "Could not load year in review: {e}",
+  "export.csv": "Export CSV",
+  "export.gpx": "Export GPX",
+  "export.busy": "Exporting…",
+  "export.loaded": "Exporting… {n} loaded",
+  "export.tracks": "Loading tracks… {i}/{n}",
+  "export.empty": "Nothing to export",
+  "export.tooMany": "More than {n} records: too many to export at once. Narrow it down with place search or by picking a car.",
+  "export.fail": "Export failed: {e}",
 };
 export default en;
