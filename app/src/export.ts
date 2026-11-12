@@ -3,9 +3,9 @@
 // drives / charges CSV (all records of the current view via keyset paging), drive / journey GPX from /api/drives/{id}/path.
 import { api, defaultCurrency, type Charge, type Drive, type PathPoint } from "./api";
 import { ic } from "./icons";
-import { t, fmtDay, fmtTime } from "./i18n";
+import { t } from "./i18n";
 import { lacks, featureText } from "./version";
-import { toCsv, toGpx, gpxPointCount, num, stamp, journeyGpxName, type GpxPoint } from "./exportfmt";
+import { toCsv, toGpx, gpxPointCount, num, stamp, journeyGpxName, localDateTime, type GpxPoint } from "./exportfmt";
 
 /** Keyset page size for exports (the server's maximum). */
 const PAGE = 500;
@@ -38,12 +38,8 @@ async function fetchAll<T>(path: string, progress: (n: number) => void): Promise
   }
 }
 
-/** Date and time in the device time zone with the app's own helpers (full date, so multi-year files stay unambiguous). */
-const when = (iso: string | null | undefined) => {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? null : `${fmtDay(d)} ${fmtTime(iso)}`;
-};
+/** CSV times: fixed "YYYY-MM-DD HH:mm:ss" in the device time zone (owner decision, AREC-124). */
+const when = localDateTime;
 
 export const DRIVE_COLS = ["id", "start_time", "end_time", "from", "to", "distance_km", "duration_min", "energy_kwh", "efficiency_wh_km",
   "start_battery_pct", "end_battery_pct", "max_speed_kmh", "avg_outside_temp_c", "journey_name"] as const;
