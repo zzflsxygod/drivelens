@@ -67,10 +67,13 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     throw new Error(!navigator.onLine ? t("api.offline") : "__TAURI_INTERNALS__" in window ? t("api.network") : t("api.networkWeb"));
   }
   if (res.status === 401) {
+    const text = await res.text().catch(() => "");
+    // a non-JSON 401 comes from a login gate in front of the API (its session expired), not from drivelens-api
+    if (isLoginGate(res, text)) throw new Error(t("api.gate"));
     // a device token is never "mistyped": drivelens-api's own 401 means it was revoked or expired → sign this device out
     // (only if that token is still the saved one: a request that raced a server switch / re-pairing must not sign out the new one).
     // Only the API's JSON 401 counts: a 401 page from a proxy in front of it (or any 5xx / network error) keeps the connection.
-    if (s.tokenKind === "device" && !isDemo() && loadSettings().token === s.token && await isAuthRejection(res)) {
+    if (s.tokenKind === "device" && !isDemo() && loadSettings().token === s.token && isAuthRejection(text)) {
       window.dispatchEvent(new Event(SIGNED_OUT_EVENT)); throw new Error(t("api.signedOut"));
     }
     throw new Error(t("api.401"));
@@ -95,12 +98,28 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
     throw err;
   }
   if (res.status === 204) return undefined as T;
+  if (res.redirected) {                  // a same-origin gate that redirects to its own login page answers 200 HTML
+    const text = await res.text();
+    if (isLoginGate(res, text)) throw new Error(t("api.gate"));
+    return JSON.parse(text) as T;
+  }
   return res.json() as Promise<T>;
 }
 
 /** drivelens-api answers a rejected token with 401 {"error":"unauthorized"} (api/src/auth.rs `fail`). */
-async function isAuthRejection(res: Response): Promise<boolean> {
-  try { return (await res.json() as { error?: unknown })?.error === "unauthorized"; } catch { return false; }
+function isAuthRejection(text: string): boolean {
+  try { return (JSON.parse(text) as { error?: unknown })?.error === "unauthorized"; } catch { return false; }
+}
+
+/**
+ * A login gate (Cloudflare Access, oauth2-proxy, …) answered instead of drivelens-api. The API answers JSON on every
+ * route (`{"error": …}` for errors) and never redirects, so only a non-JSON body counts: a non-JSON 401/403, or a
+ * non-JSON page reached through a redirect. The API's own JSON errors are never taken for a gate.
+ */
+export function isLoginGate(res: Response, text: string): boolean {
+  if (/json/i.test(res.headers.get("content-type") ?? "")) return false;
+  try { JSON.parse(text); return false; } catch { /* not json */ }
+  return res.status === 401 || res.status === 403 || res.redirected;
 }
 
 export const setAlias = (addressId: number, name: string) => api(`/api/addresses/${addressId}/alias`, "PUT", { name });
