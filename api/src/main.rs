@@ -54,8 +54,8 @@ struct AppState {
     tpms_cache: Arc<summary::TpmsCache>,
 }
 
-/// Is the optional manual-cost table available? Re-checked until it appears, so re-running
-/// drivelens-init.sql takes effect without restarting the API.
+/// Is the optional manual-cost table available? Re-checked until it appears, so a table that
+/// becomes usable after startup is picked up without restarting the API.
 pub(crate) async fn costs_ok(s: &AppState) -> Result<bool, ApiError> {
     use std::sync::atomic::Ordering;
     if s.costs_ok.load(Ordering::Relaxed) { return Ok(true); }

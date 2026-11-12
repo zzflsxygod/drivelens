@@ -23,7 +23,7 @@ const DDL: [&str; 3] = [
 const DISMISS_DDL: &str = "CREATE TABLE IF NOT EXISTS drivelens.dismissed_suggestions (
         drive_id integer PRIMARY KEY REFERENCES public.drives(id) ON DELETE CASCADE,
         dismissed_at timestamptz NOT NULL DEFAULT now())";
-const DISMISS_MISSING: &str = "table drivelens.dismissed_suggestions is missing or not writable; run the v0.6.1 SQL (deploy/drivelens-v0.6.1.sql)";
+const DISMISS_MISSING: &str = "table drivelens.dismissed_suggestions is missing or not writable; run deploy/setup.sql and restart the API";
 
 /// Suggestion dismissal table usable (cached once true).
 pub async fn dismiss_ok(s: &AppState) -> Result<bool, ApiError> {
