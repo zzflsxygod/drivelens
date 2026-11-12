@@ -4,7 +4,7 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
-const MISSING: &str = "journey tables drivelens.journeys / journey_drives are missing or not writable; run deploy/setup.sql and restart the API";
+pub(crate) const MISSING: &str = "journey tables drivelens.journeys / journey_drives are missing or not writable; run deploy/setup.sql and restart the API";
 
 const DDL: [&str; 3] = [
     "CREATE TABLE IF NOT EXISTS drivelens.journeys (
@@ -91,7 +91,8 @@ pub struct JourneyRow {
     drive_count: i64, distance_km: Option<f64>, duration_min: Option<i64>, energy_kwh: Option<f64>,
 }
 
-fn journey_list_sql(filter: &str) -> String {
+/// `al`: alias relation from `alias_table`.
+fn journey_list_sql(filter: &str, al: &str) -> String {
     format!(r#"
       WITH s AS (
         SELECT jd.journey_id, count(*) AS drive_count, round(sum(d.distance)::numeric, 1)::float8 AS distance_km, sum(d.duration_min)::int8 AS duration_min,
@@ -104,10 +105,10 @@ fn journey_list_sql(filter: &str) -> String {
         to_char(s.s0, '{TS}') AS start_date, to_char(s.s1, '{TS}') AS end_date,
         (SELECT COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city))
            FROM drives d LEFT JOIN addresses a ON a.id = d.start_address_id LEFT JOIN geofences g ON g.id = d.start_geofence_id
-           LEFT JOIN drivelens.address_aliases al ON al.address_id = d.start_address_id WHERE d.id = s.first_id) AS start_address,
+           LEFT JOIN {al} al ON al.address_id = d.start_address_id WHERE d.id = s.first_id) AS start_address,
         (SELECT COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city))
            FROM drives d LEFT JOIN addresses a ON a.id = d.end_address_id LEFT JOIN geofences g ON g.id = d.end_geofence_id
-           LEFT JOIN drivelens.address_aliases al ON al.address_id = d.end_address_id WHERE d.id = s.last_id) AS end_address,
+           LEFT JOIN {al} al ON al.address_id = d.end_address_id WHERE d.id = s.last_id) AS end_address,
         COALESCE(s.drive_count, 0)::int8 AS drive_count, s.distance_km, s.duration_min, s.energy_kwh
       FROM drivelens.journeys j LEFT JOIN s ON s.journey_id = j.id
       WHERE {filter}
@@ -117,23 +118,24 @@ fn journey_list_sql(filter: &str) -> String {
 pub async fn list(State(s): State<AppState>, Query(q): Query<ListParams>) -> Result<Response, ApiError> {
     need_tables!(s);
     // Optional `q`: journey name, or any member drive's start/end display name (same expression as drives list).
-    let filter = "($1::int8 IS NULL OR j.car_id = $1) AND ($4::text IS NULL OR
+    let al = alias_table(&s).await?;
+    let filter = format!("($1::int8 IS NULL OR j.car_id = $1) AND ($4::text IS NULL OR
         j.name ILIKE $4 ESCAPE '!'
         OR EXISTS (
           SELECT 1 FROM drivelens.journey_drives jd2
           JOIN drives d ON d.id = jd2.drive_id
           LEFT JOIN addresses sa ON sa.id = d.start_address_id
           LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
-          LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
+          LEFT JOIN {al} sal ON sal.address_id = d.start_address_id
           LEFT JOIN addresses ea ON ea.id = d.end_address_id
           LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
-          LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
+          LEFT JOIN {al} eal ON eal.address_id = d.end_address_id
           WHERE jd2.journey_id = j.id AND (
             COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) ILIKE $4 ESCAPE '!'
             OR COALESCE(eal.name, ge.name, CONCAT_WS(', ', COALESCE(ea.name, NULLIF(CONCAT_WS(' ', ea.road, ea.house_number), '')), ea.city)) ILIKE $4 ESCAPE '!'
-          )))";
+          )))");
     let pat = q.search_pattern();
-    let rows = sqlx::query_as::<_, JourneyRow>(&format!("{} LIMIT $2 OFFSET $3", journey_list_sql(filter)))
+    let rows = sqlx::query_as::<_, JourneyRow>(&format!("{} LIMIT $2 OFFSET $3", journey_list_sql(&filter, al)))
         .bind(q.car_id).bind(q.limit()).bind(q.offset()).bind(pat).fetch_all(&s.db).await?;
     Ok(Json(rows).into_response())
 }
@@ -268,8 +270,9 @@ async fn detail(s: &AppState, id: i64) -> Result<Response, ApiError> {
     let j: Option<(i64, i64, String, Option<String>)> = sqlx::query_as(
         "SELECT id::int8, car_id::int8, name, note FROM drivelens.journeys WHERE id = $1").bind(id as i32).fetch_optional(&s.db).await?;
     let Some((id, car_id, name, note)) = j else { return Ok(err(StatusCode::NOT_FOUND, "journey not found")) };
+    let al = alias_table(s).await?;
     let drives = sqlx::query_as::<_, Drive>(&format!(
-        "{} WHERE d.id IN (SELECT drive_id FROM drivelens.journey_drives WHERE journey_id = $1) ORDER BY d.start_date", drive_select(true)))
+        "{} WHERE d.id IN (SELECT drive_id FROM drivelens.journey_drives WHERE journey_id = $1) ORDER BY d.start_date", drive_select(true, al)))
         .bind(id as i32).fetch_all(&s.db).await?;
     let (t0, t1) = (drives.first().map(|d| d.start_date.clone()), drives.last().map(|d| d.end_date.clone()));
     let costs = costs_ok(s).await?;
@@ -277,11 +280,11 @@ async fn detail(s: &AppState, id: i64) -> Result<Response, ApiError> {
     let (charges, candidates) = if let (Some(Some(a)), Some(Some(b))) = (&t0, &t1) {
         let ch = sqlx::query_as::<_, ChargeSummary>(&format!(
             "{} WHERE cp.car_id = $1 AND cp.start_date >= $2::timestamp AND cp.start_date <= $3::timestamp AND cp.end_date IS NOT NULL ORDER BY cp.start_date",
-            charge_select(costs))).bind(car_id).bind(a.trim_end_matches('Z')).bind(b.trim_end_matches('Z')).fetch_all(&s.db).await?;
+            charge_select(costs, al))).bind(car_id).bind(a.trim_end_matches('Z')).bind(b.trim_end_matches('Z')).fetch_all(&s.db).await?;
         let cand = sqlx::query_as::<_, Drive>(&format!(
             "{} WHERE d.car_id = $1 AND d.start_date >= $2::timestamp - interval '24 hours' AND d.start_date <= $3::timestamp + interval '24 hours'
                AND d.end_date IS NOT NULL AND d.id NOT IN (SELECT drive_id FROM drivelens.journey_drives WHERE journey_id = $4)
-             ORDER BY d.start_date", drive_select(true)))
+             ORDER BY d.start_date", drive_select(true, al)))
             .bind(car_id).bind(a.trim_end_matches('Z')).bind(b.trim_end_matches('Z')).bind(id as i32).fetch_all(&s.db).await?;
         (ch, cand)
     } else { (vec![], vec![]) };
@@ -344,7 +347,7 @@ pub async fn suggestions(State(s): State<AppState>, Query(q): Query<SuggestParam
     let car = match q.car_id { Some(c) => c, None => sqlx::query_scalar::<_, i32>("SELECT id::int4 FROM cars ORDER BY display_priority, id LIMIT 1")
         .fetch_optional(&s.db).await?.map(i64::from).unwrap_or(0) };
     let mut drives = sqlx::query_as::<_, Drive>(&format!(
-        "{} WHERE d.car_id = $1 AND d.end_date IS NOT NULL ORDER BY d.start_date DESC LIMIT 400", drive_select(true)))
+        "{} WHERE d.car_id = $1 AND d.end_date IS NOT NULL ORDER BY d.start_date DESC LIMIT 400", drive_select(true, alias_table(&s).await?)))
         .bind(car).fetch_all(&s.db).await?;
     drives.reverse();
     let dismissed: std::collections::HashSet<i64> = if dismiss_ok(&s).await? {
@@ -476,9 +479,12 @@ mod tests {
     }
     #[test]
     fn list_sql_supports_place_search_param() {
-        let sql = journey_list_sql("($1::int8 IS NULL OR j.car_id = $1) AND ($4::text IS NULL OR j.name ILIKE $4 ESCAPE '!')");
+        let sql = journey_list_sql("($1::int8 IS NULL OR j.car_id = $1) AND ($4::text IS NULL OR j.name ILIKE $4 ESCAPE '!')", "drivelens.address_aliases");
         assert!(sql.contains("ILIKE $4 ESCAPE '!'"));
         assert!(sql.contains("LIMIT") == false); // LIMIT is added by list()
+        assert!(sql.contains("LEFT JOIN drivelens.address_aliases al"));
+        // without a readable alias table the stand-in is joined instead (X-1)
+        assert!(!journey_list_sql("true", NO_ALIASES).contains("drivelens.address_aliases"));
         let p = ListParams { car_id: None, limit: None, offset: None, id: None, before: None, paged: None, q: Some("箱根".into()) };
         assert_eq!(p.search_pattern().as_deref(), Some(ilike_pattern("箱根").as_str()));
     }

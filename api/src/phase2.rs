@@ -186,6 +186,7 @@ struct Band { key: &'static str, label: &'static str, distance_km: f64, energy_k
 /// power where both points have it, otherwise the drive's measured Wh/km; then each drive is scaled
 /// so its bands add up to the drive's energy (rated range × efficiency, same as elsewhere).
 pub async fn speed_bands(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if !journey::tables_ok(&s).await? { return Ok(err(StatusCode::SERVICE_UNAVAILABLE, journey::MISSING)); }
     let w: Option<(i64, Option<String>, Option<String>, Vec<i32>)> = sqlx::query_as(
         "SELECT j.car_id::int8, to_char(min(d.start_date), 'YYYY-MM-DD HH24:MI:SS'), to_char(max(d.end_date), 'YYYY-MM-DD HH24:MI:SS'), array_agg(d.id)
          FROM drivelens.journeys j JOIN drivelens.journey_drives jd ON jd.journey_id = j.id JOIN drives d ON d.id = jd.drive_id

@@ -123,8 +123,9 @@ pub async fn car_report(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
 
-    let drives_sql = drives_sql();
-    let charges_sql = charges_sql(cc_amount, &cc_cur, cc_join);
+    let al = alias_table(&s).await?;
+    let drives_sql = drives_sql(al);
+    let charges_sql = charges_sql(cc_amount, &cc_cur, cc_join, al);
     let (drives, charges, first) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&drives_sql).bind(id).bind(&b.p0).bind(&b.m0).bind(&b.m1).bind(&tz).fetch_all(&s.db),
         sqlx::query_as::<_, ChargeRow>(&charges_sql).bind(id).bind(&b.p0).bind(&b.m0).bind(&b.m1).bind(&tz).fetch_all(&s.db),
@@ -189,7 +190,8 @@ pub async fn car_report(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
         days_elapsed: b.days_elapsed, overview: ov, previous: prev, split, daily, records }).into_response())
 }
 
-pub(crate) fn drives_sql() -> String { format!(
+/// `al`: alias relation from `alias_table` (also for `charges_sql`).
+pub(crate) fn drives_sql(al: &str) -> String { format!(
         r#"SELECT d.id::int8 AS id, to_char(d.start_date, '{TS}') AS start_date,
              to_char((d.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
              COALESCE(sal.name, gs.name, CONCAT_WS(', ', COALESCE(sa.name, NULLIF(CONCAT_WS(' ', sa.road, sa.house_number), '')), sa.city)) AS start_address,
@@ -200,14 +202,14 @@ pub(crate) fn drives_sql() -> String { format!(
            FROM drives d JOIN cars c ON c.id = d.car_id
            LEFT JOIN addresses sa ON sa.id = d.start_address_id
            LEFT JOIN addresses ea ON ea.id = d.end_address_id
-           LEFT JOIN drivelens.address_aliases sal ON sal.address_id = d.start_address_id
-           LEFT JOIN drivelens.address_aliases eal ON eal.address_id = d.end_address_id
+           LEFT JOIN {al} sal ON sal.address_id = d.start_address_id
+           LEFT JOIN {al} eal ON eal.address_id = d.end_address_id
            LEFT JOIN geofences gs ON gs.id = d.start_geofence_id
            LEFT JOIN geofences ge ON ge.id = d.end_geofence_id
            WHERE d.car_id = $1 AND d.start_date >= $2::timestamp AND d.start_date < $4::timestamp AND d.end_date IS NOT NULL"#
     ) }
 // home_addr: most frequent AC-rate (< 22 kW average) charging location in the last 12 months — no charges scan needed.
-pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str) -> String { format!(
+pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str, al: &str) -> String { format!(
         r#"WITH home_addr AS (
              SELECT address_id FROM charging_processes
              WHERE car_id = $1 AND address_id IS NOT NULL AND start_date >= $4::timestamp - interval '12 months'
@@ -226,7 +228,7 @@ pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str) -> Strin
              cp.duration_min::int4 AS duration_min, cp.start_date >= $3::timestamp AS cur
            FROM charging_processes cp
            LEFT JOIN addresses a ON a.id = cp.address_id
-           LEFT JOIN drivelens.address_aliases al ON al.address_id = cp.address_id
+           LEFT JOIN {al} al ON al.address_id = cp.address_id
            LEFT JOIN geofences g ON g.id = cp.geofence_id
            LEFT JOIN positions p ON p.id = cp.position_id
            {cc_join}
@@ -268,7 +270,8 @@ pub async fn car_trends(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
     let (cc_amount, cc_cur, cc_join) = if costs {
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
-    let (dsql, csql) = (drives_sql(), charges_sql(cc_amount, &cc_cur, cc_join));
+    let al = alias_table(&s).await?;
+    let (dsql, csql) = (drives_sql(al), charges_sql(cc_amount, &cc_cur, cc_join, al));
     let (drives, charges) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
         sqlx::query_as::<_, ChargeRow>(&csql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
@@ -472,7 +475,8 @@ pub async fn charging_costs(State(s): State<AppState>, Path(id): Path<i64>, Quer
     let (cc_amount, cc_cur, cc_join) = if costs {
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
-    let (dsql, csql) = (report::drives_sql(), report::charges_sql(cc_amount, &cc_cur, cc_join));
+    let al = alias_table(&s).await?;
+    let (dsql, csql) = (report::drives_sql(al), report::charges_sql(cc_amount, &cc_cur, cc_join, al));
     // drives_sql / charges_sql bind: $1 car, $2 from (prev for report), $3 cur0, $4 to, $5 tz
     // For a single window we set prev = cur0 = t0 so every row is "current".
     let (drives, charges) = tokio::try_join!(
@@ -792,7 +796,8 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
     let (cc_amount, cc_cur, cc_join) = if costs {
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
-    let (dsql, csql) = (drives_sql(), charges_sql(cc_amount, &cc_cur, cc_join));
+    let al = alias_table(&s).await?;
+    let (dsql, csql) = (drives_sql(al), charges_sql(cc_amount, &cc_cur, cc_join, al));
     // drives_sql binds: car, p0(=t0 for "previous" unused), m0, m1, tz — use t0 for both p0 and m0 so only year rows have cur=true; we ignore cur.
     let (drive_rows, charge_rows) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
@@ -850,7 +855,7 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
                SELECT COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city)) AS end_address
                FROM drives d
                LEFT JOIN addresses a ON a.id = d.start_address_id
-               LEFT JOIN drivelens.address_aliases al ON al.address_id = d.start_address_id
+               LEFT JOIN {al} al ON al.address_id = d.start_address_id
                LEFT JOIN geofences g ON g.id = d.start_geofence_id
                WHERE d.id = s.first_id
              ) fa ON true
@@ -858,7 +863,7 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
                SELECT COALESCE(al.name, g.name, CONCAT_WS(', ', COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), '')), a.city)) AS end_address
                FROM drives d
                LEFT JOIN addresses a ON a.id = d.end_address_id
-               LEFT JOIN drivelens.address_aliases al ON al.address_id = d.end_address_id
+               LEFT JOIN {al} al ON al.address_id = d.end_address_id
                LEFT JOIN geofences g ON g.id = d.end_geofence_id
                WHERE d.id = s.last_id
              ) la ON true
@@ -1073,7 +1078,7 @@ mod tests {
 
     #[test]
     fn charges_sql_classifies_tesla_fc_before_name_fallback() {
-        let s = charges_sql("NULL", "NULL", "");
+        let s = charges_sql("NULL", "NULL", "", "drivelens.address_aliases");
         assert!(s.contains("fx.tesla_fc"), "session probe must expose tesla_fc");
         assert!(
             s.contains("fast_charger_brand ~* '^tesla$'")
