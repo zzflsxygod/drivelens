@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // First-run wizard + connection test (also used by Settings → save & test).
-import { loadSettings, saveSettings } from "./api";
+import { loadSettings, saveSettings, isLoginGate } from "./api";
 import { isPairingCode, pairWithCode, exchangeOwnerKey, defaultDeviceName, saveConnection, AuthError, type Device } from "./auth";
 import { ic } from "./icons";
 import { t, langSetting } from "./i18n";
@@ -15,7 +15,10 @@ export const LATEST_SERVER = "0.16.3";
 
 /** What gets saved after a successful test. A device token replaces the owner key, which is then not kept anywhere. */
 export interface Creds { token: string; tokenKind?: "owner" | "device"; deviceId?: number; deviceScope?: "full" | "read" }
-export interface TestResult { ok: boolean; url: string; message: string; warnings: string[]; cars?: number; creds?: Creds; device?: Device }
+/** `help`: an install-guide link shown under the message. */
+export interface TestResult { ok: boolean; url: string; message: string; warnings: string[]; cars?: number; creds?: Creds; device?: Device; help?: string }
+/** Install guide section for a login gate (Cloudflare Access, oauth2-proxy) in front of the server. */
+const GATE_HELP = "#auth-proxy";
 
 /** "drivelens.example.com/" → "https://drivelens.example.com" */
 export function normalizeUrl(raw: string): string {
@@ -46,6 +49,7 @@ export async function testConnection(rawUrl: string, input: string, existing?: C
   const ownerKey = existing ? (existing.tokenKind === "device" ? "" : existing.token) : code ? "" : cred;
   const warnings = tokenWarnings(ownerKey);   // weak-token hints are about the server's owner key only
   const fail = (message: string): TestResult => ({ ok: false, url, message, warnings });
+  const gateFail = (): TestResult => ({ ...fail(t("su.gate", { host: parsed.host, origin: location.origin })), help: GATE_HELP });
   if (!url) return fail(t("su.noUrl"));
   let parsed: URL;
   try { parsed = new URL(url); } catch { return fail(t("su.badUrl")); }
@@ -67,12 +71,16 @@ export async function testConnection(rawUrl: string, input: string, existing?: C
   try { res = await timed(url + "/health"); }
   catch (e) {
     if ((e as Error).name === "AbortError") return fail(t("su.timeout", { host: parsed.host }));
-    if (!isTauri()) return fail(await webFetchFailure(url, parsed));
+    if (!isTauri()) {
+      const why = await webFetchFailure(url, parsed);
+      return why === null ? gateFail() : fail(why);
+    }
     return fail(isHttp
       ? t("su.unreachHttp", { host: parsed.host })
       : t("su.unreachHttps", { host: parsed.host }));
   }
   const text = await res.text().catch(() => "");
+  if (isLoginGate(res, text)) return gateFail();
   if (res.status === 404) return fail(t("su.404"));
   if (!res.ok) return fail(res.status >= 500 ? t("su.5xx", { s: res.status }) : t("su.healthStatus", { s: res.status }));
   let h: { version?: string; api_level?: number } | null = null;
@@ -90,12 +98,13 @@ export async function testConnection(rawUrl: string, input: string, existing?: C
   else if (code) {
     if (h.api_level < 15) return fail(t("su.codeOld", { v: h.version ?? "?" }));
     try { const r = await pairWithCode(url, cred, defaultDeviceName()); device = r.device; creds = { token: r.token, tokenKind: "device", deviceId: r.device.id, deviceScope: r.device.scope }; }
-    catch (e) { return fail(authFail(e, true)); }
+    catch (e) { return e instanceof AuthError && e.code === "login_gate" ? gateFail() : fail(authFail(e, true)); }
   } else if (h.api_level >= 15) {
     try { const r = await exchangeOwnerKey(url, cred, defaultDeviceName()); device = r.device; creds = { token: r.token, tokenKind: "device", deviceId: r.device.id, deviceScope: r.device.scope }; }
     catch (e) {
       // server can't store devices (no CREATE on the schema): keep the owner key, exactly as before 0.14.0
       if (e instanceof AuthError && e.status === 503 && e.code === "device_auth_unavailable") creds = { token: cred, tokenKind: "owner" };
+      else if (e instanceof AuthError && e.code === "login_gate") return gateFail();
       else return fail(authFail(e, false));
     }
   } else creds = { token: cred };
@@ -104,6 +113,7 @@ export async function testConnection(rawUrl: string, input: string, existing?: C
   // 3) authenticated call
   try { res = await timed(url + "/api/cars", { headers: { Authorization: `Bearer ${token}` } }); }
   catch { return fail(isTauri() ? t("su.authFetch") : t("su.authFetchWeb", { origin: location.origin })); }
+  if (isLoginGate(res, await res.clone().text().catch(() => ""))) return gateFail();
   if (res.status === 401) return fail(t(creds.tokenKind === "device" ? "su.401device" : "su.401"));
   if (res.status === 429) return fail(t("su.429"));
   if (!res.ok) {
@@ -132,11 +142,14 @@ function authFail(e: unknown, code: boolean): string {
 /**
  * Browsers hide why a fetch failed (CORS, DNS, TLS, offline all look the same: TypeError).
  * An opaque no-cors request tells "server answered but this site is not allowed (CORS)" apart from "server not reachable".
+ * With `redirect: "manual"` it also sees a redirect: drivelens-api never redirects /health, a login gate in front of it
+ * (Cloudflare Access, oauth2-proxy) sends it to its login page → `null` (only for https; http may just redirect to https).
  */
-async function webFetchFailure(url: string, parsed: URL): Promise<string> {
+async function webFetchFailure(url: string, parsed: URL): Promise<string | null> {
   if (!navigator.onLine) return t("su.offline");
   try {
-    await timed(url + "/health", { mode: "no-cors" }, 6000);
+    const probe = await timed(url + "/health", { mode: "no-cors", redirect: "manual" }, 6000);
+    if (probe.type === "opaqueredirect" && parsed.protocol === "https:") return null;
     return t("su.cors", { host: parsed.host, origin: location.origin });
   } catch (e) {
     if ((e as Error).name === "AbortError") return t("su.timeout", { host: parsed.host });
@@ -146,6 +159,7 @@ async function webFetchFailure(url: string, parsed: URL): Promise<string> {
 
 export function renderResult(r: TestResult): string {
   return `<div class="${r.ok ? "ok" : "error"}">${r.ok ? ic("check") : ""}${esc(r.message)}</div>` +
+    (r.help ? `<a class="su-guide" href="${esc(installGuideUrl() + r.help)}" target="_blank" rel="noopener noreferrer">${ic("book")} ${t("su.gateGuide")} <span aria-hidden="true">→</span></a>` : "") +
     r.warnings.map(w => `<div class="warn">${ic("alert")} ${esc(w)}</div>`).join("");
 }
 

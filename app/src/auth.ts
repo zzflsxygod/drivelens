@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Device auth (drivelens-api 0.14.0+, API level 15): per-device tokens, pairing codes, sign-out.
 // Tokens only ever travel to the user's own server, always in the Authorization header (never in a URL).
-import { api, loadSettings, saveSettings, realServer, type Settings } from "./api";
+import { api, loadSettings, saveSettings, realServer, isLoginGate, type Settings } from "./api";
 import { t } from "./i18n";
 import { isDemo, exitDemo } from "./demo";
 import { disable as disablePush } from "./notify";
@@ -54,8 +54,10 @@ async function rawPost<T>(url: string, path: string, body: unknown, token?: stri
   let res: Response;
   try { res = await fetch(url.replace(/\/+$/, "") + path, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" }); }
   catch { throw new AuthError(navigator.onLine ? t("api.network") : t("api.offline"), 0, "network"); }
+  const text = await res.text().catch(() => "");
+  if (isLoginGate(res, text)) throw new AuthError(t("api.gate"), res.status, "login_gate");
   let j: { error?: string; code?: string } & Record<string, unknown> = {};
-  try { j = await res.json(); } catch { /* not json */ }
+  try { j = JSON.parse(text); } catch { /* not json */ }
   if (!res.ok) throw new AuthError(j.error || `HTTP ${res.status}`, res.status, j.code || (res.status === 401 ? "unauthorized" : res.status === 429 ? "rate_limited" : ""));
   return j as T;
 }
