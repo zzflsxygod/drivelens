@@ -115,7 +115,7 @@ function demoPreview() {
   const close = () => { el.classList.remove("in"); setTimeout(() => el.remove(), 320); };
   const timer = setTimeout(close, 6000);
   el.onclick = async () => { clearTimeout(timer); close();
-    try { const d = await api<{ id: number }[]>("/api/drives?limit=1"); if (d[0]) window.dispatchEvent(new CustomEvent("drivelens-open", { detail: { view: `drive:${d[0].id}` } })); } catch { /* ignore */ } };
+    try { const d = await api<{ id: number; car_id?: number }[]>("/api/drives?limit=1"); if (d[0]) window.dispatchEvent(new CustomEvent("drivelens-open", { detail: { view: `drive:${d[0].id}`, car: d[0].car_id } })); } catch { /* ignore */ } };
 }
 
 // ---------------- UI ----------------
@@ -208,11 +208,12 @@ export function mountNotifications(slot: HTMLElement) {
 }
 
 /** Notification taps: the service worker focuses an open window and posts the target view (see vite.config.ts). */
-export function initNotificationClicks(open: (view: string) => void) {
-  window.addEventListener("drivelens-open", e => { const v = (e as CustomEvent<{ view?: string }>).detail?.view; if (v) open(v); });
+export function initNotificationClicks(open: (view: string, car?: string) => void) {
+  const carOf = (c: unknown) => typeof c === "string" || typeof c === "number" ? String(c) : undefined;
+  window.addEventListener("drivelens-open", e => { const d = (e as CustomEvent<{ view?: string; car?: number }>).detail; if (d?.view) open(d.view, carOf(d.car)); });
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.addEventListener("message", e => {
-    const d = e.data as { type?: string; view?: string } | null;
-    if (d && d.type === "drivelens-open" && typeof d.view === "string") open(d.view);
+    const d = e.data as { type?: string; view?: string; car?: string | null } | null;   // `car`: service workers before this version send only `view`
+    if (d && d.type === "drivelens-open" && typeof d.view === "string") open(d.view, carOf(d.car));
   });
 }

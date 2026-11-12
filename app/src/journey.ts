@@ -18,7 +18,7 @@ export interface Ctx {
   setMap(m: DriveMap | null): void;
   showDrive(id: number, back: () => void): void;
   showCharge(id: number, back: () => void): void;
-  carQ(): string;
+  carQ(car: number | null): string;
   carId(): Promise<number | null>;
   journeysAvailable(): boolean;
   journeysMessage(): string;
@@ -184,7 +184,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
     const qParam = q ? `&q=${encodeURIComponent(q)}` : "";
     const key = q ? `drives:${car ?? "all"}:q:${q}` : `drives:${car ?? "all"}`;
     list = infiniteList<Drive>({
-      container: box, toolbar: v.querySelector<HTMLElement>("#d-tb")!, key, path: `/api/drives?x=1${ctx.carQ()}${qParam}`,
+      container: box, toolbar: v.querySelector<HTMLElement>("#d-tb")!, key, path: `/api/drives?x=1${ctx.carQ(car)}${qParam}`,
       paging: ctx.pagingAvailable(), carId: car, monthsSupported: ctx.pagingAvailable() && !q, allowJump: !q,
       restore: doRestore && !q, dateOf: d => d.start_date, card: cardHTML,
       empty: q ? t("drives.noSearch") : t("home.noDrives"),
@@ -214,7 +214,7 @@ export async function showDriveList(ctx: Ctx, mode?: boolean, preselect: number[
   // CSV of every drive in the current view (car + active place search), not only the loaded pages
   const xb = v.querySelector<HTMLButtonElement>("#d-export");
   if (xb) xb.onclick = () => runExport(xb, v.querySelector<HTMLElement>("#x-msg"),
-    drivesCsv(`/api/drives?x=1${ctx.carQ()}${placeQ ? `&q=${encodeURIComponent(placeQ)}` : ""}`));
+    drivesCsv(`/api/drives?x=1${ctx.carQ(car)}${placeQ ? `&q=${encodeURIComponent(placeQ)}` : ""}`));
 
   const sm = v.querySelector<HTMLElement>("#selmode");
   if (sm) sm.onclick = () => {
@@ -270,7 +270,7 @@ export async function showJourneys(ctx: Ctx) {
   const gap = loadSettings().journeyGap ?? 60;
   const loadList = () => {
     const qParam = placeQ ? `&q=${encodeURIComponent(placeQ)}` : "";
-    return api<JourneyRow[]>(`/api/journeys?limit=200${ctx.carQ()}${qParam}`).then(list => {
+    return api<JourneyRow[]>(`/api/journeys?limit=200${ctx.carQ(car)}${qParam}`).then(list => {
     const el = v.querySelector("#j-list"); if (!el) return;
     const empty = placeQ ? t("j.noSearch") : t("j.emptyList");
     el.innerHTML = `<div class="section-title">${t("j.mine")} <span class="muted">${t("j.count", { n: list.length })}</span></div>` + (list.length ? list.map(j => `

@@ -113,7 +113,7 @@ self.addEventListener("notificationclick", e => {
     const view = url.searchParams.get("view");
     if (w) {                                                 // app already open: focus it and let it navigate (no reload)
       await w.focus().catch(() => {});
-      w.postMessage({ type: "drivelens-open", view });
+      w.postMessage({ type: "drivelens-open", view, car: url.searchParams.get("car") });
       return;
     }
     url.searchParams.set("from", "push");
