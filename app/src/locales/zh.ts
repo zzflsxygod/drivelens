@@ -576,7 +576,7 @@ const zh = {
   "nt.now": "现在",
   "nt.app": "推送通知目前只在网页版（PWA）中提供。",
   "nt.oldHint": "通知需要服务器更新到新版 drivelens-api。",
-  "nt.missing": "服务器还没开启通知：请在服务器上执行 deploy/drivelens-v0.16.0.sql（见安装说明），一分钟内生效。",
+  "nt.missing": "服务器还没开启通知：请以 TeslaMate 数据库管理员身份在服务器上执行一次 deploy/setup.sql，然后重启 drivelens-api（见安装说明）。",
   "nt.insecure": "通知需要通过 https 打开网页版。",
   "nt.unsupported": "这个浏览器不支持网页推送。请用 Chrome、Edge、Firefox 或 Safari 的最新版本。",
   "nt.iosOld": "iPhone / iPad 需要 iOS 16.4 以上，并从主屏幕上的 DriveLens 图标打开。",

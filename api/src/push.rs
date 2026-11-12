@@ -8,7 +8,7 @@ use base64ct::{Base64UrlUnpadded, Encoding as _};
 use std::sync::atomic::Ordering;
 use web_push_native::{jwt_simple::algorithms::{ECDSAP256PublicKeyLike, ES256KeyPair}, p256::PublicKey, Auth, WebPushBuilder};
 
-const MISSING: &str = "push tables drivelens.push_subscriptions / drivelens.push_state are missing or not writable; run deploy/drivelens-v0.16.0.sql as the TeslaMate DB admin (picked up within a minute, no restart needed)";
+const MISSING: &str = "push tables drivelens.push_subscriptions / drivelens.push_state are missing or not writable; run deploy/setup.sql once as the TeslaMate DB admin and restart the API (see docs/install.md)";
 const DEFAULT_SUBJECT: &str = "https://github.com/zzflsxygod/drivelens";
 /// Poll interval for finished drives / due monthly reminders.
 const TICK: std::time::Duration = std::time::Duration::from_secs(60);

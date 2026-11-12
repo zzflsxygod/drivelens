@@ -577,7 +577,7 @@ const ja: Record<keyof typeof zh, string> = {
   "nt.now": "今",
   "nt.app": "プッシュ通知は Web 版（PWA）で利用できます。",
   "nt.oldHint": "通知にはサーバーの drivelens-api の更新が必要です。",
-  "nt.missing": "サーバーで通知がまだ有効になっていません。deploy/drivelens-v0.16.0.sql を実行してください（インストールガイド参照）。1分以内に反映されます。",
+  "nt.missing": "サーバーで通知がまだ有効になっていません。TeslaMate の DB 管理者として deploy/setup.sql を一度実行し、drivelens-api を再起動してください（インストールガイド参照）。",
   "nt.insecure": "通知を使うには Web 版を https で開く必要があります。",
   "nt.unsupported": "このブラウザは Web プッシュに対応していません。最新の Chrome・Edge・Firefox・Safari をお使いください。",
   "nt.iosOld": "iPhone / iPad は iOS 16.4 以降で、ホーム画面の DriveLens アイコンから開く必要があります。",

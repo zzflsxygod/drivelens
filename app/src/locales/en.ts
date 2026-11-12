@@ -577,7 +577,7 @@ const en: Record<keyof typeof zh, string> = {
   "nt.now": "now",
   "nt.app": "Push notifications are available in the web app (PWA).",
   "nt.oldHint": "Notifications need a newer drivelens-api on your server.",
-  "nt.missing": "Notifications aren't enabled on the server yet: run deploy/drivelens-v0.16.0.sql there (see the install guide); it takes effect within a minute.",
+  "nt.missing": "Notifications aren't enabled on the server yet: run deploy/setup.sql once there as the TeslaMate DB admin and restart drivelens-api (see the install guide).",
   "nt.insecure": "Notifications need the web app to be opened over https.",
   "nt.unsupported": "This browser doesn't support web push. Use a recent Chrome, Edge, Firefox or Safari.",
   "nt.iosOld": "iPhone / iPad need iOS 16.4 or later, with DriveLens opened from its Home Screen icon.",
