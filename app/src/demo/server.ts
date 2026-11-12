@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Demo Mode "server": answers every DriveLens API endpoint from the generated dataset (gen.ts), mirroring the
-// Rust API's response shapes and rules (api/src/*.rs). Writes live in memory and are persisted per demo session.
+// Demo Mode "server": answers every DriveLens API endpoint the app uses in demo mode from the generated dataset (gen.ts),
+// mirroring the Rust API's response shapes and rules (api/src/*.rs). Not implemented (404): /api/cars/{id}/summary and
+// /api/push/* — the app never calls them in demo mode. Writes live in memory and are persisted per demo session.
 import { generate, hav, climate, DEMO_CAR_ID, type DB, type DDrive, type DCharge, type Pos } from "./gen";
 // Shared with scripts/check-demo-tpms.mjs (plain ESM, no DOM).
 // @ts-expect-error no .d.ts for sibling .mjs under bundler resolution
@@ -122,8 +123,13 @@ type Res = { status: number; body?: unknown };
 const ok = (body: unknown): Res => ({ status: 200, body });
 const err = (status: number, error: string): Res => ({ status, body: { error } });
 
+/** /health: public shape. /api/health: the authenticated shape of health_full() in api/src/main.rs (database + feature flags). */
 function health() {
   return { status: "ok", version: DEMO_SERVER_VERSION, api_level: DEMO_API_LEVEL };
+}
+function healthFull() {
+  // web_push stays false: /api/push/* is not mocked (notifications are simulated in the app, see notify.ts)
+  return { ...health(), database: true, manual_costs: true, journeys: true, suggestion_dismissal: true, journey_cover: true, weather: true, web_push: false };
 }
 const cars = () => [{ id: DEMO_CAR_ID, name: db.car.name, model: db.car.model, marketing_name: db.car.marketing_name, vin: db.car.vin, efficiency: db.car.efficiency }];
 
@@ -612,13 +618,16 @@ function journeyDetail(id: number): Res {
   return ok({ id: j.id, car_id: DEMO_CAR_ID, name: j.name, note: j.note, has_cover: !!j.cover, summary: sm, drives, charges, stops, candidates });
 }
 function cleanName(n: unknown) { const s = typeof n === "string" ? n.trim() : ""; return s && [...s].length <= 200 ? s : null; }
-function cleanNote(n: unknown) { const s = typeof n === "string" ? n.trim() : ""; return s || null; }
-function checkDrives(ids: unknown, own: number | null): Res | null {
-  if (!Array.isArray(ids) || !ids.length || ids.length > 500) return err(400, "drive_ids must contain 1-500 drives");
-  if (ids.some(i => !driveById(Number(i)))) return err(404, "some drives were not found");
-  const taken = ids.filter(i => { const j = journeyOf(Number(i)); return j && j.id !== own; });
+/** trimmed note, "" → null; `false` when longer than `max` characters (journeys 2000, costs 500, like the API) */
+function cleanNote(n: unknown, max: number): string | null | false { const s = typeof n === "string" ? n.trim() : ""; return [...s].length > max ? false : s || null; }
+/** like check_drives() in api/src/journey.rs: de-duplicate first, then 1-500 / exist / not taken. Returns the unique ids. */
+function checkDrives(ids: unknown, own: number | null): Res | number[] {
+  const u = Array.isArray(ids) ? [...new Set(ids.map(Number))] : [];
+  if (!u.length || u.length > 500) return err(400, "drive_ids must contain 1-500 drives");
+  if (u.some(i => !driveById(i))) return err(404, "some drives were not found");
+  const taken = u.filter(i => { const j = journeyOf(i); return j && j.id !== own; });
   if (taken.length) return { status: 409, body: { error: "some drives already belong to another journey", drive_ids: taken } };
-  return null;
+  return u;
 }
 function suggestions(q: URLSearchParams) {
   const gap = Math.min(1440, Math.max(1, Number(q.get("gap_min") ?? 60) || 60)) * 60, cgap = Math.min(1440, Math.max(1, Number(q.get("charge_gap_min") ?? 120) || 120)) * 60;
@@ -811,7 +820,8 @@ export function handle(method: string, url: string, body: unknown): Res {
   let m: RegExpMatchArray | null;
   const M = method.toUpperCase();
   const B = (body ?? {}) as Record<string, unknown>;
-  if (p === "/health" || p === "/api/health") return ok(health());
+  if (p === "/health") return ok(health());
+  if (p === "/api/health") return ok(healthFull());
   if (p === "/api/cars" && M === "GET") return ok(cars());
   if ((m = p.match(/^\/api\/cars\/(\d+)\/(status|last-activity|stats|months|report|trends|footprint|battery|vampire|charging-costs|year-review|tpms-history)$/))) {
     // the demo has a single car: any car id (e.g. one remembered from a real server) is answered as the demo car
@@ -840,37 +850,43 @@ export function handle(method: string, url: string, body: unknown): Res {
     if (M === "PUT") { const amount = Number(B.amount), cur = String(B.currency ?? "").trim().toUpperCase();
       if (!isFinite(amount) || amount < 0 || amount >= 1e9) return err(400, "amount must be 0..1e9");
       if (!/^[A-Z]{3}$/.test(cur)) return err(400, "currency must be a 3-letter ISO 4217 code");
-      st.costs[c.id] = { amount: Math.round(amount * 100) / 100, currency: cur, note: cleanNote(B.note) }; commit(); return ok(chargeJson(c)); }
+      const note = cleanNote(B.note, 500); if (note === false) return err(400, "note too long");
+      st.costs[c.id] = { amount: Math.round(amount * 100) / 100, currency: cur, note }; commit(); return ok(chargeJson(c)); }
     if (M === "DELETE") { st.costs[c.id] = null; commit(); return ok(chargeJson(c)); }
   }
   if (p === "/api/addresses/aliases") return ok(Object.entries(st.aliases).map(([id, a]) => ({ address_id: Number(id), name: a.name, original_name: addr(Number(id))?.name ?? null, updated_at: TS(a.at) })).sort((a, b) => a.name.localeCompare(b.name)));
   if ((m = p.match(/^\/api\/addresses\/(\d+)\/alias$/))) {
-    const id = Number(m[1]); if (!addr(id)) return err(404, "address not found");
-    if (M === "PUT") { const n = cleanName(B.name); if (!n) return err(400, "name must be 1-200 characters"); st.aliases[id] = { name: n, at: Date.now() }; commit();
+    const id = Number(m[1]);
+    if (M === "PUT") { if (!addr(id)) return err(404, "address not found"); const n = cleanName(B.name); if (!n) return err(400, "name must be 1-200 characters"); st.aliases[id] = { name: n, at: Date.now() }; commit();
       return ok({ address_id: id, name: n, original_name: addr(id)!.name, updated_at: TS(Date.now()) }); }
     if (M === "DELETE") { if (!st.aliases[id]) return err(404, "no alias"); delete st.aliases[id]; commit(); return { status: 204 }; }
   }
   if (p === "/api/journeys" && M === "GET") return journeyList(q);
   if (p === "/api/journeys" && M === "POST") {
     const n = cleanName(B.name); if (!n) return err(400, "name must be 1-200 characters");
-    const bad = checkDrives(B.drive_ids, null); if (bad) return bad;
-    const id = st.nextJ++; st.journeys.push({ id, name: n, note: cleanNote(B.note), drive_ids: [...new Set((B.drive_ids as unknown[]).map(Number))], cover: null, cover_at: null }); commit();
+    const note = cleanNote(B.note, 2000); if (note === false) return err(400, "note too long");
+    const ids = checkDrives(B.drive_ids, null); if (!Array.isArray(ids)) return ids;
+    const id = st.nextJ++; st.journeys.push({ id, name: n, note, drive_ids: ids, cover: null, cover_at: null }); commit();
     return journeyDetail(id);
   }
   if (p === "/api/journeys/suggestions") return suggestions(q);
-  if (p === "/api/journeys/suggestions/dismiss" && M === "POST") { const ids = (Array.isArray(B.drive_ids) ? B.drive_ids : []).map(Number).filter(i => driveById(i) && !st.dismissed.includes(i));
-    if (!Array.isArray(B.drive_ids) || !B.drive_ids.length) return err(400, "drive_ids must contain 1-1000 drives"); st.dismissed.push(...ids); commit(); return ok({ dismissed: ids.length }); }
+  if (p === "/api/journeys/suggestions/dismiss" && M === "POST") { const ids = [...new Set((Array.isArray(B.drive_ids) ? B.drive_ids : []).map(Number))].filter(i => driveById(i) && !st.dismissed.includes(i));
+    if (!Array.isArray(B.drive_ids) || !B.drive_ids.length || B.drive_ids.length > 1000) return err(400, "drive_ids must contain 1-1000 drives"); st.dismissed.push(...ids); commit(); return ok({ dismissed: ids.length }); }
   if (p === "/api/journeys/suggestions/dismissed" && M === "DELETE") { const n = st.dismissed.length; st.dismissed = []; commit(); return ok({ restored: n }); }
   if ((m = p.match(/^\/api\/journeys\/(\d+)$/))) {
     const id = Number(m[1]), j = st.journeys.find(x => x.id === id);
     if (M === "GET") return journeyDetail(id);
     if (!j) return err(404, "journey not found");
-    if (M === "PATCH") { if ("name" in B) { const n = cleanName(B.name); if (!n) return err(400, "name must be 1-200 characters"); j.name = n; } if ("note" in B) j.note = cleanNote(B.note); commit(); return journeyDetail(id); }
+    if (M === "PATCH") {
+      // name: absent or null = unchanged (COALESCE in the API); note: absent = unchanged, null or "" = clear
+      const n = B.name == null ? null : cleanName(B.name); if (B.name != null && !n) return err(400, "name must be 1-200 characters");
+      const note = "note" in B ? cleanNote(B.note, 2000) : undefined; if (note === false) return err(400, "note too long");
+      if (n) j.name = n; if (note !== undefined) j.note = note; commit(); return journeyDetail(id); }
     if (M === "DELETE") { st.journeys = st.journeys.filter(x => x.id !== id); commit(); return { status: 204 }; }
   }
   if ((m = p.match(/^\/api\/journeys\/(\d+)\/drives$/)) && M === "PUT") {
     const id = Number(m[1]), j = st.journeys.find(x => x.id === id); if (!j) return err(404, "journey not found");
-    const bad = checkDrives(B.drive_ids, id); if (bad) return bad; j.drive_ids = [...new Set((B.drive_ids as unknown[]).map(Number))]; commit(); return journeyDetail(id);
+    const ids = checkDrives(B.drive_ids, id); if (!Array.isArray(ids)) return ids; j.drive_ids = ids; commit(); return journeyDetail(id);
   }
   if ((m = p.match(/^\/api\/journeys\/(\d+)\/path$/))) return journeyPath(Number(m[1]));
   if ((m = p.match(/^\/api\/journeys\/(\d+)\/weather$/))) return weather(Number(m[1]));
