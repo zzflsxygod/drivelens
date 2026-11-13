@@ -13,7 +13,7 @@ This chunk is lazy-loaded, about 77 KB raw / 32 KB gzip.
   - Simplified to about 6 m.
 - **Elevation**: Copernicus DEM GLO-90 via the Open-Meteo Elevation API (CC BY 4.0).
 - **Weather / temperatures**: synthetic Tokyo climatology. No Open-Meteo request is made in demo mode.
-- **Writes** (aliases, costs, journeys, covers, dismissals): kept in `localStorage["drivelens-demo-state"]`. They are reset when you exit or on a new day.
+- **Writes** (aliases, place charging categories, costs, journeys, covers, dismissals): kept in `localStorage["drivelens-demo-state"]`. They are reset when you exit or on a new day.
 - **Charging**:
   - Home charging: about ¥31/kWh. This is the TeslaMate cost.
   - Supercharger places: generic names. Cost is a manual ¥66/kWh.
