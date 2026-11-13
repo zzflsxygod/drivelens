@@ -39,7 +39,11 @@ export interface Charge {
   teslamate_cost?: number | null; default_currency?: string | null;
   start_battery_level: number | null; end_battery_level: number | null; duration_min: number | null;
   outside_temp_avg: number | null;
+  /** charge detail only (api_level 22): category pinned for this place (null = automatic) and the session's effective type */
+  category?: ChargeKind | null; charge_kind?: ChargeKind | null;
 }
+export type ChargeKind = "home" | "supercharger" | "other";
+export const CHARGE_KINDS: ChargeKind[] = ["home", "supercharger", "other"];
 export interface ChargePoint { date: string; battery_level: number | null; charger_power: number | null; charge_energy_added: number | null;
   power_kw?: number | null; power_source?: string | null }
 export interface Drive {
@@ -124,6 +128,8 @@ export function isLoginGate(res: Response, text: string): boolean {
 
 export const setAlias = (addressId: number, name: string) => api(`/api/addresses/${addressId}/alias`, "PUT", { name });
 export const resetAlias = (addressId: number) => api(`/api/addresses/${addressId}/alias`, "DELETE");
+export const setCategory = (addressId: number, category: ChargeKind) => api(`/api/addresses/${addressId}/category`, "PUT", { category });
+export const resetCategory = (addressId: number) => api(`/api/addresses/${addressId}/category`, "DELETE");
 
 export const setCost = (chargeId: number, amount: number, currency: string, note: string | null) =>
   api(`/api/charges/${chargeId}/cost`, "PUT", { amount, currency, note });

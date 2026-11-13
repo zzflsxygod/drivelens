@@ -35,7 +35,7 @@ import { infiniteList } from "./infinite";
 import { canExportCsv, chargesCsv, driveGpx, runExport } from "./export";
 import { initBackToTop, backToTop, isJumped } from "./totop";
 import { checkServer, serverReady, onServerInfo, serverInfo, globalBanner, lacks, featureText, tooOldText, serverLabel, APP_VERSION } from "./version";
-import { api, setAlias, resetAlias, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, SIGNED_OUT_EVENT, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
+import { api, setAlias, resetAlias, setCategory, resetCategory, CHARGE_KINDS, type ChargeKind, setCost, resetCost, fmtMoney, defaultCurrency, CURRENCIES, loadSettings, realServer, type Theme, type LabelLang, saveSettings, SIGNED_OUT_EVENT, Car, Charge, ChargePoint, Drive, PathPoint } from "./api";
 import { canWrite, saveConnection, forgetServer, isLeaving, initDeviceAuth, onMeChange, revokeOldDevice } from "./auth";
 import { mountDevices, signOutCardHTML, bindSignOut, thisDeviceText } from "./devices";
 import { installGuideUrl, RELEASES_URL, ISSUES_URL, SOURCE_URL, THIRD_PARTY_URL } from "./links";
@@ -53,13 +53,17 @@ const n = (v: number | null, d = 1) => v == null ? "—" : v.toFixed(d);
 /** `&car_id=` for an id from `currentCarId()`, the id the list cache keys and month totals use (the selector is still empty on a cold start). */
 const carQ = (car: number | null) => car != null ? `&car_id=${car}` : "";
 
-/** Clickable place name; opens rename dialog when it has an address id. */
-function place(name: string | null, addressId: number | null, alias: string | null) {
+/** Charging-type part of the rename dialog (charge detail, api_level 22): the place's pinned category and this session's type. */
+interface PlaceCat { category: ChargeKind | null; kind: ChargeKind | null }
+
+/** Clickable place name; opens rename dialog when it has an address id. `cat`: also offer the charging-type selector. */
+function place(name: string | null, addressId: number | null, alias: string | null, cat?: PlaceCat) {
   if (addressId == null || !canWrite()) return esc(name);   // read-only device: no rename entry point
-  return `<span class="place" data-addr="${addressId}" data-name="${esc(name)}" data-alias="${alias ? 1 : 0}">${esc(name)}<span class="pen">✎</span></span>`;
+  const c = cat ? ` data-cat="${cat.category ?? ""}" data-kind="${cat.kind ?? ""}"` : "";
+  return `<span class="place" data-addr="${addressId}" data-name="${esc(name)}" data-alias="${alias ? 1 : 0}"${c}>${esc(name)}<span class="pen">✎</span></span>`;
 }
 
-function renameDialog(addressId: number, current: string, hasAlias: boolean, onDone: () => void) {
+function renameDialog(addressId: number, current: string, hasAlias: boolean, onDone: () => void, cat?: PlaceCat) {
   const dlg = document.createElement("div");
   dlg.className = "modal";
   dlg.innerHTML = `
@@ -67,6 +71,11 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
       <h3>${t("alias.title")}</h3>
       <input id="alias" maxlength="200" enterkeyhint="done" autocomplete="off" value="${esc(current)}">
       <p class="muted">${t("alias.hint")}</p>
+      ${cat ? `<label>${t("alias.category")}<select id="cat">
+          <option value="">${t("alias.catAuto")}</option>
+          ${CHARGE_KINDS.map(k => `<option value="${k}"${cat.category === k ? " selected" : ""}>${t(`mix.${k}`)}</option>`).join("")}
+        </select></label>
+        <p class="muted">${cat.kind ? `${t("alias.catNow", { k: t(`mix.${cat.kind}`) })} ` : ""}${t("alias.catHint")}</p>` : ""}
       <div id="dlgmsg"></div>
       <div class="btns">
         ${hasAlias ? `<button id="reset" class="ghost">${t("alias.reset")}</button>` : ""}
@@ -87,7 +96,13 @@ function renameDialog(addressId: number, current: string, hasAlias: boolean, onD
   (dlg.querySelector("#ok") as HTMLElement).onclick = () => {
     const v = input.value.trim();
     if (!v) { dlg.querySelector("#dlgmsg")!.innerHTML = `<div class="error">${t("common.nameEmpty")}</div>`; return; }
-    run(() => setAlias(addressId, v));
+    if (!cat) { run(() => setAlias(addressId, v)); return; }
+    // with the charging type: write only what changed, so changing the type alone does not pin the shown name as an alias
+    const next = ((dlg.querySelector("#cat") as HTMLSelectElement).value || null) as ChargeKind | null;
+    run(async () => {
+      if (v !== current) await setAlias(addressId, v);
+      if (next !== cat.category) await (next ? setCategory(addressId, next) : resetCategory(addressId));
+    });
   };
   input.onkeydown = e => { if (e.key === "Enter") (dlg.querySelector("#ok") as HTMLElement).click(); };
   const reset = dlg.querySelector("#reset") as HTMLElement | null;
@@ -150,7 +165,8 @@ function costDialog(c: Charge, onDone: () => void) {
 
 function bindPlaces(refresh: () => void) {
   view.querySelectorAll<HTMLElement>(".place").forEach(el => el.onclick = () =>
-    renameDialog(Number(el.dataset.addr), el.dataset.name || "", el.dataset.alias === "1", refresh));
+    renameDialog(Number(el.dataset.addr), el.dataset.name || "", el.dataset.alias === "1", refresh, el.dataset.cat == null ? undefined
+      : { category: (el.dataset.cat || null) as ChargeKind | null, kind: (el.dataset.kind || null) as ChargeKind | null }));
 }
 
 
@@ -314,7 +330,8 @@ async function showCharge(id: number, back: () => void = () => showCharges(true)
     const c = await api<Charge & { points: ChargePoint[] }>(`/api/charges/${id}`);
     view.innerHTML = `
       <button class="back">${t("common.back")}</button>
-      <h2>${place(c.address, c.address_id, c.alias)}</h2>
+      <h2>${place(c.address, c.address_id, c.alias, !lacks("placeCategory") && c.charge_kind !== undefined
+        ? { category: c.category ?? null, kind: c.charge_kind ?? null } : undefined)}</h2>
       <div class="muted">${fmtDate(c.start_date)} – ${fmtDate(c.end_date)}${canWrite() ? ` · ${t("common.tapPlace")}` : ""}</div>
       <div class="grid">
         <div><small>${t("charge.added")}</small><b>${n(c.charge_energy_added, 2)} kWh</b></div>

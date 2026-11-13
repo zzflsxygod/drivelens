@@ -14,13 +14,15 @@ export function configure(level: number, version: string) { DEMO_API_LEVEL = lev
 export const attribution = () => db?.attribution ?? "";
 
 // ---------------- mutable demo state (persisted) ----------------
-interface State { day: string; aliases: Record<number, { name: string; at: number }>; costs: Record<number, { amount: number; currency: string; note: string | null } | null>;
+type Kind = "home" | "supercharger" | "other";
+const KINDS: Kind[] = ["home", "supercharger", "other"];
+interface State { day: string; aliases: Record<number, { name: string; at: number }>; categories: Record<number, { category: Kind; at: number }>; costs: Record<number, { amount: number; currency: string; note: string | null } | null>;
   journeys: { id: number; name: string; note: string | null; drive_ids: number[]; cover: string | null; cover_at: number | null }[]; nextJ: number; dismissed: number[] }
 const SKEY = "drivelens-demo-state";
 let db: DB; let st: State;
 const tokyoDay = (ms: number) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
 function fresh(): State {
-  return { day: tokyoDay(db.now), aliases: {}, costs: {}, journeys: db.journeys.map(j => ({ ...j, cover: null, cover_at: null })), nextJ: 100, dismissed: [] };
+  return { day: tokyoDay(db.now), aliases: {}, categories: {}, costs: {}, journeys: db.journeys.map(j => ({ ...j, cover: null, cover_at: null })), nextJ: 100, dismissed: [] };
 }
 function save() { try { localStorage.setItem(SKEY, JSON.stringify(st)); } catch { try { localStorage.setItem(SKEY, JSON.stringify({ ...st, journeys: st.journeys.map(j => ({ ...j, cover: null })) })); } catch { /* quota */ } } }
 export function initDemo(nowMs = Date.now(), persist = true) {
@@ -29,6 +31,7 @@ export function initDemo(nowMs = Date.now(), persist = true) {
   if (persist) { try { s = JSON.parse(localStorage.getItem(SKEY) || "null"); } catch { s = null; } }
   // a new (Tokyo) day regenerates the timeline; earlier edits would point at shifted drives → start fresh
   st = s && s.day === tokyoDay(db.now) ? s : fresh();
+  st.categories ??= {};   // state saved by an app before place categories
   persistOn = persist; if (persist) save();
 }
 let persistOn = true;
@@ -101,7 +104,9 @@ const isFast = (c: DCharge) => c.points.some(p => p.fast);
 const isTeslaFc = (c: DCharge) => c.points.some(p =>
   (p.fast_charger_brand != null && /^tesla$/i.test(p.fast_charger_brand))
   || (p.fast_charger_type != null && /^tesla/i.test(p.fast_charger_type)));
-function kindOf(c: DCharge, home: number | null) {
+function kindOf(c: DCharge, home: number | null): Kind {
+  // a per-place category wins over the automatic rules (report.rs charges_sql)
+  const pinned = st.categories[c.addr]?.category; if (pinned) return pinned;
   const a = addr(c.addr); const txt = [aliasOf(c.addr), geo(c.geo)?.name, a?.name].filter(Boolean).join(" ");
   // Match api/src/report.rs: DC + (Tesla brand/type OR name fallback).
   if (isFast(c) && (isTeslaFc(c) || /(supercharger|超充|スーパーチャージャー|tesla)/i.test(txt))) return "supercharger";
@@ -113,6 +118,13 @@ function homeAddr(before: number) {
   for (const c of db.charges) if (c.start >= before - 365 * 864e5 && c.duration_min > 0 && c.added * 60 / c.duration_min < 22) n.set(c.addr, (n.get(c.addr) ?? 0) + 1);
   let best: number | null = null, bn = 0; for (const [k, v] of n) if (v > bn) { best = k; bn = v; } return best;
 }
+/** Charge detail `category` / `charge_kind` (report.rs session_kind: home address as for the session's UTC month). */
+function sessionKind(c: DCharge) {
+  const d = new Date(c.start), m1 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  return { category: st.categories[c.addr]?.category ?? null, charge_kind: kindOf(c, homeAddr(m1)) };
+}
+const categoryJson = (id: number, c: { category: Kind; at: number }) =>
+  ({ address_id: id, category: c.category, original_name: addr(id)?.name ?? null, updated_at: TS(c.at) });
 type Money = { currency: string; amount: number };
 function addMoney(v: Money[], cur: string, a: number) { const m = v.find(x => x.currency === cur); if (m) m.amount += a; else { v.push({ currency: cur, amount: a }); v.sort((x, y) => x.currency.localeCompare(y.currency)); } }
 const roundMoney = (v: Money[]) => v.forEach(m => m.amount = r2(m.amount));
@@ -844,7 +856,7 @@ export function handle(method: string, url: string, body: unknown): Res {
   if ((m = p.match(/^\/api\/drives\/(\d+)$/))) { const d = driveById(Number(m[1])); return d ? ok(driveJson(d)) : err(404, "not found"); }
   if ((m = p.match(/^\/api\/drives\/(\d+)\/path$/))) return drivePath(Number(m[1]));
   if (p === "/api/charges") return list(db.charges, q, chargeJson);
-  if ((m = p.match(/^\/api\/charges\/(\d+)$/))) { const c = chargeById(Number(m[1])); return c ? ok({ ...chargeJson(c), points: chargePoints(c) }) : err(404, "not found"); }
+  if ((m = p.match(/^\/api\/charges\/(\d+)$/))) { const c = chargeById(Number(m[1])); return c ? ok({ ...chargeJson(c), ...sessionKind(c), points: chargePoints(c) }) : err(404, "not found"); }
   if ((m = p.match(/^\/api\/charges\/(\d+)\/cost$/))) {
     const c = chargeById(Number(m[1])); if (!c) return err(404, "charge not found");
     if (M === "PUT") { const amount = Number(B.amount), cur = String(B.currency ?? "").trim().toUpperCase();
@@ -860,6 +872,13 @@ export function handle(method: string, url: string, body: unknown): Res {
     if (M === "PUT") { if (!addr(id)) return err(404, "address not found"); const n = cleanName(B.name); if (!n) return err(400, "name must be 1-200 characters"); st.aliases[id] = { name: n, at: Date.now() }; commit();
       return ok({ address_id: id, name: n, original_name: addr(id)!.name, updated_at: TS(Date.now()) }); }
     if (M === "DELETE") { if (!st.aliases[id]) return err(404, "no alias"); delete st.aliases[id]; commit(); return { status: 204 }; }
+  }
+  if (p === "/api/addresses/categories") return ok(Object.entries(st.categories).map(([id, c]) => categoryJson(Number(id), c)).sort((a, b) => a.address_id - b.address_id));
+  if ((m = p.match(/^\/api\/addresses\/(\d+)\/category$/))) {
+    const id = Number(m[1]);
+    if (M === "PUT") { const k = String(B.category ?? "").trim() as Kind; if (!KINDS.includes(k)) return err(400, "category must be home, supercharger or other");
+      if (!addr(id)) return err(404, "address not found"); st.categories[id] = { category: k, at: Date.now() }; commit(); return ok(categoryJson(id, st.categories[id])); }
+    if (M === "DELETE") { if (!st.categories[id]) return err(404, "no category"); delete st.categories[id]; commit(); return { status: 204 }; }
   }
   if (p === "/api/journeys" && M === "GET") return journeyList(q);
   if (p === "/api/journeys" && M === "POST") {
