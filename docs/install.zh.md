@@ -280,7 +280,7 @@ API 读取的可选变量（`DRIVELENS_CORS_ORIGINS`、`DRIVELENS_OWNER_KEY_MODE
 
 ```bash
 cd teslamate
-TAG=v1.4.3   # 换成 Releases 里的最新版本
+TAG=v1.5.0   # 换成 Releases 里的最新版本
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
   sh -c "npm ci && npm run build:web"
@@ -355,7 +355,7 @@ docker compose -f docker-compose.yml -f docker-compose.drivelens.yml up -d drive
 
 ```bash
 cd teslamate
-TAG=v1.4.3   # 新版本
+TAG=v1.5.0   # 新版本
 rm -rf drivelens-src
 git clone --depth 1 --branch "$TAG" https://github.com/zzflsxygod/drivelens.git drivelens-src
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/drivelens-src/app:/app" -w /app node:22 \
