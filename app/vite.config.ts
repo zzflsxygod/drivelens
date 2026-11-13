@@ -2,7 +2,7 @@
 import { defineConfig, type Plugin } from "vite";
 import pkg from "./package.json";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, sep } from "node:path";
+import { dirname, join } from "node:path";
 const host = process.env.TAURI_DEV_HOST;
 
 /** Official hosted web app (Cloudflare Pages). Override with VITE_WEB_ORIGIN for another host. */
@@ -135,9 +135,11 @@ self.addEventListener("notificationclick", e => {
  */
 function thirdPartyLicenses(): Plugin {
   const pkgDir = (id: string) => {
-    const i = id.lastIndexOf(`${sep}node_modules${sep}`); if (i < 0) return null;
-    const rest = id.slice(i + 14).split(sep);
-    return id.slice(0, i + 14) + (rest[0].startsWith("@") ? join(rest[0], rest[1]) : rest[0]);
+    // Rollup module ids use "/" on every OS, so path.sep ("\" on Windows) would never match
+    const p = id.replaceAll("\\", "/");
+    const i = p.lastIndexOf("/node_modules/"); if (i < 0) return null;
+    const rest = p.slice(i + 14).split("/");
+    return p.slice(0, i + 14) + (rest[0].startsWith("@") ? `${rest[0]}/${rest[1]}` : rest[0]);
   };
   return {
     name: "drivelens-third-party-licenses",
