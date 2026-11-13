@@ -84,6 +84,22 @@ pub(crate) async fn alias_table(s: &AppState) -> Result<&'static str, ApiError> 
     Ok(if aliases_ok(s, "SELECT").await? { "drivelens.address_aliases" } else { NO_ALIASES })
 }
 
+/// Does the role hold `privs` on drivelens.address_categories (per-place charge category)? Same rules as `aliases_ok`.
+pub(crate) async fn categories_ok(s: &AppState, privs: &str) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT to_regclass('drivelens.address_categories') IS NOT NULL AND has_table_privilege('drivelens.address_categories'::text, $1::text)")
+        .bind(privs).fetch_one(&s.db).await
+        .or_else(|e| match &e { sqlx::Error::Database(_) => Ok(false), _ => Err(e) })?)
+}
+
+/// Empty stand-in with the category table's columns (see `NO_ALIASES`): classification is then fully automatic.
+const NO_CATEGORIES: &str = "(SELECT NULL::int4 AS address_id, NULL::text AS category WHERE false)";
+
+/// The relation that the charge classification joins for per-place category overrides.
+pub(crate) async fn category_table(s: &AppState) -> Result<&'static str, ApiError> {
+    Ok(if categories_ok(s, "SELECT").await? { "drivelens.address_categories" } else { NO_CATEGORIES })
+}
+
 /// Currency guessed from the charge location: TeslaMate's addresses.country (localized name
 /// or English), then a Japan bounding box on the position. NULL = unknown (client default).
 pub(crate) const LOC_CURRENCY: &str = r#"(CASE
@@ -288,6 +304,10 @@ fn fill_power(points: &mut [ChargePoint]) {
 struct ChargeDetail {
     #[serde(flatten)]
     summary: ChargeSummary,
+    /// per-place category override of the session's address ('home' | 'supercharger' | 'other'), null = automatic
+    category: Option<String>,
+    /// the session's effective charge type, as counted by the report / trends / cost stats (null while charging)
+    charge_kind: Option<String>,
     points: Vec<ChargePoint>,
 }
 
@@ -370,8 +390,8 @@ pub(crate) fn charge_select(costs: bool, al: &str) -> String {
 
 /// Bump when endpoints are added or changed (the app gates features on it).
 /// 3 = split home endpoints (v0.3.1) · 4 = charge power_kw (v0.3.2) · 5 = manual costs (v0.4.0)
-/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = place search (drives/journeys q) + car status TPMS (v0.15.0) · 17 = vampire drain parked SoC/range stats + optional push alert (unreleased) · 18 = charging cost stats: cross-month ¥/kWh, ¥/100 km, home/SuC/other (unreleased) · 19 = battery health trend rates/projections/spark on /battery `tm.trend` (unreleased) · 20 = year in review annual totals/highlights/YoY (unreleased) · 21 = TPMS history chart over positions (unreleased)
-pub(crate) const API_LEVEL: u32 = 21;
+/// 6 = monthly report (v0.5.0) · 7 = JSON /health with version (v0.5.1) · 8 = journeys (v0.6.0) · 9 = dismiss suggestions (v0.6.1) · 10 = keyset paging + /cars/:id/months (v0.6.2) · 11 = journey cover, weather, speed bands (v0.7.0) · 12 = battery degradation, report footprint + 12-month trends (v0.9.0) · 13 = web push (v0.12.0) · 14 = TeslaMate-identical battery health, /battery `tm` (v0.13.0) · 15 = device auth: /api/auth/*, device tokens, pairing codes, read-only devices (v0.14.0) · 16 = place search (drives/journeys q) + car status TPMS (v0.15.0) · 17 = vampire drain parked SoC/range stats + optional push alert (unreleased) · 18 = charging cost stats: cross-month ¥/kWh, ¥/100 km, home/SuC/other (unreleased) · 19 = battery health trend rates/projections/spark on /battery `tm.trend` (unreleased) · 20 = year in review annual totals/highlights/YoY (unreleased) · 21 = TPMS history chart over positions (unreleased) · 22 = per-place charge category override: /api/addresses/categories, /api/addresses/:id/category, charge detail `category` / `charge_kind` (unreleased)
+pub(crate) const API_LEVEL: u32 = 22;
 
 /// Unauthenticated and DB-free (cheap; also used as the container health/version probe).
 /// {items, next_cursor} when ?paged=true, else the plain array (old clients).
@@ -468,7 +488,8 @@ async fn get_charge(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Re
     )).bind(id).fetch_all(&s.db).await?;
     let mut points = points;
     fill_power(&mut points);
-    Ok(Json(ChargeDetail { summary, points }).into_response())
+    let (category, charge_kind) = report::session_kind(&s, id).await;
+    Ok(Json(ChargeDetail { summary, category, charge_kind, points }).into_response())
 }
 
 /// Drive columns + joins (no WHERE). With `journeys`, also the journey id/name of each drive. `al` as in `charge_select`.
@@ -592,6 +613,63 @@ async fn delete_alias(State(s): State<AppState>, Path(id): Path<i64>) -> Result<
     Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no alias") } else { StatusCode::NO_CONTENT.into_response() })
 }
 
+/// Per-place charge category override (issue #84): pins the report / trends / cost-stats charge type of every
+/// session at a TeslaMate address. No row = automatic classification (report::charges_sql).
+pub(crate) const CATEGORIES: [&str; 3] = ["home", "supercharger", "other"];
+
+#[derive(Serialize, FromRow)]
+struct CategoryRow {
+    address_id: i64,
+    category: String,
+    /// TeslaMate's address name (as `AliasRow::original_name`)
+    original_name: Option<String>,
+    updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CategoryBody { category: String }
+
+fn category_select() -> String {
+    format!(
+        r#"SELECT pc.address_id::int8 AS address_id, pc.category,
+             COALESCE(a.name, NULLIF(CONCAT_WS(' ', a.road, a.house_number), ''), a.display_name) AS original_name,
+             to_char(pc.updated_at AT TIME ZONE 'UTC', '{TS}') AS updated_at
+           FROM drivelens.address_categories pc LEFT JOIN addresses a ON a.id = pc.address_id"#
+    )
+}
+
+const CATEGORIES_MISSING: &str = "place category table drivelens.address_categories is missing or not writable; run deploy/setup.sql and restart the API (see docs/install.md)";
+
+async fn list_categories(State(s): State<AppState>) -> Result<Response, ApiError> {
+    if !categories_ok(&s, "SELECT").await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, CATEGORIES_MISSING)); }
+    let rows = sqlx::query_as::<_, CategoryRow>(&format!("{} ORDER BY pc.address_id", category_select()))
+        .fetch_all(&s.db).await?;
+    Ok(Json(rows).into_response())
+}
+
+async fn put_category(State(s): State<AppState>, Path(id): Path<i64>, Json(b): Json<CategoryBody>) -> Result<Response, ApiError> {
+    if !categories_ok(&s, ALIAS_PRIVS).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, CATEGORIES_MISSING)); }
+    let cat = b.category.trim();
+    if !CATEGORIES.contains(&cat) { return Ok(bad(StatusCode::BAD_REQUEST, "category must be home, supercharger or other")); }
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM addresses WHERE id = $1").bind(id).fetch_optional(&s.db).await?;
+    if exists.is_none() { return Ok(bad(StatusCode::NOT_FOUND, "address not found")); }
+    sqlx::query(
+        "INSERT INTO drivelens.address_categories (address_id, category, updated_at) VALUES ($1, $2, now())
+         ON CONFLICT (address_id) DO UPDATE SET category = EXCLUDED.category, updated_at = now()",
+    ).bind(id as i32).bind(cat).execute(&s.db).await?;
+    let row = sqlx::query_as::<_, CategoryRow>(&format!("{} WHERE pc.address_id = $1", category_select()))
+        .bind(id as i32).fetch_one(&s.db).await?;
+    Ok(Json(row).into_response())
+}
+
+async fn delete_category(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    // as delete_alias: an id outside i32 matches no address (checked before the table probe)
+    let Ok(id) = i32::try_from(id) else { return Ok(bad(StatusCode::NOT_FOUND, "no category")) };
+    if !categories_ok(&s, ALIAS_PRIVS).await? { return Ok(bad(StatusCode::SERVICE_UNAVAILABLE, CATEGORIES_MISSING)); }
+    let r = sqlx::query("DELETE FROM drivelens.address_categories WHERE address_id = $1").bind(id).execute(&s.db).await?;
+    Ok(if r.rows_affected() == 0 { bad(StatusCode::NOT_FOUND, "no category") } else { StatusCode::NO_CONTENT.into_response() })
+}
+
 #[derive(Deserialize)]
 struct CostBody { amount: f64, currency: String, note: Option<String> }
 
@@ -661,6 +739,15 @@ async fn migrate(db: &PgPool) -> anyhow::Result<()> {
                 updated_at timestamptz NOT NULL DEFAULT now())",
         ).execute(db).await { tracing::warn!("place aliases disabled: cannot create drivelens.address_aliases ({e}); {SETUP_HINT}"); }
     }
+    let exists: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.address_categories')::text").fetch_one(db).await?;
+    if exists.is_none() {
+        if let Err(e) = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS drivelens.address_categories (
+                address_id integer PRIMARY KEY REFERENCES public.addresses(id) ON DELETE CASCADE,
+                category text NOT NULL CHECK (category IN ('home', 'supercharger', 'other')),
+                updated_at timestamptz NOT NULL DEFAULT now())",
+        ).execute(db).await { tracing::warn!("place categories disabled: cannot create drivelens.address_categories ({e}); {SETUP_HINT}"); }
+    }
     let has: Option<String> = sqlx::query_scalar("SELECT to_regclass('drivelens.charge_costs')::text").fetch_one(db).await?;
     if has.is_none() {
         if let Err(e) = sqlx::query(
@@ -685,6 +772,7 @@ async fn log_features(s: &AppState) {
         .fetch_one(&s.db).await.unwrap_or(false);
     if !teslamate { tracing::error!("cannot read TeslaMate tables (public.drives); {SETUP_HINT}"); }
     let f = [("teslamate read", teslamate), ("place aliases", aliases_ok(s, ALIAS_PRIVS).await.unwrap_or(false)),
+        ("place categories", categories_ok(s, ALIAS_PRIVS).await.unwrap_or(false)),
         ("manual costs", costs_ok(s).await.unwrap_or(false)), ("journeys", journey::tables_ok(s).await.unwrap_or(false)),
         ("suggestion dismissal", journey::dismiss_ok(s).await.unwrap_or(false)),
         ("journey cover", phase2::cover_ok(s).await.unwrap_or(false)), ("weather cache", phase2::weather_ok(s).await.unwrap_or(false)),
@@ -842,7 +930,7 @@ mod auth_tests {
     /// drive / charge / address selects (journey detail, charge cost, place alias) and get_charge. Idempotent:
     /// existing tables (e.g. testdata/schema.sql) are left alone, and the seed rows (TM_SEED, obviously fictional) are
     /// only added when no usable row exists. Test databases only — DriveLens itself never writes to these tables.
-    const TM_TABLES: [&str; 7] = [
+    const TM_TABLES: [&str; 8] = [
         "CREATE TABLE IF NOT EXISTS public.cars (id smallserial PRIMARY KEY, name text, model varchar(255), marketing_name varchar(255),
             vin text, efficiency double precision, display_priority smallint NOT NULL DEFAULT 1)",
         "CREATE TABLE IF NOT EXISTS public.addresses (id serial PRIMARY KEY, display_name varchar(512), name varchar(255),
@@ -865,6 +953,8 @@ mod auth_tests {
             charge_energy_added numeric(8,2) NOT NULL, charger_actual_current smallint, charger_phases smallint,
             charger_power smallint NOT NULL, charger_voltage smallint, fast_charger_present boolean,
             ideal_battery_range_km numeric(6,2) NOT NULL, charging_process_id int NOT NULL REFERENCES public.charging_processes(id))",
+        // read by the report's charge classification (report::charges_sql); also added to test tables made by older fixtures
+        "ALTER TABLE public.charges ADD COLUMN IF NOT EXISTS fast_charger_brand varchar(255), ADD COLUMN IF NOT EXISTS fast_charger_type varchar(255)",
     ];
     const TM_SEED: [&str; 6] = [
         "INSERT INTO public.cars (name, model, efficiency) SELECT 'Test Car', '3', 0.15 WHERE NOT EXISTS (SELECT 1 FROM public.cars)",
@@ -979,7 +1069,7 @@ mod auth_tests {
             ("DELETE", "/api/journeys/1/cover"), ("GET", "/api/journeys/1/weather"), ("GET", "/api/journeys/1/speed-bands"), ("GET", "/api/drives/1"),
             ("GET", "/api/drives/1/path"), ("GET", "/api/push/key"), ("POST", "/api/push/subscription"), ("POST", "/api/push/subscription/status"),
             ("POST", "/api/push/unsubscribe"), ("POST", "/api/push/test"), ("GET", "/api/addresses/aliases"), ("PUT", "/api/addresses/1/alias"),
-            ("DELETE", "/api/addresses/1/alias"), ("GET", "/api/auth/me"), ("GET", "/api/auth/devices"), ("POST", "/api/auth/devices"),
+            ("DELETE", "/api/addresses/1/alias"), ("GET", "/api/addresses/categories"), ("PUT", "/api/addresses/1/category"), ("DELETE", "/api/addresses/1/category"), ("GET", "/api/auth/me"), ("GET", "/api/auth/devices"), ("POST", "/api/auth/devices"),
             ("DELETE", "/api/auth/devices?except=current"), ("PATCH", "/api/auth/devices/current"), ("DELETE", "/api/auth/devices/current"),
             ("PATCH", "/api/auth/devices/3"), ("DELETE", "/api/auth/devices/3"), ("POST", "/api/auth/pairings")];
         for (i, (m, p)) in routes.iter().enumerate() {
@@ -1003,7 +1093,7 @@ mod auth_tests {
         let res = app.oneshot(axum::http::Request::builder().uri("/health").body(axum::body::Body::empty()).unwrap()).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":21"));
+        assert!(String::from_utf8_lossy(&body).contains("\"api_level\":22"));
     }
 
     /// GET /api/auth/me without device auth: owner, device_auth false, mode full.
@@ -1030,6 +1120,8 @@ mod auth_tests {
         for id in [4294967297i64, -4294967295, i64::MAX] {
             let (st, v) = send(&app, "DELETE", &format!("/api/addresses/{id}/alias"), Some(&key), None).await;
             assert_eq!((st, v), (StatusCode::NOT_FOUND, serde_json::json!({"error": "no alias"})), "alias {id}");
+            let (st, v) = send(&app, "DELETE", &format!("/api/addresses/{id}/category"), Some(&key), None).await;
+            assert_eq!((st, v), (StatusCode::NOT_FOUND, serde_json::json!({"error": "no category"})), "category {id}");
             let (st, v) = send(&app, "DELETE", &format!("/api/charges/{id}/cost"), Some(&key), None).await;
             assert_eq!((st, v), (StatusCode::NOT_FOUND, serde_json::json!({"error": "charge not found"})), "cost {id}");
         }
@@ -1058,6 +1150,140 @@ mod auth_tests {
         let (_, list) = send(&app, "GET", "/api/addresses/aliases", Some(key), None).await;
         assert!(list.as_array().unwrap().iter().any(|a| a["address_id"] == addr), "alias kept: {list}");
         assert_eq!(send(&app, "DELETE", &format!("/api/addresses/{addr}/alias"), Some(key), None).await.0, StatusCode::NO_CONTENT);
+    }
+
+    /// Report split counts, trend kWh and charging-cost split counts (home, supercharger, other) of `car` for the current UTC month.
+    async fn charge_kinds(app: &Router, key: &str, car: i64, month: &str) -> ([i64; 3], [f64; 3], [i64; 3]) {
+        let (st, r) = send(app, "GET", &format!("/api/cars/{car}/report?month={month}&tz=UTC"), Some(key), None).await;
+        assert_eq!(st, StatusCode::OK, "{r}");
+        let (st, t) = send(app, "GET", &format!("/api/cars/{car}/trends?month={month}&tz=UTC"), Some(key), None).await;
+        assert_eq!(st, StatusCode::OK, "{t}");
+        let (st, c) = send(app, "GET", &format!("/api/cars/{car}/charging-costs?months=1&tz=UTC"), Some(key), None).await;
+        assert_eq!(st, StatusCode::OK, "{c}");
+        let count = |v: &serde_json::Value, k: &str| v.as_array().unwrap().iter().find(|b| b["kind"] == k).unwrap()["count"].as_i64().unwrap();
+        let m = t["months"].as_array().unwrap().iter().find(|m| m["month"] == month).unwrap();
+        let ks = ["home", "supercharger", "other"];
+        (ks.map(|k| count(&r["split"], k)), ks.map(|k| m[format!("{k}_kwh")].as_f64().unwrap()), ks.map(|k| count(&c["split"], k)))
+    }
+
+    /// Needs DRIVELENS_TEST_DATABASE_URL (see db_device_flow). Issue #84 (api-insights INS-046 – INS-049, api-records
+    /// REC-097 – REC-099 / REC-110, api-storage STOR-072): a per-place category wins over the automatic charge type in the monthly report, trends and
+    /// charging cost stats; clearing it restores the automatic type; unknown values are rejected; without the table
+    /// (privilege revoked) classification stays automatic and the category endpoints answer 503.
+    #[tokio::test]
+    async fn db_place_category() {
+        let Ok(url) = std::env::var("DRIVELENS_TEST_DATABASE_URL") else { eprintln!("db_place_category skipped: DRIVELENS_TEST_DATABASE_URL is not set"); return };
+        let db = test_db(&url).await;
+        let ex = |q: &'static str| { let db = db.clone(); async move { sqlx::query(q).execute(&db).await.unwrap_or_else(|e| panic!("{e}\n{q}")); } };
+        // left over from an earlier run that failed half-way
+        ex("GRANT ALL ON drivelens.address_categories TO CURRENT_USER").await;
+        ex("DELETE FROM public.charges WHERE charging_process_id IN (SELECT cp.id FROM public.charging_processes cp JOIN public.cars c ON c.id = cp.car_id WHERE c.name = 'Category Test Car')").await;
+        ex("DELETE FROM public.charging_processes WHERE car_id IN (SELECT id FROM public.cars WHERE name = 'Category Test Car')").await;
+        ex("DELETE FROM public.positions WHERE car_id IN (SELECT id FROM public.cars WHERE name = 'Category Test Car')").await;
+        ex("DELETE FROM public.cars WHERE name = 'Category Test Car'").await;
+        ex("DELETE FROM public.addresses WHERE display_name LIKE 'Category Test %'").await;
+
+        // own car and places; sessions early in the current UTC month, so report, trends and the 1-month cost window see them.
+        // H: two AC sessions (inferred home → home), B: one AC session (→ other), A: one DC session whose
+        // brand is '<invalid>' at a place without a Supercharger name (→ other).
+        let car: i64 = sqlx::query_scalar("INSERT INTO public.cars (name, model, efficiency) VALUES ('Category Test Car', 'Y', 0.15) RETURNING id::int8")
+            .fetch_one(&db).await.unwrap();
+        let mut addr = std::collections::HashMap::new();
+        for p in ["H", "B", "A"] {
+            let id: i64 = sqlx::query_scalar("INSERT INTO public.addresses (display_name, name, city, country) VALUES ('Category Test ' || $1, 'Place ' || $1, 'Testville', 'Testland') RETURNING id::int8")
+                .bind(p).fetch_one(&db).await.unwrap();
+            addr.insert(p, id);
+        }
+        let pos: i32 = sqlx::query_scalar("INSERT INTO public.positions (date, latitude, longitude, battery_level, car_id)
+            VALUES (date_trunc('month', now() AT TIME ZONE 'UTC'), 0.0002, 0.0002, 50, $1) RETURNING id").bind(car as i16).fetch_one(&db).await.unwrap();
+        let mut ses = std::collections::HashMap::new();
+        for (i, (p, kwh, min, cost)) in [("H", 10.0, 60, 100.0), ("H", 10.0, 60, 100.0), ("B", 12.0, 60, 200.0), ("A", 30.0, 30, 900.0)].into_iter().enumerate() {
+            let id: i64 = sqlx::query_scalar("INSERT INTO public.charging_processes (start_date, end_date, charge_energy_added, duration_min, car_id, position_id, address_id, cost)
+                SELECT t, t + make_interval(mins => $3), $2, $3, $4, $5, $6, $7
+                FROM (SELECT date_trunc('month', now() AT TIME ZONE 'UTC') + make_interval(hours => $1) AS t) x RETURNING id::int8")
+                .bind(2 + 2 * i as i32).bind(kwh).bind(min).bind(car as i16).bind(pos).bind(addr[p] as i32).bind(cost).fetch_one(&db).await.unwrap();
+            ses.insert(p, id);
+        }
+        sqlx::query("INSERT INTO public.charges (date, battery_level, charge_energy_added, charger_power, ideal_battery_range_km, charging_process_id,
+                fast_charger_present, fast_charger_brand, fast_charger_type)
+            SELECT start_date + interval '10 minutes', 60, 15, 60, 300, id, true, '<invalid>', '<invalid>' FROM public.charging_processes WHERE id = $1")
+            .bind(ses["A"] as i32).execute(&db).await.unwrap();
+
+        let key = "test-owner-key-category-0123456789abcdef";
+        let app = router(test_state(db.clone(), auth::AuthState::init(db.clone(), key, auth::OwnerKeyMode::Full).await));
+        let month: String = sqlx::query_scalar("SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM')").fetch_one(&db).await.unwrap();
+        let auto = ([2, 0, 2], [20.0, 0.0, 42.0], [2, 0, 2]);
+        assert_eq!(charge_kinds(&app, key, car, &month).await, auto, "automatic classification");
+        let detail = |p: &'static str| { let app = app.clone(); let id = ses[p]; async move {
+            let (st, c) = send(&app, "GET", &format!("/api/charges/{id}"), Some(key), None).await;
+            assert_eq!(st, StatusCode::OK, "{c}");
+            (c["category"].as_str().map(String::from), c["charge_kind"].as_str().map(String::from))
+        } };
+        assert_eq!(detail("A").await, (None, Some("other".into())));
+        assert_eq!(detail("H").await, (None, Some("home".into())));
+        let put = |p: &'static str, cat: &'static str| { let app = app.clone(); let a = addr[p]; async move {
+            send(&app, "PUT", &format!("/api/addresses/{a}/category"), Some(key), Some(serde_json::json!({"category": cat}))).await
+        } };
+        let del = |p: &'static str| { let app = app.clone(); let a = addr[p]; async move {
+            send(&app, "DELETE", &format!("/api/addresses/{a}/category"), Some(key), None).await
+        } };
+
+        // each kind wins over the automatic type: DC 'other' → supercharger, AC 'other' → home, inferred home → other
+        let (st, v) = put("A", "supercharger").await;
+        assert_eq!((st, v["address_id"].as_i64(), v["category"].as_str(), v["original_name"].as_str()),
+            (StatusCode::OK, Some(addr["A"]), Some("supercharger"), Some("Place A")), "{v}");
+        assert_eq!(charge_kinds(&app, key, car, &month).await, ([2, 1, 1], [20.0, 30.0, 12.0], [2, 1, 1]));
+        assert_eq!(put("B", " home ").await.0, StatusCode::OK);
+        assert_eq!(charge_kinds(&app, key, car, &month).await, ([3, 1, 0], [32.0, 30.0, 0.0], [3, 1, 0]));
+        assert_eq!(put("H", "other").await.0, StatusCode::OK);
+        assert_eq!(charge_kinds(&app, key, car, &month).await, ([1, 1, 2], [12.0, 30.0, 20.0], [1, 1, 2]));
+        assert_eq!(detail("A").await, (Some("supercharger".into()), Some("supercharger".into())));
+        assert_eq!(detail("H").await, (Some("other".into()), Some("other".into())));
+        let (st, list) = send(&app, "GET", "/api/addresses/categories", Some(key), None).await;
+        assert_eq!(st, StatusCode::OK);
+        let mine: Vec<_> = list.as_array().unwrap().iter().filter(|r| addr.values().any(|a| r["address_id"] == *a)).collect();
+        assert_eq!(mine.len(), 3, "{list}");
+        assert!(mine.iter().all(|r| r["updated_at"].is_string()));
+
+        // validation: unknown category, unknown address
+        assert_eq!(put("A", "fast").await, (StatusCode::BAD_REQUEST, serde_json::json!({"error": "category must be home, supercharger or other"})));
+        assert_eq!(put("A", "").await.0, StatusCode::BAD_REQUEST);
+        let (st, v) = send(&app, "PUT", "/api/addresses/2147483000/category", Some(key), Some(serde_json::json!({"category": "home"}))).await;
+        assert_eq!((st, v), (StatusCode::NOT_FOUND, serde_json::json!({"error": "address not found"})));
+
+        // clearing restores the automatic type
+        for p in ["A", "B", "H"] { assert_eq!(del(p).await.0, StatusCode::NO_CONTENT, "{p}"); }
+        assert_eq!(del("A").await, (StatusCode::NOT_FOUND, serde_json::json!({"error": "no category"})));
+        assert_eq!(charge_kinds(&app, key, car, &month).await, auto, "cleared");
+        assert_eq!(detail("A").await, (None, Some("other".into())));
+
+        // degradation: table not readable → automatic classification, charge detail without category, endpoints 503
+        // (a superuser keeps every privilege, so this part needs a normal role like drivelens_ro)
+        let superuser: bool = sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname = current_user").fetch_one(&db).await.unwrap();
+        assert_eq!(put("A", "supercharger").await.0, StatusCode::OK);
+        if superuser {
+            eprintln!("db_place_category: degradation part skipped (superuser)");
+        } else {
+            ex("REVOKE ALL ON drivelens.address_categories FROM CURRENT_USER").await;
+            assert_eq!(charge_kinds(&app, key, car, &month).await, auto, "override ignored without the table");
+            assert_eq!(detail("A").await, (None, Some("other".into())));
+            let off = |st: StatusCode, v: serde_json::Value| st == StatusCode::SERVICE_UNAVAILABLE && v["error"] == CATEGORIES_MISSING;
+            let (st, v) = send(&app, "GET", "/api/addresses/categories", Some(key), None).await;
+            assert!(off(st, v.clone()), "{st} {v}");
+            let (st, v) = put("B", "home").await;
+            assert!(off(st, v.clone()), "{st} {v}");
+            let (st, v) = del("A").await;
+            assert!(off(st, v.clone()), "{st} {v}");
+            ex("GRANT ALL ON drivelens.address_categories TO CURRENT_USER").await;
+        }
+        assert_eq!(charge_kinds(&app, key, car, &month).await.0, [2, 1, 1], "override back with the table");
+
+        assert_eq!(del("A").await.0, StatusCode::NO_CONTENT);
+        ex("DELETE FROM public.charges WHERE charging_process_id IN (SELECT cp.id FROM public.charging_processes cp JOIN public.cars c ON c.id = cp.car_id WHERE c.name = 'Category Test Car')").await;
+        ex("DELETE FROM public.charging_processes WHERE car_id IN (SELECT id FROM public.cars WHERE name = 'Category Test Car')").await;
+        ex("DELETE FROM public.positions WHERE car_id IN (SELECT id FROM public.cars WHERE name = 'Category Test Car')").await;
+        ex("DELETE FROM public.cars WHERE name = 'Category Test Car'").await;
+        ex("DELETE FROM public.addresses WHERE display_name LIKE 'Category Test %'").await;
     }
 
     /// Needs DRIVELENS_TEST_DATABASE_URL (see db_device_flow). api-journeys CB-1: PATCH `note: null` / "" clears the note,
@@ -1147,6 +1373,8 @@ fn router(state: AppState) -> Router {
         .route("/push/test", post(push::test))
         .route("/addresses/aliases", get(list_aliases))
         .route("/addresses/{id}/alias", put(put_alias).delete(delete_alias))
+        .route("/addresses/categories", get(list_categories))
+        .route("/addresses/{id}/category", put(put_category).delete(delete_category))
         .route("/auth/me", get(auth::me))
         .route("/auth/devices", get(auth::list).post(auth::exchange).delete(auth::revoke_others))
         .route("/auth/devices/current", patch(auth::rename_current).delete(auth::revoke_current))
