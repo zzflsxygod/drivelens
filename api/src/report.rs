@@ -3,6 +3,8 @@
 //! Read-only. Reads only drives / charging_processes (+ an indexed per-process probe of `charges`), never positions.
 //!
 //! Charge type rule (3 buckets):
+//! - A per-place override (drivelens.address_categories, set by the user for the session's address_id) wins over
+//!   every automatic rule below (issue #84). Without the table, classification is fully automatic.
 //! - 超充 (supercharger): a DC session (any `charges` row with `fast_charger_present`) that is a Tesla
 //!   Supercharger — any row with `fast_charger_brand` = "Tesla" (case-insensitive) or `fast_charger_type`
 //!   starting with "Tesla" (same signals TeslaMate uses for free-SuC cost / Grafana SuC panels), OR the
@@ -125,7 +127,7 @@ pub async fn car_report(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
 
     let al = alias_table(&s).await?;
     let drives_sql = drives_sql(al);
-    let charges_sql = charges_sql(cc_amount, &cc_cur, cc_join, al);
+    let charges_sql = charges_sql(cc_amount, &cc_cur, cc_join, al, category_table(&s).await?);
     let (drives, charges, first) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&drives_sql).bind(id).bind(&b.p0).bind(&b.m0).bind(&b.m1).bind(&tz).fetch_all(&s.db),
         sqlx::query_as::<_, ChargeRow>(&charges_sql).bind(id).bind(&b.p0).bind(&b.m0).bind(&b.m1).bind(&tz).fetch_all(&s.db),
@@ -209,7 +211,10 @@ pub(crate) fn drives_sql(al: &str) -> String { format!(
            WHERE d.car_id = $1 AND d.start_date >= $2::timestamp AND d.start_date < $4::timestamp AND d.end_date IS NOT NULL"#
     ) }
 // home_addr: most frequent AC-rate (< 22 kW average) charging location in the last 12 months — no charges scan needed.
-pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str, al: &str) -> String { format!(
+// `cat`: category-override relation from `category_table` (the override is only taken when it is a known kind, so
+// `kind` is always one of the three buckets). The single classification source for report, trends, cost stats,
+// year in review and the charge detail's `charge_kind`.
+pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str, al: &str, cat: &str) -> String { format!(
         r#"WITH home_addr AS (
              SELECT address_id FROM charging_processes
              WHERE car_id = $1 AND address_id IS NOT NULL AND start_date >= $4::timestamp - interval '12 months'
@@ -219,7 +224,8 @@ pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str, al: &str
              to_char((cp.start_date AT TIME ZONE 'UTC') AT TIME ZONE $5, 'YYYY-MM-DD') AS day,
              {PLACE} AS address, cp.charge_energy_added::float8 AS energy_kwh,
              {cc_amount}::float8 AS cost, {cc_cur} AS currency,
-             CASE WHEN fx.fast AND (fx.tesla_fc
+             CASE WHEN pc.category IN ('home', 'supercharger', 'other') THEN pc.category
+                  WHEN fx.fast AND (fx.tesla_fc
                        OR CONCAT_WS(' ', al.name, g.name, a.name, a.display_name) ~* '(supercharger|超充|スーパーチャージャー|tesla)') THEN 'supercharger'
                   WHEN NOT fx.fast AND (CONCAT_WS(' ', al.name, g.name) ~* '(home|自宅|家|うち|house)'
                        OR cp.address_id = (SELECT address_id FROM home_addr)) THEN 'home'
@@ -229,6 +235,7 @@ pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str, al: &str
            FROM charging_processes cp
            LEFT JOIN addresses a ON a.id = cp.address_id
            LEFT JOIN {al} al ON al.address_id = cp.address_id
+           LEFT JOIN {cat} pc ON pc.address_id = cp.address_id
            LEFT JOIN geofences g ON g.id = cp.geofence_id
            LEFT JOIN positions p ON p.id = cp.position_id
            {cc_join}
@@ -242,6 +249,31 @@ pub(crate) fn charges_sql(cc_amount: &str, cc_cur: &str, cc_join: &str, al: &str
                                FROM charges ch WHERE ch.charging_process_id = cp.id) fx
            WHERE cp.car_id = $1 AND cp.start_date >= $2::timestamp AND cp.start_date < $4::timestamp AND cp.end_date IS NOT NULL"#
     ) }
+
+/// Charge detail (api_level 22): the category override of the session's place and the session's effective charge
+/// type, from `charges_sql` over the session's UTC calendar month (home address as in the report for that month in
+/// UTC). Never fails the charge detail: on an error both are null and a warning is logged.
+pub(crate) async fn session_kind(s: &AppState, id: i64) -> (Option<String>, Option<String>) {
+    match session_kind_q(s, id).await {
+        Ok(v) => v,
+        Err(e) => { tracing::warn!("charge {id}: charge type unavailable ({:#})", e.0); (None, None) }
+    }
+}
+
+async fn session_kind_q(s: &AppState, id: i64) -> Result<(Option<String>, Option<String>), ApiError> {
+    let cat = category_table(s).await?;
+    let w: Option<(i64, String, String, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT cp.car_id::int8, to_char(date_trunc('month', cp.start_date), 'YYYY-MM-DD HH24:MI:SS'),
+                to_char(date_trunc('month', cp.start_date) + interval '1 month', 'YYYY-MM-DD HH24:MI:SS'), pc.category
+         FROM charging_processes cp LEFT JOIN {cat} pc ON pc.address_id = cp.address_id WHERE cp.id = $1"))
+        .bind(id).fetch_optional(&s.db).await?;
+    let Some((car, m0, m1, category)) = w else { return Ok((None, None)) };
+    // $1 car, $2 = $3 = month start, $4 month end, $5 tz; the outer filter keeps only this session
+    let sql = format!("SELECT x.kind FROM ({}) x WHERE x.id = $6", charges_sql("NULL", "NULL::text", "", alias_table(s).await?, cat));
+    let kind: Option<String> = sqlx::query_scalar(&sql)
+        .bind(car).bind(&m0).bind(&m0).bind(&m1).bind("UTC").bind(id).fetch_optional(&s.db).await?;
+    Ok((category.filter(|c| CATEGORIES.contains(&c.as_str())), kind))
+}
 
 // ---------------- 12-month trends (api_level 12) ----------------
 #[derive(Serialize, Default)]
@@ -271,7 +303,7 @@ pub async fn car_trends(State(s): State<AppState>, Path(id): Path<i64>, Query(p)
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
     let al = alias_table(&s).await?;
-    let (dsql, csql) = (drives_sql(al), charges_sql(cc_amount, &cc_cur, cc_join, al));
+    let (dsql, csql) = (drives_sql(al), charges_sql(cc_amount, &cc_cur, cc_join, al, category_table(&s).await?));
     let (drives, charges) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
         sqlx::query_as::<_, ChargeRow>(&csql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
@@ -476,7 +508,7 @@ pub async fn charging_costs(State(s): State<AppState>, Path(id): Path<i64>, Quer
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
     let al = alias_table(&s).await?;
-    let (dsql, csql) = (report::drives_sql(al), report::charges_sql(cc_amount, &cc_cur, cc_join, al));
+    let (dsql, csql) = (report::drives_sql(al), report::charges_sql(cc_amount, &cc_cur, cc_join, al, category_table(&s).await?));
     // drives_sql / charges_sql bind: $1 car, $2 from (prev for report), $3 cur0, $4 to, $5 tz
     // For a single window we set prev = cur0 = t0 so every row is "current".
     let (drives, charges) = tokio::try_join!(
@@ -797,7 +829,7 @@ pub async fn year_review(State(s): State<AppState>, Path(id): Path<i64>, Query(p
         ("COALESCE(cc.amount, cp.cost)", format!("COALESCE(cc.currency::text, {LOC_CURRENCY})"), "LEFT JOIN drivelens.charge_costs cc ON cc.charging_process_id = cp.id")
     } else { ("cp.cost", LOC_CURRENCY.to_string(), "") };
     let al = alias_table(&s).await?;
-    let (dsql, csql) = (drives_sql(al), charges_sql(cc_amount, &cc_cur, cc_join, al));
+    let (dsql, csql) = (drives_sql(al), charges_sql(cc_amount, &cc_cur, cc_join, al, category_table(&s).await?));
     // drives_sql binds: car, p0(=t0 for "previous" unused), m0, m1, tz — use t0 for both p0 and m0 so only year rows have cur=true; we ignore cur.
     let (drive_rows, charge_rows) = tokio::try_join!(
         sqlx::query_as::<_, DriveRow>(&dsql).bind(id).bind(&t0).bind(&t0).bind(&t1).bind(&tz).fetch_all(&s.db),
@@ -1078,7 +1110,7 @@ mod tests {
 
     #[test]
     fn charges_sql_classifies_tesla_fc_before_name_fallback() {
-        let s = charges_sql("NULL", "NULL", "", "drivelens.address_aliases");
+        let s = charges_sql("NULL", "NULL", "", "drivelens.address_aliases", "drivelens.address_categories");
         assert!(s.contains("fx.tesla_fc"), "session probe must expose tesla_fc");
         assert!(
             s.contains("fast_charger_brand ~* '^tesla$'")
@@ -1093,5 +1125,17 @@ mod tests {
             s.contains("fx.fast AND (fx.tesla_fc"),
             "supercharger requires DC (fast) plus tesla_fc or name"
         );
+    }
+
+    /// Issue #84: a known per-place category is the first CASE branch (wins over every automatic rule); the
+    /// stand-in relation keeps the query valid when the table is missing.
+    #[test]
+    fn charges_sql_place_category_wins_first() {
+        let s = charges_sql("NULL", "NULL", "", "drivelens.address_aliases", "drivelens.address_categories");
+        assert!(s.contains("LEFT JOIN drivelens.address_categories pc ON pc.address_id = cp.address_id"));
+        let case = s.split("CASE WHEN").nth(1).unwrap();
+        assert!(case.trim_start().starts_with("pc.category IN ('home', 'supercharger', 'other') THEN pc.category"), "{case}");
+        let off = charges_sql("NULL", "NULL", "", "drivelens.address_aliases", super::NO_CATEGORIES);
+        assert!(off.contains(&format!("LEFT JOIN {} pc ON", super::NO_CATEGORIES)));
     }
 }
