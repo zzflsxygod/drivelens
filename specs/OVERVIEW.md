@@ -72,23 +72,23 @@ flowchart LR
 | # | Module | Prefix | Responsibility | Main sources | SHALL | TO CONFIRM (resolved) | CB |
 |---|--------|--------|----------------|--------------|------:|------:|---:|
 | 1 | [api-core](api-core/SPEC.md) | CORE | Process startup and env config, route table, CORS, JSON error format, `/health` and `/api/health`, `API_LEVEL`, startup feature log | `api/src/main.rs` | 39 | 9 | 4 |
-| 2 | [api-storage](api-storage/SPEC.md) | STOR | `drivelens_ro` role and privileges, the API's own schema migration, per-feature availability checks that turn a feature off instead of failing | `deploy/setup.sql`, `migrate()` and each module's migration hook | 46 | 7 | 6 |
+| 2 | [api-storage](api-storage/SPEC.md) | STOR | `drivelens_ro` role and privileges, the API's own schema migration, per-feature availability checks that turn a feature off instead of failing | `deploy/setup.sql`, `migrate()` and each module's migration hook | 49 | 7 | 6 |
 | 3 | [api-auth](api-auth/SPEC.md) | AUTH | Owner key, `dlt_` device tokens, pairing codes, full/read scopes, owner-key mode, failure limits, client-IP keys, auth middleware, `/api/auth/*` | `api/src/auth.rs` | 69 | 5 | 3 |
-| 4 | [api-records](api-records/SPEC.md) | REC | Cars, drives, charges (cursor paging, charging-power fallback, currency guess), drive paths, month totals, place aliases, manual costs | `api/src/main.rs` | 56 | 10 | 5 |
+| 4 | [api-records](api-records/SPEC.md) | REC | Cars, drives, charges (cursor paging, charging-power fallback, currency guess), drive paths, month totals, place aliases, manual costs | `api/src/main.rs` | 60 | 10 | 5 |
 | 5 | [api-summary](api-summary/SPEC.md) | SUM | Home data: car status, last activity, stats | `api/src/summary.rs` | 24 | 7 | 3 |
-| 6 | [api-insights](api-insights/SPEC.md) | INS | Monthly report, 12-month trends, footprint, battery health, vampire drain, charging costs | `api/src/report.rs`, `api/src/insights.rs` | 90 | 14 | 8 |
+| 6 | [api-insights](api-insights/SPEC.md) | INS | Monthly report, 12-month trends, footprint, battery health, vampire drain, charging costs | `api/src/report.rs`, `api/src/insights.rs` | 94 | 14 | 8 |
 | 7 | [api-journeys](api-journeys/SPEC.md) | JRN | Journeys and their drives, suggestions and dismissal, path, cover, weather, speed bands | `api/src/journey.rs`, `api/src/phase2.rs` | 81 | 16 | 7 |
 | 8 | [api-push](api-push/SPEC.md) | PUSH | VAPID keys, subscriptions, trip / monthly / vampire notifications, delivery limits | `api/src/push.rs` | 60 | 6 | 3 |
 | 9 | [app-shell](app-shell/SPEC.md) | SHELL | Startup order, tabs, car selection, theme, back stack, Settings screen layout, banners, feature gating, deep links | `app/src/main.ts`, `nav.ts`, `links.ts`, part of `platform.ts` | 87 | 5 | 4 |
 | 10 | [app-ui-kit](app-ui-kit/SPEC.md) | UI | Popovers, sheets, toolbar, back-to-top, overlay scrollbar, icons, design tokens, `DriveMap` | `ui.ts`, `sheets.ts`, `toolbar.ts`, `totop.ts`, `scrollbar.ts`, `icons.ts`, `palette.ts`, `map.ts`, `style.css` | 81 | 3 | 2 |
 | 11 | [app-connection](app-connection/SPEC.md) | CONN | Settings storage, `api()` request layer, setup wizard, server version and feature levels, URL privacy guard, device auth client, Settings › Devices, sign-out | `api.ts`, `setup.ts`, `version.ts`, `urlguard.ts`, `auth.ts`, `devices.ts` | 86 | 7 | 4 |
 | 12 | [app-home](app-home/SPEC.md) | HOME | Home screen and its snapshot cache | `app/src/main.ts` (`showHome`) | 41 | 6 | 4 |
-| 13 | [app-records](app-records/SPEC.md) | AREC | Infinite list, drive detail, Charges tab and charge detail, rename and cost dialogs, CSV / GPX export | `infinite.ts`, `export.ts`, `exportfmt.ts`, `app/src/main.ts` | 64 | 8 | 4 |
+| 13 | [app-records](app-records/SPEC.md) | AREC | Infinite list, drive detail, Charges tab and charge detail, rename and cost dialogs, CSV / GPX export | `infinite.ts`, `export.ts`, `exportfmt.ts`, `app/src/main.ts` | 66 | 8 | 4 |
 | 14 | [app-journeys](app-journeys/SPEC.md) | AJRN | Drives tab (drive list, select mode), journeys, suggestions, cover, share card, weather, speed bands | `journey.ts`, `journey2.ts` | 80 | 9 | 4 |
 | 15 | [app-insights](app-insights/SPEC.md) | AINS | Report page, footprint, trends, battery page, Home battery / vampire / charging-cost cards | `report.ts`, `insights.ts`, part of `main.ts` | 65 | 11 | 5 |
 | 16 | [app-notifications](app-notifications/SPEC.md) | NOTIF | Notification settings and the service worker's push and click handling | `notify.ts`, `swSource` in `vite.config.ts` | 41 | 6 | 3 |
 | 17 | [app-i18n](app-i18n/SPEC.md) | I18N | zh/en/ja strings, formatting, language choice, `check-i18n` build check | `i18n.ts`, `locales/*.ts`, `scripts/check-i18n.mjs` | 40 | 8 | 2 |
-| 18 | [app-demo](app-demo/SPEC.md) | DEMO | Demo mode: fixed fictional dataset, in-browser mock API, request interception, separate storage keys | `demo.ts`, `demo/*` | 75 | 10 | 5 |
+| 18 | [app-demo](app-demo/SPEC.md) | DEMO | Demo mode: fixed fictional dataset, in-browser mock API, request interception, separate storage keys | `demo.ts`, `demo/*` | 76 | 10 | 5 |
 | 19 | [app-platforms](app-platforms/SPEC.md) | PLAT | PWA (service worker, manifest, install, update) and Tauri shells (CSP, Android bridge) | `pwa.ts`, `platform.ts`, `vite.config.ts`, `src-tauri/**` | 52 | 5 | 2 |
 | 20 | [ops-delivery](ops-delivery/SPEC.md) | OPS | Docker image, compose, CI, release scripts, license checks, test fixtures | `api/Dockerfile`, `deploy/`, `.github/`, `scripts/`, `testdata/` | 58 | 9 | 5 |
 | | **Total** | | | | **1223** | **161** | **83** |
@@ -236,6 +236,7 @@ The server reports one integer `api_level` on `/health`. The app turns individua
 | 19 | v0.16.0 | battery trend rates / projections / home sparkline | `batteryTrend` |
 | 20 | v0.16.0 | year in review (annual totals, highlights, YoY) | `yearReview` |
 | 21 | v0.16.0 | TPMS history chart (bucketed pressures) | `tpmsHistory` |
+| 22 | unreleased (LEVEL_VERSION says 0.17.0) | per-place charging category override (`/api/addresses/categories`, `/api/addresses/{id}/category`, charge detail `category` / `charge_kind`; issue #84) | `placeCategory` |
 
 `tmHealth` is declared but no app code reads it; the app detects the TeslaMate method from the `tm` field of `/battery` (see app-insights). (src: app/src/version.ts:10)
 

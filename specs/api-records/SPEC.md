@@ -63,6 +63,8 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 | GET | `/api/cars/{id}/months` | Per-month totals in a time zone |
 | GET | `/api/addresses/aliases` | All place aliases |
 | PUT / DELETE | `/api/addresses/{id}/alias` | Set / remove a place alias |
+| GET | `/api/addresses/categories` | All per-place charging categories (API level 22) |
+| PUT / DELETE | `/api/addresses/{id}/category` | Set / remove a place's charging category (API level 22) |
 
 (src: api/src/main.rs:877, 886-890, 901-902, 908-909). All require authentication (test: api/src/main.rs auth_tests::only_pair_is_public).
 
@@ -118,7 +120,7 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 
 ### 3.7 Single charge and charging curve (`GET /api/charges/{id}`)
 
-- **REC-070** When `GET /api/charges/{id}` names an existing session, the system SHALL return the REC-051 fields plus `points`: the session's TeslaMate `charges` rows ordered by time, each with `date`, `battery_level`, `charge_energy_added`, `charger_power`, `charger_voltage`, `charger_actual_current`, `charger_phases`, `fast_charger_present`, `power_kw`, `power_source`. (src: api/src/main.rs:164-183, 217-222, 385-401)
+- **REC-070** When `GET /api/charges/{id}` names an existing session, the system SHALL return the REC-051 fields plus `points`: the session's TeslaMate `charges` rows ordered by time, each with `date`, `battery_level`, `charge_energy_added`, `charger_power`, `charger_voltage`, `charger_actual_current`, `charger_phases`, `fast_charger_present`, `power_kw`, `power_source`. (src: api/src/main.rs:164-183, 217-222, 385-401) Since Unreleased (API level 22) it also returns `category` and `charge_kind` (REC-099).
 - **REC-071** When `GET /api/charges/{id}` names no session, the system SHALL respond HTTP 404 with `{"error": "not found"}`. (src: api/src/main.rs:387-389)
 - **REC-072** When any point of a session has `charger_power > 0`, the system SHALL set every point's `power_kw` to its `charger_power` (negative values as 0) with `power_source` = `"reported"`. (src: api/src/main.rs:190-195; comment: api/src/main.rs:190)
 - **REC-073** When no point reports `charger_power > 0`, the system SHALL compute `power_kw` per point as `charger_voltage × charger_actual_current × phases / 1000` with `power_source` = `"voltage_current"` if `fast_charger_present` is not true, voltage > 50 and current > 0; `phases` is `charger_phases` when it is 1–3, else 1. (src: api/src/main.rs:198-201; comment: api/src/main.rs:185-188)
@@ -145,6 +147,14 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 - **REC-096** When `DELETE /api/addresses/{id}/alias` is called with an `id` outside the 32-bit integer range, the system SHALL respond HTTP 404 with `{"error": "no alias"}` and delete nothing (the id is never narrowed onto another address). (src: `api/src/main.rs` `delete_alias`; test: `api/src/main.rs` `delete_out_of_range_id_is_404`, `db_delete_out_of_range_keeps_other_rows`)
 - **REC-109** When `drivelens.address_aliases` is not readable, the system SHALL list drives and charges without aliases (place name from geofence or TeslaMate address, `alias` fields `null`) instead of failing, and the alias endpoints SHALL answer HTTP 503 with the setup hint: `GET /api/addresses/aliases` when the table is not readable, `PUT` / `DELETE /api/addresses/{id}/alias` when it is not writable. Details in api-storage STOR-069. (src: `api/src/main.rs` `alias_table`, `list_aliases`, `put_alias`, `delete_alias`; added in Unreleased, X-1 / X-5)
 
+### 3.9a Place charging category (API level 22, issue #84)
+
+- **REC-097** When `PUT /api/addresses/{id}/category` is called with `{"category": "<kind>"}`, the system SHALL trim the value and, when it is exactly `home`, `supercharger` or `other`, store it as the charging category of TeslaMate address `id` (creating or replacing it, `updated_at` = now) and return `{address_id, category, original_name, updated_at}` (`original_name` as in REC-090). Any other value SHALL be answered HTTP 400 `{"error": "category must be home, supercharger or other"}` and an unknown address HTTP 404 `{"error": "address not found"}`, in that order after the 503 check of REC-110. The category is independent of the alias: a place can have either, both or neither. It overrides the automatic charge type (api-insights INS-046). (src: `api/src/main.rs` `put_category`, `CATEGORIES`, `category_select`; test: `api/src/main.rs` auth_tests::db_place_category)
+- **REC-098** When `GET /api/addresses/categories` is called, the system SHALL return every stored category in the REC-097 shape, ordered by `address_id`. When `DELETE /api/addresses/{id}/category` removes a category, the system SHALL respond HTTP 204 (the place is classified automatically again); when there was none, or `id` is outside the 32-bit range, HTTP 404 `{"error": "no category"}` without touching any row (as REC-096). (src: `api/src/main.rs` `list_categories`, `delete_category`; test: `api/src/main.rs` auth_tests::db_place_category, auth_tests::delete_out_of_range_id_is_404)
+- **REC-099** When `GET /api/charges/{id}` returns a session, the system SHALL include `category` (the place's stored category, or `null` = automatic or no address) and `charge_kind` (`home` | `supercharger` | `other`: the type the report, trends and cost stats count this session as, from the same query, api-insights INS-049; `null` while the session is still running). For `charge_kind` the inferred home address is taken as in the report for the session's UTC calendar month. When the type cannot be computed the system SHALL return both as `null` and still answer 200. `GET /api/charges` (the list) does not carry these fields. (src: `api/src/main.rs` `ChargeDetail`, `get_charge`; src: `api/src/report.rs` `session_kind`; test: `api/src/main.rs` auth_tests::db_place_category)
+- **REC-110** When `drivelens.address_categories` is not readable, `GET /api/addresses/categories` SHALL answer HTTP 503 with the setup hint, and when it is not writable `PUT` / `DELETE /api/addresses/{id}/category` SHALL too; the charge detail then reports `category: null` and the automatic `charge_kind`. Details in api-storage STOR-072. (src: `api/src/main.rs` `categories_ok`, `CATEGORIES_MISSING`; test: `api/src/main.rs` auth_tests::db_place_category)
+- Read-only devices get HTTP 403 `read_only` for `PUT` / `DELETE` like every write (api-auth). (src: `api/src/auth.rs` `middleware`)
+
 ### 3.10 Manual charging costs
 
 - **REC-100** When `PUT /api/charges/{id}/cost` is called with `{"amount": <number>, "currency": "<code>", "note": <string|null>}` and the input is valid, the system SHALL store (create or replace) the manual cost for session `id` with `updated_at` = now and return the updated session in the REC-051 shape. (src: api/src/main.rs:524-544)
@@ -170,7 +180,7 @@ session. TeslaMate's tables are never modified; the overlay data lives in the se
 
 ## 5. Constraints
 
-- TeslaMate tables are read only; the module writes only `drivelens.address_aliases` and `drivelens.charge_costs`. (doc: README.md "How it works"; src: api/src/main.rs:497-500, 507, 537-542, 548)
+- TeslaMate tables are read only; the module writes only `drivelens.address_aliases`, `drivelens.address_categories` (since Unreleased) and `drivelens.charge_costs`. (doc: README.md "How it works"; src: api/src/main.rs:497-500, 507, 537-542, 548)
 - `limit` 1..500, default 50; `offset` ≥ 0. (src: api/src/main.rs:117-118)
 - Alias name: 1–200 characters after trimming. Cost amount: finite, 0 ≤ amount < 1e9, stored with 2 decimals. Currency: 3 ASCII letters, stored upper-case. Note: ≤ 500 characters after trimming. (src: api/src/main.rs:491-494, 526-534, 539)
 - Table-level constraints (alias `name` non-blank, `amount >= 0`, currency `^[A-Z]{3}$`, rows deleted with the TeslaMate address / charging process via `ON DELETE CASCADE`) are defined by `api-storage`. (src: api/src/main.rs:571-586)

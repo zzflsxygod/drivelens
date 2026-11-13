@@ -74,6 +74,7 @@ Everything except `/health` and `POST /api/auth/pair` needs `Authorization: Bear
 | `GET /api/cars/:id/footprint?month=&tz=`, `/battery?summary=&tz=&new_kwh=`, `/vampire?days=&tz=` (api_level ≥ 17), `/charging-costs?months=&tz=&currency=` (api_level ≥ 18) | Footprint, battery health (`tm` matches TeslaMate “Battery Health”), vampire drain (parked SoC/range loss), charging cost stats |
 | `PUT/DELETE /api/charges/:id/cost` | Manual charging cost |
 | `GET/PUT/DELETE /api/addresses/...` | Custom place names |
+| `GET /api/addresses/categories`, `PUT/DELETE /api/addresses/:id/category` (api_level ≥ 22) | Per-place charging category override (`home` \| `supercharger` \| `other`) used by the report, trends, cost stats and year in review; `GET /api/charges/:id` adds `category` and `charge_kind` |
 | `/api/journeys…` | Journeys (merged drives), suggestions, dismiss, cover, weather, speed bands |
 | `/api/push/…` | Web push: `key`, `subscription`, `subscription/status`, `unsubscribe`, `test` |
 | `GET /api/auth/me` | Current identity: `{kind:"owner"\|"device", device, device_auth, owner_key_mode}` |
