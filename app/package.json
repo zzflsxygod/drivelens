@@ -15,12 +15,12 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
-    "@tauri-apps/plugin-opener": "^2.7.2",
-    "maplibre-gl": "^6.16.0"
+    "@tauri-apps/plugin-opener": "^2.7.3",
+    "maplibre-gl": "^6.18.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
     "typescript": "^7.0.2",
-    "vite": "^8.3.6"
+    "vite": "^8.3.8"
   }
 }
