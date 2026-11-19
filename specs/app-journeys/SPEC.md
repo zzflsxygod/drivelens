@@ -23,6 +23,7 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
   "Add / remove drives" page, delete.
 - Cover from a photo or from the current map, share card rendering and the share/save/copy dialog.
 - Weather chips and table, speed-band view, elevation chart.
+- The journey summary card view and its PNG (`app/src/jcard.ts`, issue #90).
 - Local fallback storage of dismissed suggestions and the "restore dismissed suggestions" action.
 - Feature gating by server API level for these screens (levels 8, 9, 10, 11) and read-only hiding.
 
@@ -51,9 +52,9 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **Used by:**
   - `app-shell` — `showDrivesTab` for the Drives tab (`app/src/main.ts:189`), `showJourney`/`showJourneys` for deep links (`app/src/main.ts:947-948`), `restoreDismissed` from Settings (`app/src/main.ts:463`).
 - **Provided interface:**
-  - Exports: `showDrivesTab(ctx)`, `showDriveList(ctx, mode?, preselect?, restore?)`, `showJourneys(ctx)`, `showJourney(ctx, id)`, `restoreDismissed(ctx)`, type `Ctx`, `JourneyRow` (`app/src/journey.ts:15-35`, `:67`, `:72`, `:169`, `:253`, `:408`); `journey2.ts` helpers `loadCover`, `mapSnapshot`, `photoToCover`, `saveCover`, `resetCover`, `loadWeather`, `weatherChip`, `weatherTable`, `loadBands`, `bandsHTML`, `renderCard`, `shareDialog` (`app/src/journey2.ts:16-206`).
+  - Exports: `showDrivesTab(ctx)`, `showDriveList(ctx, mode?, preselect?, restore?)`, `showJourneys(ctx)`, `showJourney(ctx, id)`, `restoreDismissed(ctx)`, type `Ctx`, `JourneyRow` (`app/src/journey.ts:15-35`, `:67`, `:72`, `:169`, `:253`, `:408`); `journey2.ts` helpers `loadCover`, `mapSnapshot`, `photoToCover`, `saveCover`, `resetCover`, `loadWeather`, `weatherChip`, `weatherTable`, `loadBands`, `bandsHTML`, `renderCard`, `shareDialog` (`app/src/journey2.ts:16-206`), `canvasPng`, `canShareImage`, `saveImage`, `shareImage` (shared by the share dialog and the summary card); `jcard.ts` `showJourneyCard`, `journeyStops`, `capStops`.
   - Settings keys (in the app settings object): `journeyGap`, `speedColor`, `speedColorMax`, `suggestionsOff`, `suggestionsCollapsed`, `dismissedDrives` (`app/src/api.ts` Settings).
-  - Back-stack keys: `journey:<id>`, `jedit:<id>` (`app/src/journey.ts:254`, `:370`).
+  - Back-stack keys: `journey:<id>`, `jedit:<id>` (`app/src/journey.ts:254`, `:370`), `jcard:<id>` (`app/src/jcard.ts` `showJourneyCard`).
 
 ## 3. External behavior
 
@@ -167,7 +168,18 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **AJRN-141** When the Drives toolbar holds four buttons (month jump, search, export, Select) on a viewport ≤ 420 px wide, the system SHALL tighten the button gap to 6 px and the segment labels to 13 px with 6 px padding, so the toolbar stays on one row at 390 px. (src: `app/src/style.css` `.list-toolbar.tb-4`)
 - **AJRN-142** When a journey detail is shown, the system SHALL show an "Export GPX" download button first in the page header actions (also on read-only devices and below API level 11). Tapping it SHALL request `GET /api/drives/{id}/path` for each member drive in chronological order (by start time, then id; one request at a time) and write one GPX 1.1 track named after the journey, with one `<trkseg>` per drive that has points, in the format of AREC-126. It SHALL NOT use `/api/journeys/{id}/path` (downsampled, no per-point time). The file SHALL be named `<journey name>-YYYYMMDD.gpx` — the name with `\ / : * ? " < > |`, control characters and whitespace runs replaced by `_`, leading/trailing `.` / `_` removed, cut to 60 characters, and the local date of the journey start — or `drivelens-journey-<id>.gpx` when nothing of the name is left. (src: `app/src/journey.ts` `showJourney`; `app/src/export.ts` `journeyGpx`; `app/src/exportfmt.ts` `journeyGpxName`, `safeName`)
 
-### 3.16 Server error texts (mapped by `app-connection`)
+### 3.16 Journey summary card (issue #90; app only, no API level)
+- **AJRN-150** When a journey detail is shown, the system SHALL show a "Summary card" button in the page header actions after "Export GPX", on every API level that has journeys (≥ 8) and also on read-only devices. Tapping it SHALL open the card view with the back level `jcard:<id>`, whose back action reopens the journey detail. (src: `app/src/journey.ts` `showJourney` `#j-card`; `app/src/jcard.ts` `showJourneyCard`)
+- **AJRN-151** The card view SHALL be built only from the journey detail (`GET /api/journeys/{id}`) and the detail page's own `GET /api/journeys/{id}/path` request (the same promise, no second request); it SHALL NOT need a new endpoint, so demo mode shows it from the existing mocks. (src: `app/src/journey.ts` `pathP`; `app/src/jcard.ts` `showJourneyCard`)
+- **AJRN-152** The card SHALL show, top to bottom: the journey name; the date range "<first drive start> – <last drive end>" in local time (date and time; the date is not repeated when both ends are on the same day); a 4:3 route map; six totals; the stops; a "DriveLens" mark. (src: `app/src/jcard.ts` `model`, `dateRange`, `showJourneyCard`)
+- **AJRN-153** The card map SHALL use `DriveMap` with one single-colour line per member drive that has at least 2 path points, fitted to the bounds of all lines, with the start (first point) and end (last point) markers and no stop markers; without any track it SHALL show "No track data", and when the path request fails, the error. (src: `app/src/jcard.ts` `lines`, `showJourneyCard`; `app/src/map.ts` `DriveMap.fit`)
+- **AJRN-154** The totals SHALL be: distance (km, 1 decimal), driving time, energy used (kWh, 1 decimal), average efficiency (Wh/km, 0 decimals), the number of charging sessions during the journey, and the charging cost — the server summary's `charge_count` (every session, priced or not) and `costs` (the sum of the known costs per currency, joined with " + "; "—" when no session has a known cost). (src: `app/src/jcard.ts` `model`; `api-journeys` detail summary)
+- **AJRN-155** The stops SHALL list the places in visiting order: for each drive its start and end place (the place alias when set, else the address), consecutive repeats merged and unknown places skipped. With more than 8 places the card SHALL show the first 6, a "+<n> more" row and the last place (8 rows). The first place is marked green, the last red. (src: `app/src/jcard.ts` `journeyStops`, `capStops`, `MAX_STOPS`)
+- **AJRN-156** The card SHALL use the Telemetry tokens (flat card surface, 1px hairlines, accent, values in the monospace stack with units) and keep every text on one line, shortening it with "…", so nothing wraps at 390 px width. (src: `app/src/style.css` `.jcard`, `.jc-*`)
+- **AJRN-157** When the user taps "Save PNG", the system SHALL render the card on the device as a 1080 px wide portrait PNG in the current theme — the same layout at 3×: the live map snapshot with the start/end markers drawn at their projected positions (or, when no snapshot can be taken, the route drawn on a plain background), the totals, the stops and the mark, plus "© OpenFreeMap © OpenStreetMap" when map tiles were drawn — and save it as `DriveLens-<name>-summary.png` (name as in AJRN-104) the way AJRN-106 saves the share card. (src: `app/src/jcard.ts` `renderSummary`; `app/src/journey2.ts` `saveImage`)
+- **AJRN-158** When the device can share files (Android app, or a browser with `navigator.canShare`), the card view SHALL also show a share button that sends the same PNG to the platform share sheet as in AJRN-108. The PNG SHALL be pre-rendered once the map is idle and again after the map was moved, so a share tap does not lose the user activation the Web Share API needs. (src: `app/src/jcard.ts` `render`; `app/src/journey2.ts` `shareImage`, `canShareImage`)
+
+### 3.17 Server error texts (mapped by `app-connection`)
 - **AJRN-130** When the server answers `503` because the journey tables are missing, the system SHALL show "Journeys aren't enabled on the server: run deploy/setup.sql there and restart drivelens-api (see the install guide)"; for a missing cover column or weather table, "Covers / weather aren't enabled on the server: …". (src: `app/src/api.ts:82-85`; `app/src/locales/en.ts:135-136`)
 
 ## 4. Key design decisions
@@ -180,6 +192,7 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - **D-6 Native share/save on Android, web APIs elsewhere.** The Android app saves to `Pictures/DriveLens` via MediaStore and shares through the system sheet; browsers download, copy to the clipboard or use Web Share (comment: `app/src/journey2.ts:165`, `:169`, `:183`).
 - **D-7 Optimistic feature gating.** Features are hidden only when the server is known to be too old; unknown levels are treated as supported and 404s are handled where they occur (comment: `app/src/version.ts:51`).
 - **D-8 Read-only devices see no edit entry points.** Rather than failing on `403`, the UI hides create/edit/delete/cover/dismiss controls (comment: `app/src/journey.ts:30`; doc: `CHANGELOG.md` v1.2.0).
+- **D-9 Summary card is app-only and drawn on a canvas.** The card needs nothing the journey detail does not already load, so it adds no endpoint and no API level and works with every server that has journeys. The PNG is drawn with the canvas 2D API from the same model as the HTML card (not a DOM-to-image library): it reuses the share card's proven map snapshot and needs no new dependency (issue #90).
 
 ## 5. Constraints
 
@@ -190,6 +203,7 @@ devices can view everything but get no editing entry points (doc: `CHANGELOG.md`
 - Suggestion gap choices: 30, 60, 90, 120, 180, 240 minutes. (src: `app/src/main.ts:426`)
 - Map cover ≤ 1080 px wide (JPEG 0.82); photo cover long edge ≤ 1600 px, target ≤ ~500 KB, width ≥ 400 px when shrinking. (src: `app/src/journey2.ts:20`, `:37`, `:47-48`)
 - Share card: 1080×1350 PNG; file name part ≤ 40 characters. (src: `app/src/journey2.ts:113`; `app/src/journey.ts:469`)
+- Summary card: ≤ 8 stop rows; PNG 1080 px wide, height grows with the stop rows (always portrait). (src: `app/src/jcard.ts` `MAX_STOPS`, `renderSummary`)
 - Map snapshots need `preserveDrawingBuffer` on the map canvas. (comment: `app/src/journey2.ts:19`; src: `app/src/map.ts:82`)
 - Android save to Pictures needs Android 10+. (src: `app/src-tauri/gen/android/app/src/main/java/com/zzflsxygod/drivelens/MainActivity.kt:81-83`)
 

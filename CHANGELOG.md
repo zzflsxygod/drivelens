@@ -5,6 +5,7 @@ User-facing changes in DriveLens. "Server" means the drivelens-api Docker image;
 The API upgrades its own `drivelens` schema on start; no manual SQL is needed after the one-time `setup.sql`.
 
 ## [Unreleased]
+- **Journey summary card (#90):** a new button on a journey's page opens a portrait recap of the trip: name and dates, the route on a map with start and end, total distance, driving time, energy, average efficiency, the number of charging sessions and their known cost, and the places you stopped at in order (place names applied, long lists shortened to "+N more"). **Save PNG** saves the card as an image on your device; where the device can share files, a share button sends it to other apps. Works on read-only devices and in demo mode. No server update needed.
 
 ## v1.5.0 — 2026-11-13
 - **Charging type per place (#84):** when TeslaMate doesn't report the charger brand, a Supercharger visit at a place without "Supercharger" in its name was counted as "Other". You can now set the type yourself: on a charge's detail page, tap the place name and choose Automatic, Home, Supercharger or Other under **Charging type**. The choice applies to every charge at that place — past and future — in the monthly report, the 12-month trends, the charging cost stats and the year in review; choose Automatic to go back to the automatic detection. The dialog also shows what the current session is counted as. Renaming a place is no longer needed for this. Needs server update (below); with an older server the dialog only renames. Demo mode supports it too.
