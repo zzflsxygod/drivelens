@@ -163,12 +163,37 @@ export async function renderCard(d: CardData, dark: boolean): Promise<HTMLCanvas
   return c;
 }
 
+export const canvasPng = (canvas: HTMLCanvasElement) =>
+  new Promise<Blob>((ok, no) => canvas.toBlob(b => b ? ok(b) : no(new Error("toBlob failed")), "image/png"));
+/** Android app: system share sheet; browsers: Web Share with files. */
+export const canShareImage = () => canNativeShare() || typeof navigator.canShare === "function";
+
+/** Save a PNG on the device; returns the status text. Android: MediaStore → Pictures/DriveLens (Android 10+, older
+ *  versions fall back to the share sheet); browsers: download. */
+export async function saveImage(png: Blob, fileName: string): Promise<string> {
+  if (canNativeSave()) {
+    const r = await nativeSaveImage(png, fileName);
+    if (!r) return t("share.savedPictures", { f: fileName });
+    if (r !== "unsupported") return t("share.fail", { e: r });
+    const r2 = await nativeShareImage(png, fileName, t("share.title")); return r2 ? t("share.fail", { e: r2 }) : "";
+  }
+  downloadBlob(png, fileName); return t("share.saved", { f: fileName });
+}
+/** Share a PNG through the platform share sheet; returns the status text ("" on success or user cancel). */
+export async function shareImage(png: Blob, fileName: string): Promise<string> {
+  if (canNativeShare()) { const r = await nativeShareImage(png, fileName, t("share.title")); return r ? t("share.fail", { e: r }) : ""; }
+  try { const f = new File([png], fileName, { type: "image/png" });
+    if (!navigator.canShare({ files: [f] })) return t("share.noShare");
+    await navigator.share({ files: [f], title: fileName }); return ""; }
+  catch (e) { return (e as Error).name !== "AbortError" ? t("share.fail", { e: (e as Error).message }) : ""; }
+}
+
 /** Preview modal: 保存图片 (download) / 复制 (clipboard) / 分享 (Web Share when it supports files). */
 export function shareDialog(canvas: HTMLCanvasElement, fileName: string) {
   const dlg = document.createElement("div"); dlg.className = "modal";
   const url = canvas.toDataURL("image/png");
   const native = canNativeShare();   // Android app: system share sheet + save to Pictures
-  const canShare = native || typeof navigator.canShare === "function";
+  const canShare = canShareImage();
   const canCopy = !native && typeof ClipboardItem !== "undefined";
   dlg.innerHTML = `<div class="sheet share-sheet"><h3>${t("share.title")}</h3><img class="share-img" src="${url}" alt="${t("share.title")}">
     <div id="shmsg" class="muted"></div>
@@ -176,30 +201,16 @@ export function shareDialog(canvas: HTMLCanvasElement, fileName: string) {
       ${canShare ? `<button id="sh-share" class="ghost">${t("share.share")}</button>` : ""}<button id="sh-save" class="primary small">${t("share.save")}</button></div></div>`;
   document.body.appendChild(dlg);
   const msg = (s: string) => { dlg.querySelector("#shmsg")!.textContent = s; };
-  const blob = () => new Promise<Blob>((ok, no) => canvas.toBlob(b => b ? ok(b) : no(new Error("toBlob failed")), "image/png"));
+  const blob = () => canvasPng(canvas);
   const close = () => dlg.remove();
   dlg.onclick = e => { if (e.target === dlg) close(); };
   (dlg.querySelector("#sh-close") as HTMLElement).onclick = close;
-  (dlg.querySelector("#sh-save") as HTMLElement).onclick = async () => {
-    if (canNativeSave()) {   // Android: MediaStore → Pictures/DriveLens (Android 10+); older versions fall back to the share sheet
-      const r = await nativeSaveImage(await blob(), fileName);
-      if (!r) return msg(t("share.savedPictures", { f: fileName }));
-      if (r !== "unsupported") return msg(t("share.fail", { e: r }));
-      const r2 = await nativeShareImage(await blob(), fileName, t("share.title")); if (r2) msg(t("share.fail", { e: r2 })); return;
-    }
-    downloadBlob(await blob(), fileName); msg(t("share.saved", { f: fileName }));
-  };
+  (dlg.querySelector("#sh-save") as HTMLElement).onclick = async () => { const r = await saveImage(await blob(), fileName); if (r) msg(r); };
   const cp = dlg.querySelector<HTMLElement>("#sh-copy");
   if (cp) cp.onclick = async () => {
     try { await navigator.clipboard.write([new ClipboardItem({ "image/png": blob() })]); msg(t("share.copied")); }
     catch (e) { msg(t("share.copyFail", { e: (e as Error).message })); }
   };
   const sh = dlg.querySelector<HTMLElement>("#sh-share");
-  if (sh) sh.onclick = async () => {
-    if (native) { const r = await nativeShareImage(await blob(), fileName, t("share.title")); if (r) msg(t("share.fail", { e: r })); return; }
-    try { const f = new File([await blob()], fileName, { type: "image/png" });
-      if (!navigator.canShare({ files: [f] })) return msg(t("share.noShare"));
-      await navigator.share({ files: [f], title: fileName }); }
-    catch (e) { if ((e as Error).name !== "AbortError") msg(t("share.fail", { e: (e as Error).message })); }
-  };
+  if (sh) sh.onclick = async () => { const r = await shareImage(await blob(), fileName); if (r) msg(r); };
 }

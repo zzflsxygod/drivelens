@@ -12,6 +12,7 @@ import { t, fmtDateTime, fmtTime as fmtT, fmtDur, fmtDay } from "./i18n";
 import { focusField } from "./sheets";
 import { lacks } from "./version";
 import { canExportCsv, drivesCsv, journeyGpx, runExport } from "./export";
+import { showJourneyCard, type JPath } from "./jcard";
 
 export interface Ctx {
   view: HTMLElement;
@@ -31,18 +32,18 @@ export interface Ctx {
   /** false on a read-only device (device auth): no create / edit / delete / cover / dismiss entry points */
   canWrite(): boolean;
 }
-interface Money { currency: string; amount: number }
+export interface Money { currency: string; amount: number }
 export interface JourneyRow { id: number; car_id: number; name: string; note: string | null; start_date: string | null; end_date: string | null;
   start_address: string | null; end_address: string | null; drive_count: number; distance_km: number | null; duration_min: number | null; energy_kwh: number | null }
 interface Stop { after_drive_id: number; before_drive_id: number; start_date: string; end_date: string; duration_min: number;
   address: string | null; lat: number | null; lng: number | null; charge_ids: number[]; charged_kwh: number }
-interface Journey { id: number; car_id: number; name: string; note: string | null; has_cover?: boolean; drives: Drive[]; charges: Charge[]; stops: Stop[]; candidates: Drive[];
+export interface Journey { id: number; car_id: number; name: string; note: string | null; has_cover?: boolean; drives: Drive[]; charges: Charge[]; stops: Stop[]; candidates: Drive[];
   summary: { start_date: string | null; end_date: string | null; start_address: string | null; end_address: string | null; distance_km: number;
     driving_min: number; stop_min: number; elapsed_min: number; energy_used_kwh: number; charged_kwh: number; charge_count: number;
     costs: Money[]; efficiency_wh_km: number | null; speed_max: number | null } }
 interface Suggestion { drive_ids: number[]; name: string; start_date: string; end_date: string; start_address: string | null; end_address: string | null;
   distance_km: number; duration_min: number; charge_count: number }
-interface JPoint { drive_id: number; lat: number; lng: number; speed: number | null; elevation: number | null; km: number }
+export interface JPoint { drive_id: number; lat: number; lng: number; speed: number | null; elevation: number | null; km: number }
 
 const esc = (s: unknown) => String(s ?? "—").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const fmtDate = (iso: string | null) => fmtDateTime(iso);
@@ -366,6 +367,8 @@ export async function showJourney(ctx: Ctx, id: number) {
   try { j = await api<Journey>(`/api/journeys/${id}`); }
   catch (e) { v.innerHTML = `<button class="back">${t("common.back")}</button>${err(e)}`; (v.querySelector(".back") as HTMLElement).onclick = () => showJourneys(ctx); bindRetry(v, () => showJourney(ctx, id)); return; }
   const s = j.summary, self = () => showJourney(ctx, id);
+  const pathP = api<JPath>(`/api/journeys/${id}/path`);   // shared with the summary card
+  pathP.catch(() => { /* shown in the elevation section */ });
   const speedOn = loadSettings().speedColor ?? true;
   const p2 = ctx.journey2Available();
   // timeline: drives, stops (with charges inside) in time order
@@ -396,7 +399,8 @@ export async function showJourney(ctx: Ctx, id: number) {
   const pen = rw ? `<span class="pen" id="jedit" title="${t("j.editTitle")}">✎</span>` : "";
   const heroOn = p2 && !!j.has_cover;
   v.innerHTML = `<div class="jtop"><button class="back">${t("common.back")}</button><div class="jtop-r">
-      <button id="j-gpx" class="tb-btn" type="button" title="${t("export.gpx")}" aria-label="${t("export.gpx")}">${ICON.download}</button>${p2 ? `
+      <button id="j-gpx" class="tb-btn" type="button" title="${t("export.gpx")}" aria-label="${t("export.gpx")}">${ICON.download}</button>
+      <button id="j-card" class="tb-btn" type="button" title="${t("jc.open")}" aria-label="${t("jc.open")}">${ic("image")}</button>${p2 ? `
       <button id="j-share" class="icon-btn" title="${t("share.title")}" aria-label="${t("share.title")}">📤</button>
       ${rw ? `<button id="j-more" class="icon-btn" title="${t("j.more")}" aria-label="${t("j.more")}">⋯</button>
       <div id="j-menu" class="pop-menu" hidden><button data-act="photo">${t("j.photoCover")}</button><button data-act="setcover">${t("j.mapCover")}</button>${j.has_cover ? `<button data-act="rmcover">${t("j.rmCover")}</button>` : ""}</div>` : ""}` : ""}</div></div>
@@ -430,6 +434,7 @@ export async function showJourney(ctx: Ctx, id: number) {
   settleScroll();   // forward → top; back from drive-edit → restore journey scroll
   const gx = v.querySelector<HTMLButtonElement>("#j-gpx")!;
   gx.onclick = () => runExport(gx, v.querySelector<HTMLElement>("#x-msg"), journeyGpx(j));
+  (v.querySelector("#j-card") as HTMLElement).onclick = () => showJourneyCard(ctx, j, self, pathP);
   v.querySelectorAll<HTMLElement>("[data-drive]").forEach(el => el.onclick = () => ctx.showDrive(Number(el.dataset.drive), self));
   v.querySelectorAll<HTMLElement>("[data-charge]").forEach(el => el.onclick = () => ctx.showCharge(Number(el.dataset.charge), self));
   const edit = () => nameDialog({ title: t("j.edit"), name: j.name, note: j.note ?? "", ok: t("common.save"),
@@ -446,7 +451,7 @@ export async function showJourney(ctx: Ctx, id: number) {
 
   // map + elevation (path loaded separately; may be large)
   try {
-    const path = await api<{ points: JPoint[]; total_points: number; downsampled: boolean }>(`/api/journeys/${id}/path`);
+    const path = await pathP;
     if (!document.body.contains(v.querySelector("#j-elev"))) return;
     const byDrive = new Map<number, JPoint[]>();
     for (const p of path.points) { const a = byDrive.get(p.drive_id) ?? []; a.push(p); byDrive.set(p.drive_id, a); }
